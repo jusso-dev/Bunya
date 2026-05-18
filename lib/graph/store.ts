@@ -6,7 +6,6 @@ import {
   GraphDocument,
   GraphEdge,
   GraphNode,
-  ServiceType,
   emptyGraph,
 } from "./schema";
 
@@ -156,10 +155,4 @@ export const useGraphStore = create<GraphStore>(graphStoreInitializer);
 
 export const createGraphStore = () => createStore<GraphStore>(graphStoreInitializer);
 
-export function inferDefaultEdgeKind(sourceType: ServiceType, targetType: ServiceType): EdgeKind {
-  if (targetType === "keyVault") return "identity";
-  if (targetType === "storageAccount") return "data";
-  if (targetType === "logAnalytics") return "diagnostic";
-  if (sourceType === "subnet" || targetType === "subnet") return "network";
-  return "depends_on";
-}
+export { inferDefaultEdgeKind } from "@/lib/catalogue/services";
