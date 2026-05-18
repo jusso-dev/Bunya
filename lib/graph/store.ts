@@ -1,4 +1,5 @@
-import { create } from "zustand";
+import { create, type StateCreator } from "zustand";
+import { createStore } from "zustand/vanilla";
 import { ulid } from "ulid";
 import {
   EdgeKind,
@@ -43,7 +44,7 @@ function pushHistory(state: GraphStoreState): Pick<GraphStoreState, "history" | 
   return { history: next, future: [] };
 }
 
-export const useGraphStore = create<GraphStore>((set, get) => ({
+const graphStoreInitializer: StateCreator<GraphStore> = (set, get) => ({
   document: emptyGraph("bunya"),
   selectedNodeId: null,
   selectedEdgeId: null,
@@ -149,7 +150,11 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       history: [...state.history, state.document],
     });
   },
-}));
+});
+
+export const useGraphStore = create<GraphStore>(graphStoreInitializer);
+
+export const createGraphStore = () => createStore<GraphStore>(graphStoreInitializer);
 
 export function inferDefaultEdgeKind(sourceType: ServiceType, targetType: ServiceType): EdgeKind {
   if (targetType === "keyVault") return "identity";
