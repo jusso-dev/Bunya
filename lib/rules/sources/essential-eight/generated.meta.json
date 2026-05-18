@@ -1,0 +1,19 @@
+{
+  "source": "essential-eight",
+  "upstream": {
+    "name": "Essential Eight Maturity Model",
+    "publisher": "Australian Signals Directorate — Australian Cyber Security Centre (ACSC)",
+    "docs": "https://www.cyber.gov.au/resources-business-and-government/essential-cyber-security/essential-eight",
+    "license": "Commonwealth of Australia copyright; reproduced with attribution"
+  },
+  "pinned": {
+    "release": "ML-2023",
+    "fetched_at": "2026-05-18T00:00:00Z"
+  },
+  "generator": {
+    "version": "0.1.0",
+    "generated_at": "2026-05-18T00:00:00Z",
+    "notes": "All eight strategies re-encoded as RuleEntry, paraphrased in Bunya's own words. Strategies that can't be verified from an IaC graph are marked [advisory] with predicate () => false."
+  },
+  "rule_count": 8
+}

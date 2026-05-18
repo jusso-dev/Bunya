@@ -1,0 +1,19 @@
+{
+  "source": "ism",
+  "upstream": {
+    "name": "Australian Government Information Security Manual",
+    "publisher": "Australian Signals Directorate — Australian Cyber Security Centre (ACSC)",
+    "docs": "https://www.cyber.gov.au/resources-business-and-government/essential-cyber-security/ism",
+    "license": "Commonwealth of Australia copyright; reproduced with attribution"
+  },
+  "pinned": {
+    "release": "ISM-March-2024",
+    "fetched_at": "2026-05-18T00:00:00Z"
+  },
+  "generator": {
+    "version": "0.1.0",
+    "generated_at": "2026-05-18T00:00:00Z",
+    "notes": "Curated subset of ISM controls re-encoded as RuleEntry, paraphrased in Bunya's own words. Controls that cannot be verified at design time are marked [advisory] with predicate () => false."
+  },
+  "rule_count": 17
+}
