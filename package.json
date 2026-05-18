@@ -9,7 +9,10 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "rules:import": "tsx scripts/import-rules/run.ts",
+    "rules:coverage": "tsx scripts/generate-coverage.ts",
+    "rules:verify": "tsx scripts/import-rules/verify.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
@@ -36,6 +39,7 @@
     "eslint-config-next": "16.2.6",
     "jsdom": "^29.1.1",
     "tailwindcss": "^4",
+    "tsx": "^4.22.1",
     "typescript": "^5",
     "vite-tsconfig-paths": "^6.1.1",
     "vitest": "^4.1.6"

@@ -39,3 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# rules importer HTTP cache (per-source raw/<sha1>.{json,txt}+.etag)
+/lib/rules/sources/*/raw/
+/scripts/import-rules/raw/
