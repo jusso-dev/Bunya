@@ -408,6 +408,263 @@ const cost1: Rule = {
   },
 };
 
+const PE_TARGET_TYPES: ReadonlyArray<GraphNode["type"]> = [
+  "storageAccount",
+  "keyVault",
+  "sqlDatabase",
+  "cosmosDb",
+  "containerRegistry",
+  "appService",
+  "functionApp",
+];
+
+function privateEndpointsByTarget(graph: GraphDocument): Map<string, GraphNode> {
+  const out = new Map<string, GraphNode>();
+  for (const node of graph.nodes) {
+    if (node.type !== "privateEndpoint") continue;
+    for (const edge of graph.edges) {
+      if (edge.source !== node.id || edge.kind !== "network") continue;
+      const tgt = graph.nodes.find((n) => n.id === edge.target);
+      if (!tgt) continue;
+      if (PE_TARGET_TYPES.includes(tgt.type)) {
+        out.set(tgt.id, node);
+      }
+    }
+  }
+  return out;
+}
+
+function hasVnetIntegration(graph: GraphDocument, source: GraphNode): boolean {
+  if (source.type !== "appService" && source.type !== "functionApp") return false;
+  if (source.properties.vnetIntegration === true) return true;
+  return graph.edges.some(
+    (e) =>
+      e.source === source.id &&
+      e.kind === "network" &&
+      graph.nodes.find((n) => n.id === e.target)?.type === "subnet",
+  );
+}
+
+const pePublic: Rule = {
+  id: "PE-PUBLIC",
+  description: "Resource is fronted by a Private Endpoint but also has public access enabled.",
+  evaluate(graph) {
+    const peByTarget = privateEndpointsByTarget(graph);
+    const findings: Finding[] = [];
+    for (const [targetId] of peByTarget) {
+      const node = graph.nodes.find((n) => n.id === targetId);
+      if (!node) continue;
+      const publicProp =
+        node.properties.allowPublicAccess === true ||
+        node.properties.publicNetworkAccess === true;
+      if (!publicProp) continue;
+      findings.push({
+        ruleId: "PE-PUBLIC",
+        severity: "warning",
+        message: `${node.name} has a Private Endpoint but still exposes public network access.`,
+        explanation:
+          "Adding a Private Endpoint while keeping public access enabled defeats data-sovereignty controls. Disable public access on this resource.",
+        nodeIds: [node.id],
+        autofixId: "lock-public-access",
+      });
+    }
+    return findings;
+  },
+  autofixes: {
+    "lock-public-access": (graph) => ({
+      ...graph,
+      nodes: graph.nodes.map((n) => {
+        if (n.properties.allowPublicAccess === true || n.properties.publicNetworkAccess === true) {
+          return {
+            ...n,
+            properties: {
+              ...n.properties,
+              allowPublicAccess: false,
+              publicNetworkAccess: false,
+            },
+          };
+        }
+        return n;
+      }),
+    }),
+  },
+};
+
+const peIngress: Rule = {
+  id: "PE-INGRESS",
+  description: "Direct ingress to a Private Endpoint-protected service from a non-VNet source.",
+  evaluate(graph) {
+    const peByTarget = privateEndpointsByTarget(graph);
+    const findings: Finding[] = [];
+    for (const edge of graph.edges) {
+      if (edge.kind !== "data" && edge.kind !== "identity") continue;
+      const target = graph.nodes.find((n) => n.id === edge.target);
+      if (!target || !peByTarget.has(target.id)) continue;
+      const source = graph.nodes.find((n) => n.id === edge.source);
+      if (!source) continue;
+      if (source.type !== "appService" && source.type !== "functionApp") continue;
+      if (hasVnetIntegration(graph, source)) continue;
+      findings.push({
+        ruleId: "PE-INGRESS",
+        severity: "error",
+        message: `${source.name} reaches ${target.name} directly while the target is behind a Private Endpoint.`,
+        explanation:
+          "Once a resource has a Private Endpoint and public access disabled, compute reaching it must go through a VNet. Enable VNet integration on this App or add a `network` edge to a subnet in the same VNet.",
+        edgeIds: [edge.id],
+        nodeIds: [source.id, target.id],
+        autofixId: "enable-vnet-integration",
+      });
+    }
+    return findings;
+  },
+  autofixes: {
+    "enable-vnet-integration": (graph) => ({
+      ...graph,
+      nodes: graph.nodes.map((n) =>
+        n.type === "appService" || n.type === "functionApp"
+          ? { ...n, properties: { ...n.properties, vnetIntegration: true } }
+          : n,
+      ),
+    }),
+  },
+};
+
+const peSubnetPolicy: Rule = {
+  id: "PE-SUBNET-POLICY",
+  description: "Subnet hosting a Private Endpoint must disable Private Endpoint network policies.",
+  evaluate(graph) {
+    const findings: Finding[] = [];
+    const subnetById = new Map<string, GraphNode>();
+    for (const n of graph.nodes) {
+      if (n.type === "subnet") subnetById.set(n.id, n);
+    }
+    for (const pe of graph.nodes) {
+      if (pe.type !== "privateEndpoint") continue;
+      for (const edge of graph.edges) {
+        if (edge.source !== pe.id || edge.kind !== "network") continue;
+        const subnet = subnetById.get(edge.target);
+        if (!subnet) continue;
+        if (subnet.properties.privateEndpointNetworkPolicies !== "Disabled") {
+          findings.push({
+            ruleId: "PE-SUBNET-POLICY",
+            severity: "error",
+            message: `${subnet.name} hosts a Private Endpoint but Network Policies are enabled.`,
+            explanation:
+              "Subnets hosting Private Endpoints must set privateEndpointNetworkPolicies to Disabled, otherwise the PE cannot be created.",
+            nodeIds: [subnet.id, pe.id],
+            autofixId: "disable-pe-policies",
+          });
+        }
+      }
+    }
+    return findings;
+  },
+  autofixes: {
+    "disable-pe-policies": (graph) => ({
+      ...graph,
+      nodes: graph.nodes.map((n) =>
+        n.type === "subnet"
+          ? { ...n, properties: { ...n.properties, privateEndpointNetworkPolicies: "Disabled" } }
+          : n,
+      ),
+    }),
+  },
+};
+
+const peEdgeKind: Rule = {
+  id: "PE-EDGE-KIND",
+  description: "Private Endpoint edges must use the network kind.",
+  evaluate(graph) {
+    const findings: Finding[] = [];
+    for (const edge of graph.edges) {
+      const source = graph.nodes.find((n) => n.id === edge.source);
+      if (source?.type !== "privateEndpoint") continue;
+      if (edge.kind !== "network") {
+        findings.push({
+          ruleId: "PE-EDGE-KIND",
+          severity: "error",
+          message: `Edge from ${source.name} should be network, not ${edge.kind}.`,
+          explanation:
+            "Private Endpoints expose the target service privately. Bunya only generates correct ARM when the edge kind is `network`.",
+          edgeIds: [edge.id],
+        });
+      }
+    }
+    return findings;
+  },
+};
+
+const netIngressPublic: Rule = {
+  id: "NET-INGRESS-PUBLIC",
+  description: "Front Door / App Gateway / APIM pointing at a PE-only backend without explicit network plumbing.",
+  evaluate(graph) {
+    const peByTarget = privateEndpointsByTarget(graph);
+    const findings: Finding[] = [];
+    for (const edge of graph.edges) {
+      const source = graph.nodes.find((n) => n.id === edge.source);
+      const target = graph.nodes.find((n) => n.id === edge.target);
+      if (!source || !target) continue;
+      const isPublicFront =
+        source.type === "frontDoor" ||
+        source.type === "applicationGateway" ||
+        source.type === "apiManagement";
+      if (!isPublicFront) continue;
+      if (!peByTarget.has(target.id)) continue;
+      const targetPublic =
+        target.properties.publicNetworkAccess === true ||
+        target.properties.allowPublicAccess === true;
+      if (targetPublic) continue;
+      if (source.type === "applicationGateway") {
+        const peeredToVnet = graph.edges.some(
+          (e) =>
+            e.source === source.id &&
+            e.kind === "network" &&
+            graph.nodes.find((n) => n.id === e.target)?.type === "subnet",
+        );
+        if (peeredToVnet) continue;
+      }
+      findings.push({
+        ruleId: "NET-INGRESS-PUBLIC",
+        severity: "warning",
+        message: `${source.name} cannot reach ${target.name}: target is private but ${source.name} has no VNet integration.`,
+        explanation:
+          "Front Door requires Private Link origins; Application Gateway and APIM require the backend pool to live inside a VNet. Add the appropriate Private Link / VNet integration before deploying.",
+        nodeIds: [source.id, target.id],
+        edgeIds: [edge.id],
+      });
+    }
+    return findings;
+  },
+};
+
+const sourceFromAnyCompute: Rule = {
+  id: "IDENT-SOURCE",
+  description: "Identity edges should originate from compute or a User-Assigned Identity.",
+  evaluate(graph) {
+    const findings: Finding[] = [];
+    const allowed = new Set<GraphNode["type"]>([
+      "appService",
+      "functionApp",
+      "userAssignedIdentity",
+    ]);
+    for (const edge of graph.edges) {
+      if (edge.kind !== "identity") continue;
+      const source = graph.nodes.find((n) => n.id === edge.source);
+      if (!source) continue;
+      if (allowed.has(source.type)) continue;
+      findings.push({
+        ruleId: "IDENT-SOURCE",
+        severity: "warning",
+        message: `${source.name} is not a compute resource yet emits an identity edge.`,
+        explanation:
+          "Managed identities exist on compute or as standalone User-Assigned Identities. Identity edges from other source types do not generate role assignments.",
+        edgeIds: [edge.id],
+      });
+    }
+    return findings;
+  },
+};
+
 export const RULES: Rule[] = [
   e8s1,
   e8s2,
@@ -420,4 +677,10 @@ export const RULES: Rule[] = [
   gen5,
   naming1,
   cost1,
+  pePublic,
+  peIngress,
+  peSubnetPolicy,
+  peEdgeKind,
+  netIngressPublic,
+  sourceFromAnyCompute,
 ];

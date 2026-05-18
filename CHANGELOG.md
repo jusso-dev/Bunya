@@ -30,3 +30,18 @@ project follows [Conventional Commits](https://www.conventionalcommits.org/).
   per file and a download-all zip.
 - Added gzip+base64url share URLs, localStorage persistence, and three starter
   templates (static + API, three-tier private, event-driven Functions).
+
+### Visual + connection hardening
+
+- Built 20 hand-drawn SVG service icons and rendered them on both the palette
+  cards and the custom React Flow canvas nodes, colour-coded per category.
+- Added click-to-add as a drag-and-drop alternative on the palette.
+- Replaced default React Flow nodes with a custom `ServiceNode` showing the
+  icon, friendly name and resource name with category-coloured handles.
+- Hardened connection creation: React Flow `isValidConnection` rejects
+  self-loops, duplicate edges, unknown target types and would-be cycles, and
+  the canvas surfaces a dismissable toast explaining the rejection.
+- Added six new validation rules: `PE-PUBLIC`, `PE-INGRESS`, `PE-SUBNET-POLICY`,
+  `PE-EDGE-KIND`, `NET-INGRESS-PUBLIC`, `IDENT-SOURCE`, each with autofixes
+  where mechanical, covering the most common ways a Private Endpoint plan can
+  be silently broken at deploy time.

@@ -6,7 +6,7 @@ import { fullStackGraph } from "@/lib/generators/__fixtures__/fullStack";
 import { GraphDocument } from "@/lib/graph/schema";
 
 describe("validation rules", () => {
-  it("exposes all 11 rules", () => {
+  it("exposes the full rule catalogue", () => {
     expect(RULES.map((r) => r.id).sort()).toEqual([
       "COST-1",
       "E8-S1",
@@ -16,9 +16,15 @@ describe("validation rules", () => {
       "GEN-3",
       "GEN-4",
       "GEN-5",
+      "IDENT-SOURCE",
       "ISM-0974",
       "ISM-1552",
       "NAMING-1",
+      "NET-INGRESS-PUBLIC",
+      "PE-EDGE-KIND",
+      "PE-INGRESS",
+      "PE-PUBLIC",
+      "PE-SUBNET-POLICY",
     ]);
   });
 
@@ -168,5 +174,146 @@ describe("validation rules", () => {
     const findings = runValidation(fullStackGraph);
     const errors = findings.filter((f) => f.severity === "error");
     expect(errors.map((f) => f.ruleId)).toEqual([]);
+  });
+
+  it("flags Storage with a Private Endpoint and public access enabled (PE-PUBLIC)", () => {
+    const exposed: GraphDocument = {
+      ...firstCutGraph,
+      nodes: [
+        ...firstCutGraph.nodes.map((n) =>
+          n.type === "storageAccount"
+            ? { ...n, properties: { ...n.properties, allowPublicAccess: true } }
+            : n,
+        ),
+        {
+          id: "pe",
+          type: "privateEndpoint",
+          name: "Stg PE",
+          resourceName: "pe-stg-test",
+          position: { x: 0, y: 0 },
+          properties: { groupId: "blob", manualApproval: false },
+        },
+        {
+          id: "snet-pe",
+          type: "subnet",
+          name: "PE Subnet",
+          resourceName: "snet-pe-test",
+          position: { x: 0, y: 0 },
+          properties: {
+            addressPrefix: "10.0.2.0/24",
+            serviceEndpoints: [],
+            privateEndpointNetworkPolicies: "Disabled",
+            delegations: [],
+          },
+        },
+      ],
+      edges: [
+        ...firstCutGraph.edges,
+        { id: "pe-snet", source: "pe", target: "snet-pe", kind: "network" },
+        { id: "pe-stg", source: "pe", target: "stg", kind: "network" },
+      ],
+    };
+    const finding = runValidation(exposed).find((f) => f.ruleId === "PE-PUBLIC");
+    expect(finding?.severity).toBe("warning");
+  });
+
+  it("errors on direct ingress to a PE-protected service without VNet integration (PE-INGRESS)", () => {
+    const graph: GraphDocument = {
+      ...firstCutGraph,
+      nodes: [
+        ...firstCutGraph.nodes,
+        {
+          id: "pe",
+          type: "privateEndpoint",
+          name: "Stg PE",
+          resourceName: "pe-test",
+          position: { x: 0, y: 0 },
+          properties: { groupId: "blob", manualApproval: false },
+        },
+        {
+          id: "snet-pe",
+          type: "subnet",
+          name: "PE Subnet",
+          resourceName: "snet-pe-test",
+          position: { x: 0, y: 0 },
+          properties: {
+            addressPrefix: "10.0.2.0/24",
+            serviceEndpoints: [],
+            privateEndpointNetworkPolicies: "Disabled",
+            delegations: [],
+          },
+        },
+      ],
+      edges: [
+        ...firstCutGraph.edges,
+        { id: "pe-snet", source: "pe", target: "snet-pe", kind: "network" },
+        { id: "pe-stg", source: "pe", target: "stg", kind: "network" },
+      ],
+    };
+    const finding = runValidation(graph).find((f) => f.ruleId === "PE-INGRESS");
+    expect(finding?.severity).toBe("error");
+    const fixed = applyAutofix(graph, finding!);
+    const after = runValidation(fixed).find((f) => f.ruleId === "PE-INGRESS");
+    expect(after).toBeUndefined();
+  });
+
+  it("errors when a PE subnet has Private Endpoint network policies enabled", () => {
+    const graph: GraphDocument = {
+      ...firstCutGraph,
+      nodes: [
+        ...firstCutGraph.nodes,
+        {
+          id: "snet",
+          type: "subnet",
+          name: "Bad Subnet",
+          resourceName: "snet-bad",
+          position: { x: 0, y: 0 },
+          properties: {
+            addressPrefix: "10.0.3.0/24",
+            serviceEndpoints: [],
+            privateEndpointNetworkPolicies: "Enabled",
+            delegations: [],
+          },
+        },
+        {
+          id: "pe",
+          type: "privateEndpoint",
+          name: "PE",
+          resourceName: "pe-bad",
+          position: { x: 0, y: 0 },
+          properties: { groupId: "blob", manualApproval: false },
+        },
+      ],
+      edges: [
+        ...firstCutGraph.edges,
+        { id: "pe-snet", source: "pe", target: "snet", kind: "network" },
+        { id: "pe-stg", source: "pe", target: "stg", kind: "network" },
+      ],
+    };
+    const finding = runValidation(graph).find((f) => f.ruleId === "PE-SUBNET-POLICY");
+    expect(finding?.severity).toBe("error");
+  });
+
+  it("errors when a Private Endpoint emits a non-network edge", () => {
+    const graph: GraphDocument = {
+      ...firstCutGraph,
+      nodes: [
+        ...firstCutGraph.nodes,
+        {
+          id: "pe",
+          type: "privateEndpoint",
+          name: "PE",
+          resourceName: "pe-test",
+          position: { x: 0, y: 0 },
+          properties: { groupId: "blob", manualApproval: false },
+        },
+      ],
+      edges: [
+        ...firstCutGraph.edges,
+        { id: "pe-stg", source: "pe", target: "stg", kind: "data" },
+      ],
+    };
+    const finding = runValidation(graph).find((f) => f.ruleId === "PE-EDGE-KIND");
+    expect(finding?.severity).toBe("error");
   });
 });

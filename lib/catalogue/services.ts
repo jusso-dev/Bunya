@@ -88,6 +88,7 @@ export const functionAppSchema = z.object({
   consumptionPlan: z.boolean().default(true),
   httpsOnly: z.boolean().default(true),
   publicNetworkAccess: z.boolean().default(true),
+  vnetIntegration: z.boolean().default(false),
 });
 
 export const staticWebAppSchema = z.object({

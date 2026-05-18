@@ -3,14 +3,22 @@ import { getServiceDefinition } from "@/lib/catalogue/services";
 
 const fixedDate = "2026-05-18T00:00:00.000Z";
 
-function n(id: string, type: ServiceType, name: string, resourceName: string, x: number, y: number) {
+function n(
+  id: string,
+  type: ServiceType,
+  name: string,
+  resourceName: string,
+  x: number,
+  y: number,
+  overrides: Record<string, unknown> = {},
+) {
   return {
     id,
     type,
     name,
     resourceName,
     position: { x, y },
-    properties: { ...getServiceDefinition(type).defaultProperties },
+    properties: { ...getServiceDefinition(type).defaultProperties, ...overrides },
   };
 }
 
@@ -32,8 +40,8 @@ export const fullStackGraph: GraphDocument = {
     n("nsg", "networkSecurityGroup", "NSG", "nsg-app", 400, 120),
     n("pe", "privateEndpoint", "Storage PE", "pe-stg", 600, 240),
     n("plan", "appServicePlan", "Web Plan", "plan-full-stack", 800, 0),
-    n("app", "appService", "API", "app-full-stack", 1000, 0),
-    n("fn", "functionApp", "Worker", "fn-full-stack", 1200, 0),
+    n("app", "appService", "API", "app-full-stack", 1000, 0, { vnetIntegration: true, publicNetworkAccess: false }),
+    n("fn", "functionApp", "Worker", "fn-full-stack", 1200, 0, { publicNetworkAccess: false, vnetIntegration: true }),
     n("swa", "staticWebApp", "Portal", "swa-full-stack", 1400, 0),
     n("stg", "storageAccount", "Blob Storage", "fullstackstg", 1000, 200),
     n("sql", "sqlDatabase", "Application DB", "sqldb-full-stack", 1200, 200),
