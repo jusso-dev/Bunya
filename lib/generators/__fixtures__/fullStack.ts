@@ -1,0 +1,77 @@
+import { GraphDocument, ServiceType } from "@/lib/graph/schema";
+import { getServiceDefinition } from "@/lib/catalogue/services";
+
+const fixedDate = "2026-05-18T00:00:00.000Z";
+
+function n(id: string, type: ServiceType, name: string, resourceName: string, x: number, y: number) {
+  return {
+    id,
+    type,
+    name,
+    resourceName,
+    position: { x, y },
+    properties: { ...getServiceDefinition(type).defaultProperties },
+  };
+}
+
+export const fullStackGraph: GraphDocument = {
+  schemaVersion: 1,
+  metadata: {
+    name: "full-stack",
+    description: "Fixture covering all 20 service types and every edge kind.",
+    createdAt: fixedDate,
+    updatedAt: fixedDate,
+    region: "australiaeast",
+    environment: "prod",
+    resourceGroupName: "rg-full-stack",
+  },
+  nodes: [
+    n("rg", "resourceGroup", "Resource Group", "rg-full-stack", 0, 0),
+    n("vnet", "virtualNetwork", "VNet", "vnet-full-stack", 200, 0),
+    n("snet", "subnet", "App Subnet", "snet-app", 400, 0),
+    n("nsg", "networkSecurityGroup", "NSG", "nsg-app", 400, 120),
+    n("pe", "privateEndpoint", "Storage PE", "pe-stg", 600, 240),
+    n("plan", "appServicePlan", "Web Plan", "plan-full-stack", 800, 0),
+    n("app", "appService", "API", "app-full-stack", 1000, 0),
+    n("fn", "functionApp", "Worker", "fn-full-stack", 1200, 0),
+    n("swa", "staticWebApp", "Portal", "swa-full-stack", 1400, 0),
+    n("stg", "storageAccount", "Blob Storage", "fullstackstg", 1000, 200),
+    n("sql", "sqlDatabase", "Application DB", "sqldb-full-stack", 1200, 200),
+    n("cos", "cosmosDb", "Document Store", "cos-full-stack", 1400, 200),
+    n("kv", "keyVault", "Secrets", "kv-full-stack", 1600, 200),
+    n("ai", "applicationInsights", "Telemetry", "ai-full-stack", 1000, 400),
+    n("la", "logAnalytics", "Workspace", "log-full-stack", 1200, 400),
+    n("fd", "frontDoor", "Front Door", "fd-full-stack", 1400, 400),
+    n("agw", "applicationGateway", "App Gateway", "agw-full-stack", 1600, 400),
+    n("apim", "apiManagement", "APIM", "apim-full-stack", 1800, 400),
+    n("acr", "containerRegistry", "Registry", "acrfullstack", 2000, 400),
+    n("umi", "userAssignedIdentity", "Identity", "umi-full-stack", 2200, 400),
+  ],
+  edges: [
+    { id: "snet-vnet", source: "snet", target: "vnet", kind: "depends_on" },
+    { id: "snet-nsg", source: "snet", target: "nsg", kind: "network" },
+    { id: "pe-snet", source: "pe", target: "snet", kind: "network" },
+    { id: "pe-stg", source: "pe", target: "stg", kind: "network" },
+    { id: "app-plan", source: "app", target: "plan", kind: "depends_on" },
+    { id: "fn-plan", source: "fn", target: "plan", kind: "depends_on" },
+    { id: "app-stg", source: "app", target: "stg", kind: "data" },
+    { id: "fn-stg", source: "fn", target: "stg", kind: "data" },
+    { id: "app-kv", source: "app", target: "kv", kind: "identity" },
+    { id: "fn-kv", source: "fn", target: "kv", kind: "identity" },
+    { id: "app-sql", source: "app", target: "sql", kind: "data" },
+    { id: "app-cos", source: "app", target: "cos", kind: "data" },
+    { id: "app-ai", source: "app", target: "ai", kind: "diagnostic" },
+    { id: "app-la", source: "app", target: "la", kind: "diagnostic" },
+    { id: "stg-la", source: "stg", target: "la", kind: "diagnostic" },
+    { id: "kv-la", source: "kv", target: "la", kind: "diagnostic" },
+    { id: "ai-la", source: "ai", target: "la", kind: "depends_on" },
+    { id: "fd-app", source: "fd", target: "app", kind: "network" },
+    { id: "agw-app", source: "agw", target: "app", kind: "network" },
+    { id: "apim-app", source: "apim", target: "app", kind: "network" },
+    { id: "umi-kv", source: "umi", target: "kv", kind: "identity" },
+    { id: "umi-acr", source: "umi", target: "acr", kind: "identity" },
+    { id: "app-acr", source: "app", target: "acr", kind: "identity" },
+    { id: "swa-fn", source: "swa", target: "fn", kind: "depends_on" },
+    { id: "acr-la", source: "acr", target: "la", kind: "diagnostic" },
+  ],
+};

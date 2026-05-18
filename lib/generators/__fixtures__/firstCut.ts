@@ -1,11 +1,11 @@
-import { GraphDocument } from "@/lib/graph/schema";
+import { GraphDocument, ServiceType } from "@/lib/graph/schema";
 import { getServiceDefinition } from "@/lib/catalogue/services";
 
 const fixedDate = "2026-05-18T00:00:00.000Z";
 
 function fixedNode(
   id: string,
-  type: Parameters<typeof getServiceDefinition>[0],
+  type: ServiceType,
   name: string,
   resourceName: string,
   x: number,
@@ -36,7 +36,7 @@ export const firstCutGraph: GraphDocument = {
     fixedNode("rg", "resourceGroup", "Main RG", "rg-first-cut", 0, 0),
     fixedNode("plan", "appServicePlan", "Web Plan", "plan-first-cut", 200, 0),
     fixedNode("app", "appService", "API Web App", "app-first-cut", 400, 0),
-    fixedNode("stg", "storageAccount", "Blob Storage", "first-cut-stg", 600, 0),
+    fixedNode("stg", "storageAccount", "Blob Storage", "firstcutstg", 600, 0),
     fixedNode("kv", "keyVault", "Secrets Vault", "kv-first-cut", 800, 0),
   ],
   edges: [
