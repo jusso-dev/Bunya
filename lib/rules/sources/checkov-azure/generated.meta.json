@@ -1,0 +1,19 @@
+{
+  "source": "checkov-azure",
+  "upstream": {
+    "name": "Checkov",
+    "repository": "https://github.com/bridgecrewio/checkov",
+    "docs": "https://docs.bridgecrew.io/docs",
+    "license": "Apache-2.0"
+  },
+  "pinned": {
+    "commit": "v3.2.0",
+    "fetched_at": "2026-05-18T00:00:00Z"
+  },
+  "generator": {
+    "version": "0.1.0",
+    "generated_at": "2026-05-18T00:00:00Z",
+    "notes": "Curated subset re-encoded as RuleEntry. Unmodelled checks are marked [advisory] and have predicate () => false."
+  },
+  "rule_count": 31
+}

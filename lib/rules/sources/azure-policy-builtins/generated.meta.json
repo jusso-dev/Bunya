@@ -1,0 +1,18 @@
+{
+  "source": "azure-policy-builtins",
+  "upstream": {
+    "name": "Azure Policy built-ins",
+    "catalogue": "https://learn.microsoft.com/en-us/azure/governance/policy/samples/built-in-policies",
+    "license": "MIT"
+  },
+  "pinned": {
+    "commit": "2026-04-01",
+    "fetched_at": "2026-05-18T00:00:00Z"
+  },
+  "generator": {
+    "version": "0.1.0",
+    "generated_at": "2026-05-18T00:00:00Z",
+    "notes": "Curated subset re-encoded as RuleEntry. Unmodelled policies are marked [advisory] and have predicate () => false."
+  },
+  "rule_count": 20
+}
