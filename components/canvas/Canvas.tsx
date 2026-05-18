@@ -7,6 +7,7 @@ import ReactFlow, {
   Controls,
   Edge,
   EdgeChange,
+  MarkerType,
   MiniMap,
   Node,
   NodeChange,
@@ -20,15 +21,19 @@ import ReactFlow, {
 import "reactflow/dist/style.css";
 import { useGraphStore } from "@/lib/graph/store";
 import { getServiceDefinition, inferDefaultEdgeKind } from "@/lib/catalogue/services";
+import { canConnect } from "@/lib/catalogue/connections";
 import { EDGE_KINDS, EdgeKind, ServiceType } from "@/lib/graph/schema";
+import { ServiceNode, ServiceNodeData } from "./ServiceNode";
 
 const EDGE_COLOUR: Record<EdgeKind, string> = {
   network: "#1d4ed8",
   identity: "#b91c1c",
   data: "#b45309",
   depends_on: "#475569",
-  diagnostic: "#5b21b6",
+  diagnostic: "#7c3aed",
 };
+
+const NODE_TYPES = { service: ServiceNode };
 
 function defaultResourceName(type: ServiceType, index: number): string {
   const slug = type
@@ -54,32 +59,23 @@ function CanvasInner() {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const [rfInstance, setRfInstance] = useState<ReactFlowInstance | null>(null);
   const { project } = useReactFlow();
+  const [connectionError, setConnectionError] = useState<string | null>(null);
 
-  const nodes = useMemo<Node[]>(() => {
-    return document.nodes.map((n) => {
-      const def = getServiceDefinition(n.type);
-      return {
-        id: n.id,
-        position: n.position,
-        type: "default",
-        data: { label: `${def.shortLabel} | ${n.name}` },
-        sourcePosition: Position.Right,
-        targetPosition: Position.Left,
-        style: {
-          padding: 6,
-          borderRadius: 8,
-          background: selectedNodeId === n.id ? "#fde68a" : "#ffffff",
-          border:
-            selectedNodeId === n.id
-              ? "2px solid #b45309"
-              : "1px solid #cbd5e1",
-          fontFamily: "ui-sans-serif",
-          fontSize: 12,
-          color: "#0f172a",
-          minWidth: 160,
-        },
-      } satisfies Node;
-    });
+  const nodes = useMemo<Node<ServiceNodeData>[]>(() => {
+    return document.nodes.map((n) => ({
+      id: n.id,
+      type: "service",
+      position: n.position,
+      sourcePosition: Position.Right,
+      targetPosition: Position.Left,
+      selected: selectedNodeId === n.id,
+      data: {
+        serviceType: n.type,
+        name: n.name,
+        resourceName: n.resourceName,
+        selected: selectedNodeId === n.id,
+      },
+    }));
   }, [document.nodes, selectedNodeId]);
 
   const edges = useMemo<Edge[]>(() => {
@@ -91,9 +87,17 @@ function CanvasInner() {
       animated: e.kind === "diagnostic",
       style: {
         stroke: EDGE_COLOUR[e.kind],
-        strokeWidth: selectedEdgeId === e.id ? 3 : 1.5,
+        strokeWidth: selectedEdgeId === e.id ? 2.5 : 1.5,
+        strokeDasharray: e.kind === "diagnostic" ? "4 3" : undefined,
       },
-      labelStyle: { fill: EDGE_COLOUR[e.kind], fontWeight: 600, fontSize: 11 },
+      labelStyle: { fill: EDGE_COLOUR[e.kind], fontWeight: 600, fontSize: 10 },
+      labelBgStyle: { fill: "#ffffff", fillOpacity: 0.85 },
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        color: EDGE_COLOUR[e.kind],
+        width: 16,
+        height: 16,
+      },
     }));
   }, [document.edges, selectedEdgeId]);
 
@@ -118,16 +122,35 @@ function CanvasInner() {
     [edges, removeEdge],
   );
 
+  const isValidConnection = useCallback(
+    (connection: Connection) => {
+      if (!connection.source || !connection.target) return false;
+      const result = canConnect(document, connection.source, connection.target);
+      if (!result.ok) {
+        setConnectionError(result.reason);
+        return false;
+      }
+      return true;
+    },
+    [document],
+  );
+
   const onConnect = useCallback(
     (connection: Connection) => {
       if (!connection.source || !connection.target) return;
+      const result = canConnect(document, connection.source, connection.target);
+      if (!result.ok) {
+        setConnectionError(result.reason);
+        return;
+      }
       const source = document.nodes.find((n) => n.id === connection.source);
       const target = document.nodes.find((n) => n.id === connection.target);
       if (!source || !target) return;
       const kind = inferDefaultEdgeKind(source.type, target.type);
       addEdge({ source: connection.source, target: connection.target, kind });
+      setConnectionError(null);
     },
-    [addEdge, document.nodes],
+    [addEdge, document],
   );
 
   const onDragOver = useCallback((event: React.DragEvent<HTMLDivElement>) => {
@@ -194,25 +217,44 @@ function CanvasInner() {
       <ReactFlow
         nodes={nodes}
         edges={edges}
+        nodeTypes={NODE_TYPES}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        isValidConnection={isValidConnection}
         onInit={setRfInstance}
         onNodeClick={(_, node) => selectNode(node.id)}
         onEdgeClick={(_, edge) => selectEdge(edge.id)}
         onPaneClick={() => {
           selectNode(null);
           selectEdge(null);
+          setConnectionError(null);
         }}
         fitView
         snapToGrid
         snapGrid={[16, 16]}
         deleteKeyCode={null}
+        connectionRadius={28}
       >
         <Background gap={16} />
         <MiniMap pannable zoomable />
         <Controls />
       </ReactFlow>
+      {connectionError ? (
+        <div className="pointer-events-auto absolute right-4 top-4 max-w-sm rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800 shadow dark:bg-red-950/40 dark:text-red-200">
+          <div className="flex items-start justify-between gap-2">
+            <span>{connectionError}</span>
+            <button
+              type="button"
+              onClick={() => setConnectionError(null)}
+              className="text-red-500 hover:text-red-700"
+              aria-label="Dismiss"
+            >
+              x
+            </button>
+          </div>
+        </div>
+      ) : null}
       {selectedEdge ? (
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs shadow-md dark:border-zinc-700 dark:bg-zinc-900">
           <span className="mr-2 font-semibold text-zinc-700 dark:text-zinc-200">
