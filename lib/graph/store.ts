@@ -24,11 +24,15 @@ export type GraphStoreActions = {
   addNode: (input: AddNodeInput) => string;
   removeNode: (id: string) => void;
   moveNode: (id: string, position: { x: number; y: number }) => void;
+  updateNode: (id: string, patch: Partial<Omit<GraphNode, "id">>) => void;
+  updateNodeProperties: (id: string, patch: Record<string, unknown>) => void;
   addEdge: (input: AddEdgeInput) => string;
   removeEdge: (id: string) => void;
   setEdgeKind: (id: string, kind: EdgeKind) => void;
   selectNode: (id: string | null) => void;
   selectEdge: (id: string | null) => void;
+  setMetadata: (patch: Partial<GraphDocument["metadata"]>) => void;
+  replaceDocument: (doc: GraphDocument) => void;
   reset: (doc?: GraphDocument) => void;
   undo: () => void;
   redo: () => void;
@@ -80,6 +84,47 @@ const graphStoreInitializer: StateCreator<GraphStore> = (set, get) => ({
         ...state.document,
         nodes: state.document.nodes.map((n) => (n.id === id ? { ...n, position } : n)),
       },
+    }));
+  },
+
+  updateNode: (id, patch) => {
+    set((state) => ({
+      ...pushHistory(state),
+      document: {
+        ...state.document,
+        nodes: state.document.nodes.map((n) => (n.id === id ? { ...n, ...patch } : n)),
+      },
+    }));
+  },
+
+  updateNodeProperties: (id, patch) => {
+    set((state) => ({
+      ...pushHistory(state),
+      document: {
+        ...state.document,
+        nodes: state.document.nodes.map((n) =>
+          n.id === id ? { ...n, properties: { ...n.properties, ...patch } } : n,
+        ),
+      },
+    }));
+  },
+
+  setMetadata: (patch) => {
+    set((state) => ({
+      ...pushHistory(state),
+      document: {
+        ...state.document,
+        metadata: { ...state.document.metadata, ...patch },
+      },
+    }));
+  },
+
+  replaceDocument: (doc) => {
+    set((state) => ({
+      ...pushHistory(state),
+      document: doc,
+      selectedNodeId: null,
+      selectedEdgeId: null,
     }));
   },
 
