@@ -1,0 +1,10 @@
+{
+  "source": "Microsoft Learn — Azure Architecture Center and Well-Architected Framework",
+  "upstream_version": "2026-04-01",
+  "upstream_url": "https://learn.microsoft.com/en-us/azure/architecture/",
+  "license": "CC-BY-4.0",
+  "generated_at": "2026-05-18T00:00:00Z",
+  "generator": "lib/rules/sources/well-known-patterns/import.ts",
+  "rule_count": 10,
+  "notes": "Encodes reference-architecture topology completeness checks (web-app + Front Door, hub-spoke + NSG, Function + App Insights, Static Web App + Functions, SQL + PE, KV + LA, managed identity, WAF v2, zone redundancy, prod LRS). All rules paraphrase the upstream guidance."
+}
