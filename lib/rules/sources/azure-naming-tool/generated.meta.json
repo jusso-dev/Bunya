@@ -1,0 +1,11 @@
+{
+  "source": "mspnp/AzureNamingTool",
+  "upstream_version": "v3.4.0",
+  "upstream_url": "https://github.com/mspnp/AzureNamingTool",
+  "upstream_file": "src/repository/resourcetypes.json",
+  "license": "MIT",
+  "generated_at": "2026-05-18T00:00:00Z",
+  "generator": "lib/rules/sources/azure-naming-tool/import.ts",
+  "rule_count": 22,
+  "notes": "Encodes length / charset / case constraints per Azure resource type. Predicates inspect GraphNode.resourceName only."
+}

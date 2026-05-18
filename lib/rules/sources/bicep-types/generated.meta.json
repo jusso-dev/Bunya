@@ -1,0 +1,11 @@
+{
+  "source": "Azure/bicep-types-az",
+  "upstream_version": "main",
+  "upstream_url": "https://github.com/Azure/bicep-types-az",
+  "upstream_tree": "generated/<provider>",
+  "license": "MIT",
+  "generated_at": "2026-05-18T00:00:00Z",
+  "generator": "lib/rules/sources/bicep-types/import.ts",
+  "rule_count": 21,
+  "notes": "Encodes enum / range / required-property constraints distilled from the bicep-types schema. Predicates inspect GraphNode.properties only."
+}
