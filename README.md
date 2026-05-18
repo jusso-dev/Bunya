@@ -1,36 +1,50 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Bunya
 
-## Getting Started
+Bunya draws its name from the bunya pine, a tall south-east Queensland conifer
+whose tiered, geometric silhouette already resembles a system diagram. The tree
+is also tied to large Aboriginal gatherings that historically pulled nations
+together to trade and share before dispersing again. Bunya the tool does much
+the same job for cloud architecture: it gathers disparate Azure services into a
+shared graph, makes the relationships explicit, and disperses the result into
+the formats different teams actually use, including Terraform, Bicep,
+PowerShell, az CLI, ARM, and Mermaid.
 
-First, run the development server:
+## Status
+
+First cut. The Terraform generator is real and snapshot tested for five
+services: Resource Group, App Service Plan, App Service, Storage Account, and
+Key Vault. Everything else is on the backlog.
+
+## Local development
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+pnpm install
 pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000 to use the editor. The left palette adds services to
+the canvas, the canvas wires up dependencies, and the right panel shows the
+generated Terraform.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Scripts
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+pnpm typecheck   # tsc --noEmit
+pnpm test        # vitest run (snapshots in lib/generators/__snapshots__)
+pnpm build       # next build
+pnpm lint        # eslint
+```
 
-## Learn More
+## Project layout
 
-To learn more about Next.js, take a look at the following resources:
+```
+app/(canvas)/page.tsx        # editor route
+components/                  # canvas, palette, output UI
+lib/graph/                   # Zod schema, Zustand store, migrate stub
+lib/catalogue/services.ts    # service catalogue (first-cut: 5 services)
+lib/generators/terraform.ts  # Terraform generator + snapshot tests
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Licence
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+MIT. See `LICENSE` when added.
