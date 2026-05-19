@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { listServices, ServiceDefinition } from "@/lib/catalogue/services";
 import { ServiceType } from "@/lib/graph/schema";
 import { useGraphStore } from "@/lib/graph/store";
-import { CATEGORY_THEME, getServiceIcon } from "@/lib/catalogue/icons";
+import { CATEGORY_THEME, ServiceIcon } from "@/lib/catalogue/icons";
 
 const CATEGORY_ORDER: ServiceDefinition["category"][] = [
   "scaffold",
@@ -116,7 +116,6 @@ function ServiceCard({
   onClick: () => void;
 }) {
   const theme = CATEGORY_THEME[def.category];
-  const Icon = getServiceIcon(def.type);
   const onDragStart = (event: React.DragEvent<HTMLLIElement>) => {
     event.dataTransfer.setData("application/bunya-service", def.type);
     event.dataTransfer.effectAllowed = "copy";
@@ -133,7 +132,7 @@ function ServiceCard({
       <span
         className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md ${theme.tile} ${theme.tileText}`}
       >
-        <Icon size={20} strokeWidth={1.75} aria-hidden />
+        <ServiceIcon type={def.type} size={20} strokeWidth={1.75} aria-hidden />
       </span>
       <span className="flex min-w-0 flex-col">
         <span className="truncate text-sm font-medium leading-tight">{def.label}</span>

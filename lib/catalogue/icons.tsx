@@ -1,28 +1,18 @@
-import {
-  Boxes,
-  Network,
-  Layers,
-  ShieldCheck,
-  Link2,
-  Server,
-  Globe,
-  Zap,
-  FileCode2,
-  Database,
-  HardDrive,
-  Orbit,
-  KeyRound,
-  Activity,
-  Terminal,
-  DoorOpen,
-  ShieldHalf,
-  Braces,
-  Container,
-  UserCog,
-  type LucideIcon,
-} from "lucide-react";
+import Image, { type ImageProps } from "next/image";
 import type { ServiceCategory } from "./services";
 import { ServiceType } from "@/lib/graph/schema";
+
+type ServiceIconAsset = {
+  src: string;
+  title: string;
+};
+
+export type ServiceIconProps = Omit<ImageProps, "alt" | "height" | "src" | "width"> & {
+  size?: number;
+  strokeWidth?: number;
+  title?: string;
+  type: ServiceType;
+};
 
 export const CATEGORY_THEME: Record<
   ServiceCategory,
@@ -72,29 +62,80 @@ export const CATEGORY_THEME: Record<
   },
 };
 
-export const SERVICE_ICONS: Record<ServiceType, LucideIcon> = {
-  resourceGroup: Boxes,
-  virtualNetwork: Network,
-  subnet: Layers,
-  networkSecurityGroup: ShieldCheck,
-  privateEndpoint: Link2,
-  appServicePlan: Server,
-  appService: Globe,
-  functionApp: Zap,
-  staticWebApp: FileCode2,
-  storageAccount: HardDrive,
-  sqlDatabase: Database,
-  cosmosDb: Orbit,
-  keyVault: KeyRound,
-  applicationInsights: Activity,
-  logAnalytics: Terminal,
-  frontDoor: DoorOpen,
-  applicationGateway: ShieldHalf,
-  apiManagement: Braces,
-  containerRegistry: Container,
-  userAssignedIdentity: UserCog,
+export const SERVICE_ICONS: Record<ServiceType, ServiceIconAsset> = {
+  resourceGroup: { src: "/azure-icons/resourceGroup.svg", title: "Resource Group" },
+  virtualNetwork: { src: "/azure-icons/virtualNetwork.svg", title: "Virtual Network" },
+  subnet: { src: "/azure-icons/subnet.svg", title: "Subnet" },
+  networkSecurityGroup: {
+    src: "/azure-icons/networkSecurityGroup.svg",
+    title: "Network Security Group",
+  },
+  privateEndpoint: { src: "/azure-icons/privateEndpoint.svg", title: "Private Endpoint" },
+  appServicePlan: { src: "/azure-icons/appServicePlan.svg", title: "App Service Plan" },
+  appService: { src: "/azure-icons/appService.svg", title: "App Service" },
+  functionApp: { src: "/azure-icons/functionApp.svg", title: "Function App" },
+  staticWebApp: { src: "/azure-icons/staticWebApp.svg", title: "Static Web App" },
+  storageAccount: { src: "/azure-icons/storageAccount.svg", title: "Storage Account" },
+  sqlDatabase: { src: "/azure-icons/sqlDatabase.svg", title: "Azure SQL Database" },
+  cosmosDb: { src: "/azure-icons/cosmosDb.svg", title: "Cosmos DB" },
+  keyVault: { src: "/azure-icons/keyVault.svg", title: "Key Vault" },
+  applicationInsights: {
+    src: "/azure-icons/applicationInsights.svg",
+    title: "Application Insights",
+  },
+  logAnalytics: {
+    src: "/azure-icons/logAnalytics.svg",
+    title: "Log Analytics Workspace",
+  },
+  frontDoor: { src: "/azure-icons/frontDoor.svg", title: "Front Door" },
+  applicationGateway: {
+    src: "/azure-icons/applicationGateway.svg",
+    title: "Application Gateway",
+  },
+  apiManagement: { src: "/azure-icons/apiManagement.svg", title: "API Management" },
+  containerRegistry: {
+    src: "/azure-icons/containerRegistry.svg",
+    title: "Container Registry",
+  },
+  userAssignedIdentity: {
+    src: "/azure-icons/userAssignedIdentity.svg",
+    title: "User-Assigned Managed Identity",
+  },
 };
 
-export function getServiceIcon(type: ServiceType): LucideIcon {
-  return SERVICE_ICONS[type] ?? Boxes;
+export function getServiceIcon(type: ServiceType): ServiceIconAsset {
+  return SERVICE_ICONS[type] ?? SERVICE_ICONS.resourceGroup;
+}
+
+export function ServiceIcon({
+  size = 20,
+  style,
+  strokeWidth: _strokeWidth,
+  title,
+  type,
+  ...props
+}: ServiceIconProps) {
+  void _strokeWidth;
+  const icon = getServiceIcon(type);
+  const label = title ?? icon.title;
+
+  return (
+    <Image
+      {...props}
+      alt={props["aria-hidden"] ? "" : label}
+      draggable={false}
+      height={size}
+      src={icon.src}
+      style={{
+        display: "block",
+        height: size,
+        objectFit: "contain",
+        width: size,
+        ...style,
+      }}
+      title={title}
+      unoptimized
+      width={size}
+    />
+  );
 }

@@ -2,7 +2,7 @@
 
 import { memo } from "react";
 import { Handle, NodeProps, Position } from "reactflow";
-import { getServiceIcon, CATEGORY_THEME } from "@/lib/catalogue/icons";
+import { CATEGORY_THEME, ServiceIcon } from "@/lib/catalogue/icons";
 import { getServiceDefinition } from "@/lib/catalogue/services";
 import { ServiceType } from "@/lib/graph/schema";
 
@@ -16,7 +16,6 @@ export type ServiceNodeData = {
 function ServiceNodeInner({ data, selected }: NodeProps<ServiceNodeData>) {
   const def = getServiceDefinition(data.serviceType);
   const theme = CATEGORY_THEME[def.category];
-  const Icon = getServiceIcon(data.serviceType);
   const active = selected || data.selected;
 
   return (
@@ -29,7 +28,7 @@ function ServiceNodeInner({ data, selected }: NodeProps<ServiceNodeData>) {
       <span
         className={`flex h-full w-14 shrink-0 items-center justify-center ${theme.tile} ${theme.tileText}`}
       >
-        <Icon size={26} strokeWidth={1.75} aria-hidden />
+        <ServiceIcon type={data.serviceType} size={26} strokeWidth={1.75} aria-hidden />
       </span>
       <div className="flex min-w-0 flex-1 flex-col justify-center px-2.5 py-2">
         <div className="truncate text-[12px] font-semibold leading-tight text-zinc-900 dark:text-zinc-50">
