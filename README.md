@@ -1,7 +1,12 @@
-# Bunya
+<p align="center">
+  <img src="docs/logo.png" alt="Bunya logo" width="240"/>
+</p>
 
-> Diagram-driven Azure Infrastructure as Code, with a rules engine that knows
-> when the picture is wrong.
+<h1 align="center">Bunya</h1>
+
+<p align="center">
+  <em>Diagram-driven Azure Infrastructure as Code, with a rules engine that knows when the picture is wrong.</em>
+</p>
 
 <p align="center">
   <img src="docs/screenshots/02-three-tier-canvas.png" alt="Bunya canvas with the three-tier private architecture template loaded" width="1100"/>
