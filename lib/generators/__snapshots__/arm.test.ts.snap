@@ -13,10 +13,6 @@ exports[`generateArm > snapshots first-cut ARM output 1`] = `
     "location": {
       "type": "string",
       "defaultValue": "australiaeast"
-    },
-    "sqlAdminPassword": {
-      "type": "securestring",
-      "defaultValue": "ReplaceMe!"
     }
   },
   "variables": {},

@@ -66,11 +66,18 @@ export function expandImplicits(document: GraphDocument): ExpandedGraph {
         (kind === undefined || e.kind === kind),
     );
 
-  if (!findFirstOfType("resourceGroup")) {
-    const rg = makeNode("resourceGroup", `rg-${document.metadata.name}`, { x: 0, y: 0 });
-    nodes.push(rg);
-    autoNodeIds.add(rg.id);
-    additions.push({ kind: "node", node: rg, reason: "no Resource Group present in graph" });
+  let resourceGroup = findFirstOfType("resourceGroup");
+  if (!resourceGroup) {
+    resourceGroup = makeNode("resourceGroup", `rg-${document.metadata.name}`, { x: 0, y: 0 });
+    nodes.push(resourceGroup);
+    autoNodeIds.add(resourceGroup.id);
+    additions.push({ kind: "node", node: resourceGroup, reason: "no Resource Group present in graph" });
+  }
+  for (let i = 0; i < nodes.length; i++) {
+    const n = nodes[i];
+    if (n.type === "resourceGroup") continue;
+    if (n.parentId) continue;
+    nodes[i] = { ...n, parentId: resourceGroup.id };
   }
 
   let plan = findFirstOfType("appServicePlan");

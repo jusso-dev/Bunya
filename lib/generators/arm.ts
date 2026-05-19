@@ -530,6 +530,14 @@ export function generateArm(document: GraphDocument): GeneratorResult {
   resources.push(...emitRoleAssignments(ctx));
   resources.push(...emitDiagnosticSettings(ctx));
 
+  const hasSql = ctx.document.nodes.some((n) => n.type === "sqlDatabase");
+  const templateParameters: Record<string, unknown> = {
+    location: { type: "string", defaultValue: document.metadata.region },
+  };
+  if (hasSql) {
+    templateParameters.sqlAdminPassword = { type: "securestring", defaultValue: "ReplaceMe!" };
+  }
+
   const template = {
     $schema:
       "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
@@ -539,26 +547,24 @@ export function generateArm(document: GraphDocument): GeneratorResult {
       document: document.metadata.name,
       environment: document.metadata.environment,
     },
-    parameters: {
-      location: {
-        type: "string",
-        defaultValue: document.metadata.region,
-      },
-      sqlAdminPassword: { type: "securestring", defaultValue: "ReplaceMe!" },
-    },
+    parameters: templateParameters,
     variables: {},
     resources,
     outputs: {},
   };
 
+  const paramFileParams: Record<string, unknown> = {
+    location: { value: document.metadata.region },
+  };
+  if (hasSql) {
+    paramFileParams.sqlAdminPassword = { value: "ReplaceMe!" };
+  }
+
   const parameters = {
     $schema:
       "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
     contentVersion: "1.0.0.0",
-    parameters: {
-      location: { value: document.metadata.region },
-      sqlAdminPassword: { value: "ReplaceMe!" },
-    },
+    parameters: paramFileParams,
   };
 
   const files: GeneratedFile[] = [

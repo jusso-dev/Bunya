@@ -10,8 +10,6 @@ exports[`generatePowerShell > snapshots first-cut script 1`] = `
     Resource Group to deploy into. Defaults to the value embedded in the document.
 .PARAMETER Location
     Azure region. Defaults to australiaeast.
-.PARAMETER SqlAdminPassword
-    Secure string for any SQL Server admin password.
 .NOTES
     Requires Az.Accounts, Az.Resources, Az.Websites, Az.Storage, Az.KeyVault,
     Az.Sql, Az.CosmosDB, Az.Network, Az.OperationalInsights, Az.ApplicationInsights,
@@ -21,8 +19,7 @@ exports[`generatePowerShell > snapshots first-cut script 1`] = `
 [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
 param(
     [string]$ResourceGroupName = 'rg-first-cut',
-    [string]$Location = 'australiaeast',
-    [Parameter(Mandatory)] [SecureString]$SqlAdminPassword
+    [string]$Location = 'australiaeast'
 )
 
 Set-StrictMode -Version Latest

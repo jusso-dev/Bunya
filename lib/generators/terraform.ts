@@ -3,12 +3,22 @@ import {
   GraphNode,
   ServiceType,
 } from "@/lib/graph/schema";
-import { GeneratorContext, autoComment, buildGeneratorContext, findFirstOfType, incomingOf, outgoingOf } from "./shared/context";
+import {
+  GeneratorContext,
+  autoComment,
+  buildGeneratorContext,
+  effectiveResourceGroup,
+  findFirstOfType,
+  incomingOf,
+  outgoingOf,
+  resolveVirtualNetwork,
+} from "./shared/context";
 import { GeneratorResult, GeneratedFile } from "./types";
 
-function rgRef(ctx: GeneratorContext): string {
-  if (!ctx.rgNode) return "azurerm_resource_group.main";
-  return `azurerm_resource_group.${ctx.identifiers.get(ctx.rgNode.id)}`;
+function rgRef(ctx: GeneratorContext, node?: GraphNode): string {
+  const rg = node ? effectiveResourceGroup(ctx, node) : ctx.rgNode;
+  if (!rg) return "azurerm_resource_group.main";
+  return `azurerm_resource_group.${ctx.identifiers.get(rg.id)}`;
 }
 
 function ref(ctx: GeneratorContext, id: string, resource: string, attr: string): string {
@@ -47,8 +57,8 @@ function emitVirtualNetwork(node: GraphNode, ctx: GeneratorContext): string {
     autoComment(ctx, node.id),
     `resource "azurerm_virtual_network" "${ident}" {`,
     `  name                = "${ctx.resourceNames.get(node.id)}"`,
-    `  resource_group_name = ${rgRef(ctx)}.name`,
-    `  location            = ${rgRef(ctx)}.location`,
+    `  resource_group_name = ${rgRef(ctx, node)}.name`,
+    `  location            = ${rgRef(ctx, node)}.location`,
     `  address_space       = ["${address}"]`,
     tagsBlock(ctx, node),
     `}`,
@@ -59,18 +69,15 @@ function emitSubnet(node: GraphNode, ctx: GeneratorContext): string {
   const ident = ctx.identifiers.get(node.id);
   const prefix = (node.properties.addressPrefix as string) ?? "10.0.1.0/24";
   const policies = (node.properties.privateEndpointNetworkPolicies as string) ?? "Disabled";
-  const vnetEdge = outgoingOf(ctx, node.id, "depends_on").find((e) => {
-    const t = ctx.nodesById.get(e.target);
-    return t?.type === "virtualNetwork";
-  });
-  const vnetRef = vnetEdge
-    ? `azurerm_virtual_network.${ctx.identifiers.get(vnetEdge.target)}.name`
+  const vnet = resolveVirtualNetwork(ctx, node);
+  const vnetRef = vnet
+    ? `azurerm_virtual_network.${ctx.identifiers.get(vnet.id)}.name`
     : `azurerm_virtual_network.main.name`;
   return [
     autoComment(ctx, node.id),
     `resource "azurerm_subnet" "${ident}" {`,
     `  name                              = "${ctx.resourceNames.get(node.id)}"`,
-    `  resource_group_name               = ${rgRef(ctx)}.name`,
+    `  resource_group_name               = ${rgRef(ctx, node)}.name`,
     `  virtual_network_name              = ${vnetRef}`,
     `  address_prefixes                  = ["${prefix}"]`,
     `  private_endpoint_network_policies = "${policies}"`,
@@ -84,8 +91,8 @@ function emitNsg(node: GraphNode, ctx: GeneratorContext): string {
     autoComment(ctx, node.id),
     `resource "azurerm_network_security_group" "${ident}" {`,
     `  name                = "${ctx.resourceNames.get(node.id)}"`,
-    `  resource_group_name = ${rgRef(ctx)}.name`,
-    `  location            = ${rgRef(ctx)}.location`,
+    `  resource_group_name = ${rgRef(ctx, node)}.name`,
+    `  location            = ${rgRef(ctx, node)}.location`,
     tagsBlock(ctx, node),
     `}`,
   ].filter(Boolean).join("\n");
@@ -124,8 +131,8 @@ function emitPrivateEndpoint(node: GraphNode, ctx: GeneratorContext): string {
     autoComment(ctx, node.id),
     `resource "azurerm_private_endpoint" "${ident}" {`,
     `  name                = "${ctx.resourceNames.get(node.id)}"`,
-    `  resource_group_name = ${rgRef(ctx)}.name`,
-    `  location            = ${rgRef(ctx)}.location`,
+    `  resource_group_name = ${rgRef(ctx, node)}.name`,
+    `  location            = ${rgRef(ctx, node)}.location`,
     `  subnet_id           = ${subnetId}`,
     ``,
     `  private_service_connection {`,
@@ -147,8 +154,8 @@ function emitAppServicePlan(node: GraphNode, ctx: GeneratorContext): string {
     autoComment(ctx, node.id),
     `resource "azurerm_service_plan" "${ident}" {`,
     `  name                = "${ctx.resourceNames.get(node.id)}"`,
-    `  resource_group_name = ${rgRef(ctx)}.name`,
-    `  location            = ${rgRef(ctx)}.location`,
+    `  resource_group_name = ${rgRef(ctx, node)}.name`,
+    `  location            = ${rgRef(ctx, node)}.location`,
     `  os_type             = "${os}"`,
     `  sku_name            = "${sku}"`,
     tagsBlock(ctx, node),
@@ -204,8 +211,8 @@ function emitAppService(node: GraphNode, ctx: GeneratorContext): string {
     autoComment(ctx, node.id),
     `resource "azurerm_linux_web_app" "${ident}" {`,
     `  name                          = "${ctx.resourceNames.get(node.id)}"`,
-    `  resource_group_name           = ${rgRef(ctx)}.name`,
-    `  location                      = ${rgRef(ctx)}.location`,
+    `  resource_group_name           = ${rgRef(ctx, node)}.name`,
+    `  location                      = ${rgRef(ctx, node)}.location`,
     `  service_plan_id               = ${planRef}`,
     `  https_only                    = ${httpsOnly}`,
     `  public_network_access_enabled = ${publicNetworkAccess}`,
@@ -253,8 +260,8 @@ function emitFunctionApp(node: GraphNode, ctx: GeneratorContext): string {
     autoComment(ctx, node.id),
     `resource "azurerm_linux_function_app" "${ident}" {`,
     `  name                          = "${ctx.resourceNames.get(node.id)}"`,
-    `  resource_group_name           = ${rgRef(ctx)}.name`,
-    `  location                      = ${rgRef(ctx)}.location`,
+    `  resource_group_name           = ${rgRef(ctx, node)}.name`,
+    `  location                      = ${rgRef(ctx, node)}.location`,
     `  service_plan_id               = ${planRef}`,
     `  storage_account_name          = ${storageName}`,
     `  storage_account_access_key    = ${storageKey}`,
@@ -282,8 +289,8 @@ function emitStaticWebApp(node: GraphNode, ctx: GeneratorContext): string {
     autoComment(ctx, node.id),
     `resource "azurerm_static_web_app" "${ident}" {`,
     `  name                = "${ctx.resourceNames.get(node.id)}"`,
-    `  resource_group_name = ${rgRef(ctx)}.name`,
-    `  location            = ${rgRef(ctx)}.location`,
+    `  resource_group_name = ${rgRef(ctx, node)}.name`,
+    `  location            = ${rgRef(ctx, node)}.location`,
     `  sku_tier            = "${sku}"`,
     `  sku_size            = "${sku}"`,
     tagsBlock(ctx, node),
@@ -305,8 +312,8 @@ function emitStorageAccount(node: GraphNode, ctx: GeneratorContext): string {
     autoComment(ctx, node.id),
     `resource "azurerm_storage_account" "${ident}" {`,
     `  name                            = "${ctx.resourceNames.get(node.id)}"`,
-    `  resource_group_name             = ${rgRef(ctx)}.name`,
-    `  location                        = ${rgRef(ctx)}.location`,
+    `  resource_group_name             = ${rgRef(ctx, node)}.name`,
+    `  location                        = ${rgRef(ctx, node)}.location`,
     `  account_tier                    = "${tier}"`,
     `  account_replication_type        = "${replication}"`,
     `  account_kind                    = "${kind}"`,
@@ -339,8 +346,8 @@ function emitSqlDatabase(node: GraphNode, ctx: GeneratorContext): string {
     autoComment(ctx, node.id),
     `resource "azurerm_mssql_server" "${ident}" {`,
     `  name                         = "${ctx.resourceNames.get(node.id)}-srv"`,
-    `  resource_group_name          = ${rgRef(ctx)}.name`,
-    `  location                     = ${rgRef(ctx)}.location`,
+    `  resource_group_name          = ${rgRef(ctx, node)}.name`,
+    `  location                     = ${rgRef(ctx, node)}.location`,
     `  version                      = "12.0"`,
     `  administrator_login          = "${admin}"`,
     `  administrator_login_password = var.sql_admin_password`,
@@ -366,8 +373,8 @@ function emitCosmosDb(node: GraphNode, ctx: GeneratorContext): string {
     autoComment(ctx, node.id),
     `resource "azurerm_cosmosdb_account" "${ident}" {`,
     `  name                = "${ctx.resourceNames.get(node.id)}"`,
-    `  resource_group_name = ${rgRef(ctx)}.name`,
-    `  location            = ${rgRef(ctx)}.location`,
+    `  resource_group_name = ${rgRef(ctx, node)}.name`,
+    `  location            = ${rgRef(ctx, node)}.location`,
     `  offer_type          = "Standard"`,
     `  kind                = "GlobalDocumentDB"`,
     `  enable_free_tier    = ${freeTier}`,
@@ -377,7 +384,7 @@ function emitCosmosDb(node: GraphNode, ctx: GeneratorContext): string {
     `  }`,
     ``,
     `  geo_location {`,
-    `    location          = ${rgRef(ctx)}.location`,
+    `    location          = ${rgRef(ctx, node)}.location`,
     `    failover_priority = 0`,
     `  }`,
     tagsBlock(ctx, node),
@@ -396,8 +403,8 @@ function emitKeyVault(node: GraphNode, ctx: GeneratorContext): string {
     autoComment(ctx, node.id),
     `resource "azurerm_key_vault" "${ident}" {`,
     `  name                          = "${ctx.resourceNames.get(node.id)}"`,
-    `  resource_group_name           = ${rgRef(ctx)}.name`,
-    `  location                      = ${rgRef(ctx)}.location`,
+    `  resource_group_name           = ${rgRef(ctx, node)}.name`,
+    `  location                      = ${rgRef(ctx, node)}.location`,
     `  tenant_id                     = data.azurerm_client_config.current.tenant_id`,
     `  sku_name                      = "${sku}"`,
     `  purge_protection_enabled      = ${purgeProtection}`,
@@ -457,8 +464,8 @@ function emitAppInsights(node: GraphNode, ctx: GeneratorContext): string {
     autoComment(ctx, node.id),
     `resource "azurerm_application_insights" "${ident}" {`,
     `  name                = "${ctx.resourceNames.get(node.id)}"`,
-    `  resource_group_name = ${rgRef(ctx)}.name`,
-    `  location            = ${rgRef(ctx)}.location`,
+    `  resource_group_name = ${rgRef(ctx, node)}.name`,
+    `  location            = ${rgRef(ctx, node)}.location`,
     `  application_type    = "${(node.properties.type as string) ?? "web"}"`,
     `  workspace_id        = ${workspaceRef}`,
     tagsBlock(ctx, node),
@@ -474,8 +481,8 @@ function emitLogAnalytics(node: GraphNode, ctx: GeneratorContext): string {
     autoComment(ctx, node.id),
     `resource "azurerm_log_analytics_workspace" "${ident}" {`,
     `  name                = "${ctx.resourceNames.get(node.id)}"`,
-    `  resource_group_name = ${rgRef(ctx)}.name`,
-    `  location            = ${rgRef(ctx)}.location`,
+    `  resource_group_name = ${rgRef(ctx, node)}.name`,
+    `  location            = ${rgRef(ctx, node)}.location`,
     `  sku                 = "${sku}"`,
     `  retention_in_days   = ${retention}`,
     tagsBlock(ctx, node),
@@ -490,7 +497,7 @@ function emitFrontDoor(node: GraphNode, ctx: GeneratorContext): string {
     autoComment(ctx, node.id),
     `resource "azurerm_cdn_frontdoor_profile" "${ident}" {`,
     `  name                = "${ctx.resourceNames.get(node.id)}"`,
-    `  resource_group_name = ${rgRef(ctx)}.name`,
+    `  resource_group_name = ${rgRef(ctx, node)}.name`,
     `  sku_name            = "${sku}"`,
     tagsBlock(ctx, node),
     `}`,
@@ -507,8 +514,8 @@ function emitApplicationGateway(node: GraphNode, ctx: GeneratorContext): string 
     `# Bunya emits the resource shell; configure pools to match your backends.`,
     `resource "azurerm_application_gateway" "${ident}" {`,
     `  name                = "${ctx.resourceNames.get(node.id)}"`,
-    `  resource_group_name = ${rgRef(ctx)}.name`,
-    `  location            = ${rgRef(ctx)}.location`,
+    `  resource_group_name = ${rgRef(ctx, node)}.name`,
+    `  location            = ${rgRef(ctx, node)}.location`,
     ``,
     `  sku {`,
     `    name     = "${sku}"`,
@@ -530,8 +537,8 @@ function emitApiManagement(node: GraphNode, ctx: GeneratorContext): string {
     autoComment(ctx, node.id),
     `resource "azurerm_api_management" "${ident}" {`,
     `  name                = "${ctx.resourceNames.get(node.id)}"`,
-    `  resource_group_name = ${rgRef(ctx)}.name`,
-    `  location            = ${rgRef(ctx)}.location`,
+    `  resource_group_name = ${rgRef(ctx, node)}.name`,
+    `  location            = ${rgRef(ctx, node)}.location`,
     `  publisher_name      = "${name}"`,
     `  publisher_email     = "${email}"`,
     `  sku_name            = "${sku}_0"`,
@@ -549,8 +556,8 @@ function emitContainerRegistry(node: GraphNode, ctx: GeneratorContext): string {
     autoComment(ctx, node.id),
     `resource "azurerm_container_registry" "${ident}" {`,
     `  name                          = "${ctx.resourceNames.get(node.id)}"`,
-    `  resource_group_name           = ${rgRef(ctx)}.name`,
-    `  location                      = ${rgRef(ctx)}.location`,
+    `  resource_group_name           = ${rgRef(ctx, node)}.name`,
+    `  location                      = ${rgRef(ctx, node)}.location`,
     `  sku                           = "${sku}"`,
     `  admin_enabled                 = ${admin}`,
     `  public_network_access_enabled = ${publicNet}`,
@@ -565,8 +572,8 @@ function emitUserAssignedIdentity(node: GraphNode, ctx: GeneratorContext): strin
     autoComment(ctx, node.id),
     `resource "azurerm_user_assigned_identity" "${ident}" {`,
     `  name                = "${ctx.resourceNames.get(node.id)}"`,
-    `  resource_group_name = ${rgRef(ctx)}.name`,
-    `  location            = ${rgRef(ctx)}.location`,
+    `  resource_group_name = ${rgRef(ctx, node)}.name`,
+    `  location            = ${rgRef(ctx, node)}.location`,
     tagsBlock(ctx, node),
     `}`,
   ].filter(Boolean).join("\n");
@@ -662,28 +669,33 @@ function renderVersionsFile(): GeneratedFile {
   };
 }
 
-function renderVariablesFile(document: GraphDocument): GeneratedFile {
-  return {
-    path: "variables.tf",
-    language: "hcl",
-    content: [
-      `variable "location" {`,
-      `  type    = string`,
-      `  default = "${document.metadata.region}"`,
-      `}`,
-      ``,
-      `variable "environment" {`,
-      `  type    = string`,
-      `  default = "${document.metadata.environment}"`,
-      `}`,
-      ``,
+function renderVariablesFile(document: GraphDocument, includeSqlAdmin: boolean): GeneratedFile {
+  const lines = [
+    `variable "location" {`,
+    `  type    = string`,
+    `  default = "${document.metadata.region}"`,
+    `}`,
+    ``,
+    `variable "environment" {`,
+    `  type    = string`,
+    `  default = "${document.metadata.environment}"`,
+    `}`,
+    ``,
+  ];
+  if (includeSqlAdmin) {
+    lines.push(
       `variable "sql_admin_password" {`,
       `  type      = string`,
       `  sensitive = true`,
       `  default   = "ReplaceMeUsingTFVars!"`,
       `}`,
       ``,
-    ].join("\n"),
+    );
+  }
+  return {
+    path: "variables.tf",
+    language: "hcl",
+    content: lines.join("\n"),
   };
 }
 
@@ -742,10 +754,11 @@ export function generateTerraform(document: GraphDocument): GeneratorResult {
   const diag = emitDiagnostics(ctx);
   if (diag) blocks.push(diag, "");
 
+  const hasSql = ctx.document.nodes.some((n) => n.type === "sqlDatabase");
   const files: GeneratedFile[] = [
     renderVersionsFile(),
     { path: "main.tf", language: "hcl", content: blocks.join("\n") },
-    renderVariablesFile(document),
+    renderVariablesFile(document, hasSql),
     renderOutputsFile(ctx),
   ];
   return { ok: true, files };

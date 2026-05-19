@@ -6,8 +6,6 @@ exports[`generateAzCli > emits deploy.sh and snapshots first-cut output 1`] = `
 # Document: first-cut (dev)
 set -euo pipefail
 
-: "\${SQL_ADMIN_PASSWORD:?Set SQL_ADMIN_PASSWORD before running this script}"
-
 echo "Checking Azure CLI login..."
 az account show --only-show-errors >/dev/null || {
   echo "Run 'az login' first." >&2

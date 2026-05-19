@@ -2,8 +2,8 @@ import { GraphDocument, GraphNode } from "@/lib/graph/schema";
 import { GeneratorContext, buildGeneratorContext, outgoingOf } from "./shared/context";
 import { GeneratedFile, GeneratorResult } from "./types";
 
-function header(document: GraphDocument): string[] {
-  return [
+function header(document: GraphDocument, includeSqlAdmin: boolean): string[] {
+  const lines = [
     `<#`,
     `.SYNOPSIS`,
     `    Deploys the ${document.metadata.name} architecture to Azure using the Az module.`,
@@ -13,14 +13,21 @@ function header(document: GraphDocument): string[] {
     `    Resource Group to deploy into. Defaults to the value embedded in the document.`,
     `.PARAMETER Location`,
     `    Azure region. Defaults to ${document.metadata.region}.`,
-    `.PARAMETER SqlAdminPassword`,
-    `    Secure string for any SQL Server admin password.`,
+  ];
+  if (includeSqlAdmin) {
+    lines.push(
+      `.PARAMETER SqlAdminPassword`,
+      `    Secure string for the SQL Server admin password.`,
+    );
+  }
+  lines.push(
     `.NOTES`,
     `    Requires Az.Accounts, Az.Resources, Az.Websites, Az.Storage, Az.KeyVault,`,
     `    Az.Sql, Az.CosmosDB, Az.Network, Az.OperationalInsights, Az.ApplicationInsights,`,
     `    Az.ApiManagement, Az.ContainerRegistry, Az.ManagedServiceIdentity.`,
     `#>`,
-  ];
+  );
+  return lines;
 }
 
 function emitNode(node: GraphNode, ctx: GeneratorContext): string[] {
@@ -295,14 +302,21 @@ export function generatePowerShell(document: GraphDocument): GeneratorResult {
     return { ok: false, reason: "cycle detected", cycle: ctx.topo.cycle };
   }
   const rg = ctx.rgNode ? ctx.resourceNames.get(ctx.rgNode.id) : document.metadata.resourceGroupName;
+  const hasSql = ctx.document.nodes.some((n) => n.type === "sqlDatabase");
+  const paramLines = [
+    `    [string]$ResourceGroupName = '${rg}',`,
+    `    [string]$Location = '${document.metadata.region}'`,
+  ];
+  if (hasSql) {
+    paramLines[paramLines.length - 1] = paramLines[paramLines.length - 1] + ",";
+    paramLines.push(`    [Parameter(Mandatory)] [SecureString]$SqlAdminPassword`);
+  }
   const lines: string[] = [
-    ...header(document),
+    ...header(document, hasSql),
     ``,
     `[CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]`,
     `param(`,
-    `    [string]$ResourceGroupName = '${rg}',`,
-    `    [string]$Location = '${document.metadata.region}',`,
-    `    [Parameter(Mandatory)] [SecureString]$SqlAdminPassword`,
+    ...paramLines,
     `)`,
     ``,
     `Set-StrictMode -Version Latest`,

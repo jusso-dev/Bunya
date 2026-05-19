@@ -34,10 +34,10 @@ export const firstCutGraph: GraphDocument = {
   },
   nodes: [
     fixedNode("rg", "resourceGroup", "Main RG", "rg-first-cut", 0, 0),
-    fixedNode("plan", "appServicePlan", "Web Plan", "plan-first-cut", 200, 0),
-    fixedNode("app", "appService", "API Web App", "app-first-cut", 400, 0),
-    fixedNode("stg", "storageAccount", "Blob Storage", "firstcutstg", 600, 0),
-    fixedNode("kv", "keyVault", "Secrets Vault", "kv-first-cut", 800, 0),
+    { ...fixedNode("plan", "appServicePlan", "Web Plan", "plan-first-cut", 200, 0), parentId: "rg" },
+    { ...fixedNode("app", "appService", "API Web App", "app-first-cut", 400, 0), parentId: "rg" },
+    { ...fixedNode("stg", "storageAccount", "Blob Storage", "firstcutstg", 600, 0), parentId: "rg" },
+    { ...fixedNode("kv", "keyVault", "Secrets Vault", "kv-first-cut", 800, 0), parentId: "rg" },
   ],
   edges: [
     { id: "e1", source: "app", target: "plan", kind: "depends_on" },

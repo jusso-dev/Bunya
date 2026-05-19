@@ -17,9 +17,6 @@ param location string = 'australiaeast'
 ])
 param environmentTag string = 'dev'
 
-@secure()
-param sqlAdminPassword string
-
 resource app_first_cut 'Microsoft.Web/sites@2023-12-01' = {
   name: 'app-first-cut'
   location: location
