@@ -33,8 +33,6 @@ const EDGE_COLOUR: Record<EdgeKind, string> = {
   diagnostic: "#7c3aed",
 };
 
-const NODE_TYPES = { service: ServiceNode };
-
 function defaultResourceName(type: ServiceType, index: number): string {
   const slug = type
     .replace(/([A-Z])/g, "-$1")
@@ -58,8 +56,9 @@ function CanvasInner() {
 
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const [rfInstance, setRfInstance] = useState<ReactFlowInstance | null>(null);
-  const { project } = useReactFlow();
+  const { screenToFlowPosition } = useReactFlow();
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const nodeTypes = useMemo(() => ({ service: ServiceNode }), []);
 
   const nodes = useMemo<Node<ServiceNodeData>[]>(() => {
     return document.nodes.map((n) => ({
@@ -165,12 +164,10 @@ function CanvasInner() {
       event.preventDefault();
       const type = event.dataTransfer.getData("application/bunya-service") as ServiceType | "";
       if (!type) return;
-      const wrapper = reactFlowWrapper.current;
-      if (!wrapper || !rfInstance) return;
-      const bounds = wrapper.getBoundingClientRect();
-      const position = project({
-        x: event.clientX - bounds.left,
-        y: event.clientY - bounds.top,
+      if (!rfInstance) return;
+      const position = screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
       });
       const def = getServiceDefinition(type);
       const index = counterRef.current++;
@@ -182,7 +179,7 @@ function CanvasInner() {
         properties: { ...def.defaultProperties },
       });
     },
-    [addNode, project, rfInstance],
+    [addNode, rfInstance, screenToFlowPosition],
   );
 
   const handleKeyDown = useCallback(
@@ -217,7 +214,7 @@ function CanvasInner() {
       <ReactFlow
         nodes={nodes}
         edges={edges}
-        nodeTypes={NODE_TYPES}
+        nodeTypes={nodeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
