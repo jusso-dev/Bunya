@@ -1,0 +1,30 @@
+{
+  "source": "Bunya — App Service Plan rule expansion",
+  "upstream_revision": "2026-05-19",
+  "upstreams": [
+    {
+      "name": "PSRule for Azure",
+      "url": "https://azure.github.io/PSRule.Rules.Azure/",
+      "license": "MIT"
+    },
+    {
+      "name": "Azure Policy built-ins",
+      "url": "https://learn.microsoft.com/en-us/azure/governance/policy/samples/built-in-policies",
+      "license": "CC-BY-4.0"
+    },
+    {
+      "name": "Checkov for Azure",
+      "url": "https://docs.bridgecrew.io/",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "Microsoft Learn",
+      "url": "https://learn.microsoft.com/en-us/azure/",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "generated_at": "2026-05-19T00:00:00Z",
+  "generator": "lib/rules/sources/expansion-app-service-plan/import.ts",
+  "rule_count": 6,
+  "notes": "Expands appServicePlan coverage past the 5 existing rules with a mix of enforceable predicates (MIN-PLAN, INSTANCES, NAM) and advisory entries for controls Bunya's property model cannot evaluate (AUTOSCALE, RELIABILITY-ZONES, FORCED-HTTPS). The companion graph-level bundle lives at lib/rules/graph-rules/expansion-app-service-plan.ts."
+}
