@@ -18,9 +18,20 @@ export function PropertiesPanel() {
   if (!node) {
     return (
       <section className="flex w-80 flex-col gap-3 border-l border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-          Document
-        </h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+            Document
+          </h2>
+          <button
+            type="button"
+            onClick={() => useGraphStore.getState().togglePanel("properties")}
+            className="rounded p-1 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+            aria-label="Collapse properties"
+            title="Collapse"
+          >
+            ›
+          </button>
+        </div>
         <label className="space-y-1">
           <span className="text-[11px] font-medium text-zinc-500">Name</span>
           <input
@@ -88,9 +99,20 @@ function NodeProperties({ node }: { node: GraphNode }) {
   return (
     <section className="flex w-80 flex-col gap-3 overflow-y-auto border-l border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
       <header className="space-y-1">
-        <p className="text-[11px] uppercase tracking-wide text-zinc-500">
-          {def.label}
-        </p>
+        <div className="flex items-center justify-between">
+          <p className="text-[11px] uppercase tracking-wide text-zinc-500">
+            {def.label}
+          </p>
+          <button
+            type="button"
+            onClick={() => useGraphStore.getState().togglePanel("properties")}
+            className="rounded p-1 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+            aria-label="Collapse properties"
+            title="Collapse"
+          >
+            ›
+          </button>
+        </div>
         <input
           value={node.name}
           onChange={(e) => updateNode(node.id, { name: e.target.value })}

@@ -58,9 +58,20 @@ export function ServicePalette() {
   return (
     <aside className="flex w-72 flex-col gap-3 border-r border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
       <header className="space-y-2">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-          Services ({listServices().length})
-        </h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+            Services ({listServices().length})
+          </h2>
+          <button
+            type="button"
+            onClick={() => useGraphStore.getState().togglePanel("palette")}
+            className="rounded p-1 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+            aria-label="Collapse palette"
+            title="Collapse"
+          >
+            ‹
+          </button>
+        </div>
         <input
           value={filter}
           onChange={(e) => setFilter(e.target.value)}

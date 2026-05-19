@@ -12,12 +12,15 @@ import {
 type AddNodeInput = Omit<GraphNode, "id">;
 type AddEdgeInput = Omit<GraphEdge, "id">;
 
+export type PanelId = "palette" | "properties" | "output" | "validation";
+
 export type GraphStoreState = {
   document: GraphDocument;
   selectedNodeId: string | null;
   selectedEdgeId: string | null;
   history: GraphDocument[];
   future: GraphDocument[];
+  collapsed: Record<PanelId, boolean>;
 };
 
 export type GraphStoreActions = {
@@ -36,6 +39,8 @@ export type GraphStoreActions = {
   reset: (doc?: GraphDocument) => void;
   undo: () => void;
   redo: () => void;
+  togglePanel: (id: PanelId) => void;
+  setPanelCollapsed: (id: PanelId, collapsed: boolean) => void;
 };
 
 export type GraphStore = GraphStoreState & GraphStoreActions;
@@ -53,6 +58,19 @@ const graphStoreInitializer: StateCreator<GraphStore> = (set, get) => ({
   selectedEdgeId: null,
   history: [],
   future: [],
+  collapsed: { palette: false, properties: false, output: false, validation: false },
+
+  togglePanel: (id) => {
+    set((state) => ({
+      collapsed: { ...state.collapsed, [id]: !state.collapsed[id] },
+    }));
+  },
+
+  setPanelCollapsed: (id, collapsed) => {
+    set((state) => ({
+      collapsed: { ...state.collapsed, [id]: collapsed },
+    }));
+  },
 
   addNode: (input) => {
     const id = ulid();

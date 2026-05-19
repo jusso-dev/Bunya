@@ -14,6 +14,35 @@ import {
 } from "@/lib/graph/serialise";
 import { emptyGraph } from "@/lib/graph/schema";
 
+function PanelToggles() {
+  const collapsed = useGraphStore((s) => s.collapsed);
+  const togglePanel = useGraphStore((s) => s.togglePanel);
+  const items: { id: "palette" | "properties" | "output"; label: string }[] = [
+    { id: "palette", label: "Palette" },
+    { id: "properties", label: "Properties" },
+    { id: "output", label: "Output" },
+  ];
+  return (
+    <div className="flex items-center gap-1">
+      {items.map((it) => (
+        <button
+          key={it.id}
+          type="button"
+          onClick={() => togglePanel(it.id)}
+          className={`rounded-md border px-2 py-1 text-xs font-medium ${
+            collapsed[it.id]
+              ? "border-zinc-200 bg-zinc-100 text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-500"
+              : "border-zinc-300 bg-white text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
+          }`}
+          title={collapsed[it.id] ? `Show ${it.label}` : `Hide ${it.label}`}
+        >
+          {it.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function Toolbar() {
   const document = useGraphStore((s) => s.document);
   const undo = useGraphStore((s) => s.undo);
@@ -82,6 +111,8 @@ export function Toolbar() {
         </span>
       </div>
       <div className="ml-auto flex items-center gap-2">
+        <PanelToggles />
+        <span className="h-5 w-px bg-zinc-200 dark:bg-zinc-800" />
         <button
           type="button"
           onClick={undo}

@@ -76,9 +76,20 @@ export function OutputTabs() {
 
   const active = results.find((r) => r.tab.id === activeId);
 
+  const togglePanel = useGraphStore.getState().togglePanel;
+
   return (
     <section className="flex w-[34rem] flex-col border-l border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
       <div className="flex items-center gap-1 border-b border-zinc-200 px-1.5 py-1 dark:border-zinc-800">
+        <button
+          type="button"
+          onClick={() => togglePanel("output")}
+          className="rounded p-1 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+          aria-label="Collapse output"
+          title="Collapse output"
+        >
+          ›
+        </button>
         {TABS.map((t) => (
           <button
             key={t.id}
