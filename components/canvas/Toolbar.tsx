@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useGraphStore } from "@/lib/graph/store";
 import { STARTER_TEMPLATES, getTemplateById } from "@/lib/catalogue/templates";
 import {
@@ -12,6 +12,15 @@ import {
   deserialiseFromFragment,
   shareUrlFromFragment,
 } from "@/lib/graph/serialise";
+import {
+  buildEnvelope,
+  envelopeToBlob,
+  isPortableFile,
+  parsePortable,
+  PORTABLE_EXTENSION,
+  readFileAsText,
+  suggestedFilename,
+} from "@/lib/graph/portable";
 import { emptyGraph } from "@/lib/graph/schema";
 
 function PanelToggles() {
@@ -52,6 +61,7 @@ export function Toolbar() {
 
   const [shareMessage, setShareMessage] = useState<string | null>(null);
   const [templateOpen, setTemplateOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -100,6 +110,48 @@ export function Toolbar() {
     reset(emptyGraph("untitled"));
     if (typeof window !== "undefined") window.history.replaceState(null, "", "#");
   };
+
+  const onExport = useCallback(() => {
+    const envelope = buildEnvelope(document);
+    const blob = envelopeToBlob(envelope);
+    const url = URL.createObjectURL(blob);
+    const a = window.document.createElement("a");
+    a.href = url;
+    a.download = suggestedFilename(document);
+    a.click();
+    URL.revokeObjectURL(url);
+    setShareMessage(`Exported ${a.download}.`);
+  }, [document]);
+
+  const importFromFile = useCallback(
+    async (file: File) => {
+      if (!isPortableFile(file)) {
+        setShareMessage(`Skipped ${file.name}: not a Bunya export.`);
+        return;
+      }
+      const text = await readFileAsText(file);
+      const result = parsePortable(text);
+      if (!result.ok) {
+        setShareMessage(`Import failed: ${result.reason}`);
+        return;
+      }
+      replaceDocument(result.document);
+      if (typeof window !== "undefined") window.history.replaceState(null, "", "#");
+      setShareMessage(`Imported ${file.name} (${result.document.nodes.length} nodes).`);
+    },
+    [replaceDocument],
+  );
+
+  const onImportClick = () => fileInputRef.current?.click();
+
+  const onFileChange = useCallback(
+    async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (file) await importFromFile(file);
+      event.target.value = "";
+    },
+    [importFromFile],
+  );
 
   return (
     <header className="relative flex items-center gap-2 border-b border-zinc-200 bg-white px-4 py-2 dark:border-zinc-800 dark:bg-zinc-950">
@@ -153,6 +205,22 @@ export function Toolbar() {
         </div>
         <button
           type="button"
+          onClick={onImportClick}
+          className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+          title={`Import a ${PORTABLE_EXTENSION} file`}
+        >
+          Import
+        </button>
+        <button
+          type="button"
+          onClick={onExport}
+          className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+          title={`Download as ${PORTABLE_EXTENSION}`}
+        >
+          Export
+        </button>
+        <button
+          type="button"
           onClick={onShare}
           className="rounded-md bg-zinc-900 px-2 py-1 text-xs font-medium text-white hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900"
         >
@@ -165,6 +233,14 @@ export function Toolbar() {
         >
           New
         </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".json,application/json,application/x-bunya+json"
+          onChange={onFileChange}
+          className="hidden"
+          aria-label="Import Bunya file"
+        />
       </div>
       {shareMessage ? (
         <div className="absolute left-1/2 top-full mt-1 -translate-x-1/2 rounded-md border border-zinc-200 bg-white px-3 py-1 text-xs shadow dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">

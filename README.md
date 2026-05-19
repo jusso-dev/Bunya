@@ -109,9 +109,12 @@ Templates┘              │
    file, download any file, or hit "Download all" for a zip you can drop into
    a fresh repo and `terraform apply`.
 
-The whole thing is client-side. No backend, no accounts, no telemetry. Persistence
-is `localStorage` plus a "Share" button that gzips the graph JSON into a URL
-fragment.
+The whole thing is client-side. No backend, no accounts, no telemetry.
+Persistence is `localStorage` plus three escape hatches:
+
+- **Share URL** - gzips the graph into the URL fragment. Paste, open, same canvas.
+- **Export** - downloads a versioned `.bunya.json` envelope (`{ format, version, exportedAt, generator, document }`). Hand it to a colleague, attach it to a Jira ticket, check it into a repo. It survives schema migrations because it pins `schemaVersion` and runs through `lib/graph/migrate.ts` on load.
+- **Import** - via the toolbar button OR by dragging a `.bunya.json` file onto the canvas. Malformed files surface an explanation without clobbering the current graph.
 
 ## Generators
 

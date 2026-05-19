@@ -34,6 +34,7 @@ import {
 } from "@/lib/graph/schema";
 import { ServiceNode, ServiceNodeData } from "./ServiceNode";
 import { ContainerNode } from "./ContainerNode";
+import { isPortableFile, parsePortable, readFileAsText } from "@/lib/graph/portable";
 
 const EDGE_COLOUR: Record<EdgeKind, string> = {
   network: "#1d4ed8",
@@ -123,6 +124,7 @@ function CanvasInner() {
   const selectNode = useGraphStore((s) => s.selectNode);
   const selectEdge = useGraphStore((s) => s.selectEdge);
   const reparentNode = useGraphStore((s) => s.reparentNode);
+  const replaceDocument = useGraphStore((s) => s.replaceDocument);
 
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const [rfInstance, setRfInstance] = useState<ReactFlowInstance | null>(null);
@@ -316,6 +318,24 @@ function CanvasInner() {
   const onDrop = useCallback(
     (event: React.DragEvent<HTMLDivElement>) => {
       event.preventDefault();
+      const files = event.dataTransfer?.files;
+      if (files && files.length > 0) {
+        const file = Array.from(files).find(isPortableFile);
+        if (file) {
+          void (async () => {
+            const text = await readFileAsText(file);
+            const result = parsePortable(text);
+            if (result.ok) {
+              replaceDocument(result.document);
+              if (typeof window !== "undefined") window.history.replaceState(null, "", "#");
+              setConnectionError(null);
+            } else {
+              setConnectionError(`Import failed: ${result.reason}`);
+            }
+          })();
+          return;
+        }
+      }
       const type = event.dataTransfer.getData("application/bunya-service") as ServiceType | "";
       if (!type) return;
       if (!rfInstance) return;
@@ -342,7 +362,7 @@ function CanvasInner() {
         size: isContainerType(type) ? DEFAULT_CONTAINER_SIZE[type] : undefined,
       });
     },
-    [addNode, document, rfInstance, screenToFlowPosition],
+    [addNode, document, replaceDocument, rfInstance, screenToFlowPosition],
   );
 
   const handleKeyDown = useCallback(
