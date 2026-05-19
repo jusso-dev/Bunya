@@ -9,6 +9,10 @@ import { ISM_RULES } from "./sources/ism/generated";
 import { ESSENTIAL_EIGHT_RULES } from "./sources/essential-eight/generated";
 import { PRIVATE_LINK_RULES } from "./sources/private-link-faq/generated";
 import { WELL_KNOWN_PATTERN_RULES } from "./sources/well-known-patterns/generated";
+import { EXPANSION_APP_INSIGHTS_RULES } from "./sources/expansion-app-insights/generated";
+import { EXPANSION_APP_SERVICE_PLAN_RULES } from "./sources/expansion-app-service-plan/generated";
+import { EXPANSION_NSG_RULES } from "./sources/expansion-nsg/generated";
+import { EXPANSION_UAI_RULES } from "./sources/expansion-uai/generated";
 
 export const REGISTRY: RuleEntry[] = [
   ...GRAPH_RULES,
@@ -21,6 +25,10 @@ export const REGISTRY: RuleEntry[] = [
   ...ESSENTIAL_EIGHT_RULES,
   ...PRIVATE_LINK_RULES,
   ...WELL_KNOWN_PATTERN_RULES,
+  ...EXPANSION_APP_INSIGHTS_RULES,
+  ...EXPANSION_APP_SERVICE_PLAN_RULES,
+  ...EXPANSION_NSG_RULES,
+  ...EXPANSION_UAI_RULES,
 ];
 
 export function getRule(id: string): RuleEntry | undefined {
@@ -38,4 +46,8 @@ export const SOURCE_BUNDLES = {
   essentialEight: ESSENTIAL_EIGHT_RULES,
   privateLink: PRIVATE_LINK_RULES,
   wellKnownPatterns: WELL_KNOWN_PATTERN_RULES,
+  expansionAppInsights: EXPANSION_APP_INSIGHTS_RULES,
+  expansionAppServicePlan: EXPANSION_APP_SERVICE_PLAN_RULES,
+  expansionNsg: EXPANSION_NSG_RULES,
+  expansionUai: EXPANSION_UAI_RULES,
 } as const;

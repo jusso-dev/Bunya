@@ -281,8 +281,11 @@ No backend. No accounts. No database. All client-side.
 Bunya is honest about scope. The full live list is at
 [`docs/rules/GAPS.md`](docs/rules/GAPS.md). Highlights:
 
-- **applicationInsights**, **appServicePlan**, **networkSecurityGroup** and
-  **userAssignedIdentity** each have fewer than five rules.
+- **staticWebApp**, **logAnalytics**, **virtualNetwork** and **subnet** each
+  have fewer than five rules. (`applicationInsights`, `appServicePlan`,
+  `networkSecurityGroup`, `userAssignedIdentity` were lifted past 5 in
+  [#1](https://github.com/jusso-dev/Bunya/issues/1)
+  -[#4](https://github.com/jusso-dev/Bunya/issues/4).)
 - CIS Microsoft Azure Foundations Benchmark - commercial, not redistributable.
 - PCI DSS - commercial standard, out of project licence scope.
 - HITRUST CSF - commercial, out of scope for Australian-government workloads.
