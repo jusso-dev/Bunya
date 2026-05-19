@@ -2,8 +2,15 @@ import type { GraphDocument } from "@/lib/graph/schema";
 import { estimateCost, formatMoney } from "@/lib/pricing/estimate";
 import type { GeneratedFile, GeneratorResult } from "./types";
 
-export function generateCostEstimate(document: GraphDocument): GeneratorResult {
-  const estimate = estimateCost(document, "AUD");
+export type CostGeneratorOptions = {
+  audPerUsd?: number;
+};
+
+export function generateCostEstimate(
+  document: GraphDocument,
+  options: CostGeneratorOptions = {},
+): GeneratorResult {
+  const estimate = estimateCost(document, { currency: "AUD", audPerUsd: options.audPerUsd });
   const lines: string[] = [
     `# Cost estimate — ${document.metadata.name}`,
     ``,

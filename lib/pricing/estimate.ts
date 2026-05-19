@@ -1,6 +1,7 @@
 import type { GraphDocument, GraphNode, ServiceType } from "@/lib/graph/schema";
 import {
   Currency,
+  DEFAULT_FX_AUD_PER_USD,
   PRICE_BOOK,
   PRICE_SNAPSHOT_DATE,
   PRICE_SOURCE_URL,
@@ -27,6 +28,12 @@ export type CostEstimate = {
   lineItems: CostLineItem[];
   total: number;
   caveats: string[];
+  fxAudPerUsd: number;
+};
+
+export type EstimateOptions = {
+  currency?: Currency;
+  audPerUsd?: number;
 };
 
 const SERVICE_LABELS: Record<ServiceType, string> = {
@@ -124,8 +131,15 @@ function priceKeyFor(node: GraphNode): { key: string; sku: string } {
   }
 }
 
-export function estimateCost(document: GraphDocument, currency: Currency = "AUD"): CostEstimate {
-  const fx = fxFor(currency);
+export function estimateCost(
+  document: GraphDocument,
+  options: Currency | EstimateOptions = "AUD",
+): CostEstimate {
+  const opts: EstimateOptions =
+    typeof options === "string" ? { currency: options } : options;
+  const currency: Currency = opts.currency ?? "AUD";
+  const audPerUsd = opts.audPerUsd ?? DEFAULT_FX_AUD_PER_USD;
+  const fx = fxFor(currency, audPerUsd);
   const lineItems: CostLineItem[] = [];
   let total = 0;
 
@@ -163,9 +177,14 @@ export function estimateCost(document: GraphDocument, currency: Currency = "AUD"
     });
   }
 
+  const fxNote =
+    currency === "AUD"
+      ? `AUD figures use ${audPerUsd.toFixed(4)} AUD/USD. Override the rate in the Cost panel for accuracy.`
+      : `USD figures map 1:1 from the source. FX override active for AUD only.`;
+
   const caveats = [
     `Indicative monthly figures. Real bills depend on traffic, region, reservations, and tier features Bunya does not model.`,
-    `Currency: ${symbol(currency)} (${currency}). AUD figures use a static 1.5 AUD/USD ratio; refresh with \`pnpm prices:refresh\`.`,
+    `Currency: ${symbol(currency)} (${currency}). ${fxNote}`,
     `Snapshot date: ${PRICE_SNAPSHOT_DATE}. Source: ${PRICE_SOURCE_URL}.`,
     `Egress, premium-feature add-ons, backup retention, and per-call billing are excluded.`,
   ];
@@ -178,6 +197,7 @@ export function estimateCost(document: GraphDocument, currency: Currency = "AUD"
     lineItems,
     total,
     caveats,
+    fxAudPerUsd: audPerUsd,
   };
 }
 

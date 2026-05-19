@@ -10,7 +10,7 @@ exports[`generateCostEstimate > snapshots the full-stack cost markdown 1`] = `
 ## Caveats
 
 - Indicative monthly figures. Real bills depend on traffic, region, reservations, and tier features Bunya does not model.
-- Currency: A$ (AUD). AUD figures use a static 1.5 AUD/USD ratio; refresh with \`pnpm prices:refresh\`.
+- Currency: A$ (AUD). AUD figures use 1.5000 AUD/USD. Override the rate in the Cost panel for accuracy.
 - Snapshot date: 2026-05-19. Source: https://prices.azure.com/api/retail/prices.
 - Egress, premium-feature add-ons, backup retention, and per-call billing are excluded.
 

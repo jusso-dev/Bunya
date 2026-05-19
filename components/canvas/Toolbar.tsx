@@ -70,10 +70,15 @@ export function Toolbar() {
       void deserialiseFromFragment(hash).then((doc) => {
         if (doc) replaceDocument(doc);
       });
-      return;
+    } else {
+      const stored = loadFromLocalStorage();
+      if (stored) replaceDocument(stored);
     }
-    const stored = loadFromLocalStorage();
-    if (stored) replaceDocument(stored);
+    const fxRaw = localStorage.getItem("bunya.settings.fxAudPerUsd");
+    const fx = fxRaw === null ? NaN : Number(fxRaw);
+    if (Number.isFinite(fx) && fx > 0) {
+      useGraphStore.getState().setFxAudPerUsd(fx);
+    }
   }, [replaceDocument]);
 
   useEffect(() => {

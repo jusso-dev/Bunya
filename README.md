@@ -133,7 +133,7 @@ the user can promote them to explicit nodes.
 | PowerShell | `Deploy-Infrastructure.ps1` | `[CmdletBinding(SupportsShouldProcess)]`. Splatting. `Set-StrictMode -Version Latest`. No `Write-Host`. |
 | Mermaid | `architecture.mmd` | `flowchart LR` with per-category classDefs and edge-kind labels. |
 | README | `README.md` | Inlined Mermaid + deployment commands per format. |
-| Cost | `cost-estimate.md` + in-tab table | Indicative monthly estimate per resource. Currency toggle (AUD default + USD). Snapshot sourced from `https://prices.azure.com/api/retail/prices`; refresh via `pnpm prices:refresh`. |
+| Cost | `cost-estimate.md` + in-tab table | Indicative monthly estimate per resource with AUD/USD toggle and a **user-editable AUD/USD exchange rate** (persisted to `localStorage`, plug in your treasury's number for accurate AUD). Source: `https://prices.azure.com/api/retail/prices`; refresh via `pnpm prices:refresh`. |
 
 Conditional parameters: when the graph has no SQL Database, no generator
 emits a SQL admin password parameter. When the graph has no Virtual Network,

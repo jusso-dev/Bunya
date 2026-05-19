@@ -13,7 +13,7 @@
 
 export type Currency = "USD" | "AUD";
 
-export const FX_AUD_PER_USD = 1.5;
+export const DEFAULT_FX_AUD_PER_USD = 1.5;
 export const PRICE_SNAPSHOT_DATE = "2026-05-19";
 export const PRICE_SOURCE_URL = "https://prices.azure.com/api/retail/prices";
 
@@ -24,12 +24,17 @@ export type PriceEntry = {
 
 export type PriceBook = Record<string, PriceEntry>;
 
-export function fxFor(currency: Currency): number {
-  return currency === "AUD" ? FX_AUD_PER_USD : 1;
+export function fxFor(currency: Currency, audPerUsd: number = DEFAULT_FX_AUD_PER_USD): number {
+  return currency === "AUD" ? audPerUsd : 1;
 }
 
 export function symbol(currency: Currency): string {
   return currency === "AUD" ? "A$" : "$";
+}
+
+export function clampFxRate(rate: number): number {
+  if (!Number.isFinite(rate) || rate <= 0) return DEFAULT_FX_AUD_PER_USD;
+  return Math.min(Math.max(rate, 0.5), 10);
 }
 
 export const PRICE_BOOK: PriceBook = {

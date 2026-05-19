@@ -72,9 +72,17 @@ export function OutputTabs() {
   const document = useGraphStore((s) => s.document);
   const [activeId, setActiveId] = useState<TabId>("terraform");
 
+  const fxAudPerUsd = useGraphStore((s) => s.fxAudPerUsd);
   const results = useMemo(
-    () => TABS.map((tab) => ({ tab, result: tab.run(document) })),
-    [document],
+    () =>
+      TABS.map((tab) => ({
+        tab,
+        result:
+          tab.id === "cost"
+            ? generateCostEstimate(document, { audPerUsd: fxAudPerUsd })
+            : tab.run(document),
+      })),
+    [document, fxAudPerUsd],
   );
 
   const active = results.find((r) => r.tab.id === activeId);

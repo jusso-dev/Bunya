@@ -1,6 +1,7 @@
 import { create, type StateCreator } from "zustand";
 import { createStore } from "zustand/vanilla";
 import { ulid } from "ulid";
+import { clampFxRate, DEFAULT_FX_AUD_PER_USD } from "@/lib/pricing/data";
 import {
   EdgeKind,
   GraphDocument,
@@ -21,6 +22,7 @@ export type GraphStoreState = {
   history: GraphDocument[];
   future: GraphDocument[];
   collapsed: Record<PanelId, boolean>;
+  fxAudPerUsd: number;
 };
 
 export type GraphStoreActions = {
@@ -47,6 +49,7 @@ export type GraphStoreActions = {
   redo: () => void;
   togglePanel: (id: PanelId) => void;
   setPanelCollapsed: (id: PanelId, collapsed: boolean) => void;
+  setFxAudPerUsd: (rate: number) => void;
 };
 
 export type GraphStore = GraphStoreState & GraphStoreActions;
@@ -65,6 +68,19 @@ const graphStoreInitializer: StateCreator<GraphStore> = (set, get) => ({
   history: [],
   future: [],
   collapsed: { palette: false, properties: false, output: false, validation: false },
+  fxAudPerUsd: DEFAULT_FX_AUD_PER_USD,
+
+  setFxAudPerUsd: (rate) => {
+    const clamped = clampFxRate(rate);
+    set({ fxAudPerUsd: clamped });
+    if (typeof localStorage !== "undefined") {
+      try {
+        localStorage.setItem("bunya.settings.fxAudPerUsd", String(clamped));
+      } catch {
+        // ignore quota errors
+      }
+    }
+  },
 
   togglePanel: (id) => {
     set((state) => ({

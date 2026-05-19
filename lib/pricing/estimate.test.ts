@@ -89,4 +89,22 @@ describe("estimateCost", () => {
     expect(formatMoney(123.456, "AUD")).toBe("A$123.46");
     expect(formatMoney(0, "USD")).toBe("$0.00");
   });
+
+  it("honours an explicit AUD/USD rate", () => {
+    const base = estimateCost(firstCutGraph, { currency: "USD" });
+    const aud16 = estimateCost(firstCutGraph, { currency: "AUD", audPerUsd: 1.6 });
+    expect(aud16.fxAudPerUsd).toBe(1.6);
+    expect(aud16.total).toBeCloseTo(base.total * 1.6, 1);
+  });
+
+  it("does not apply the FX rate to USD output", () => {
+    const usd1 = estimateCost(firstCutGraph, { currency: "USD", audPerUsd: 1.6 });
+    const usd2 = estimateCost(firstCutGraph, { currency: "USD", audPerUsd: 2.0 });
+    expect(usd1.total).toBeCloseTo(usd2.total, 5);
+  });
+
+  it("includes the FX rate in caveats for AUD", () => {
+    const estimate = estimateCost(firstCutGraph, { currency: "AUD", audPerUsd: 1.65 });
+    expect(estimate.caveats.join(" ")).toContain("1.6500 AUD/USD");
+  });
 });

@@ -3,19 +3,41 @@
 import { useMemo, useState } from "react";
 import type { GraphDocument } from "@/lib/graph/schema";
 import { estimateCost, formatMoney } from "@/lib/pricing/estimate";
-import type { Currency } from "@/lib/pricing/data";
+import { DEFAULT_FX_AUD_PER_USD, type Currency } from "@/lib/pricing/data";
+import { useGraphStore } from "@/lib/graph/store";
 
 export function CostPanel({ document }: { document: GraphDocument }) {
   const [currency, setCurrency] = useState<Currency>("AUD");
   const [sortBy, setSortBy] = useState<"monthly" | "service">("monthly");
+  const fxAudPerUsd = useGraphStore((s) => s.fxAudPerUsd);
+  const setFxAudPerUsd = useGraphStore((s) => s.setFxAudPerUsd);
+  const [fxDraft, setFxDraft] = useState<string>(String(fxAudPerUsd));
 
-  const estimate = useMemo(() => estimateCost(document, currency), [document, currency]);
+  const estimate = useMemo(
+    () => estimateCost(document, { currency, audPerUsd: fxAudPerUsd }),
+    [document, currency, fxAudPerUsd],
+  );
   const items = useMemo(() => {
     const copy = [...estimate.lineItems];
     if (sortBy === "monthly") copy.sort((a, b) => b.monthly - a.monthly);
     else copy.sort((a, b) => a.serviceLabel.localeCompare(b.serviceLabel));
     return copy;
   }, [estimate.lineItems, sortBy]);
+
+  const onFxCommit = () => {
+    const next = Number(fxDraft);
+    if (!Number.isFinite(next) || next <= 0) {
+      setFxDraft(String(fxAudPerUsd));
+      return;
+    }
+    setFxAudPerUsd(next);
+    setFxDraft(String(next));
+  };
+
+  const onFxReset = () => {
+    setFxAudPerUsd(DEFAULT_FX_AUD_PER_USD);
+    setFxDraft(String(DEFAULT_FX_AUD_PER_USD));
+  };
 
   return (
     <div className="flex flex-col gap-3 text-zinc-800 dark:text-zinc-100">
@@ -36,7 +58,7 @@ export function CostPanel({ document }: { document: GraphDocument }) {
             <option value="AUD">AUD</option>
             <option value="USD">USD</option>
           </select>
-          <label className="text-[11px] uppercase tracking-wide text-zinc-500">Sort by</label>
+          <label className="text-[11px] uppercase tracking-wide text-zinc-500">Sort</label>
           <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as "monthly" | "service")}
@@ -47,6 +69,41 @@ export function CostPanel({ document }: { document: GraphDocument }) {
           </select>
         </div>
       </header>
+
+      <div className="flex flex-wrap items-center gap-2 rounded-md border border-zinc-200 bg-white px-3 py-2 text-[12px] dark:border-zinc-700 dark:bg-zinc-900">
+        <label className="text-[11px] uppercase tracking-wide text-zinc-500" htmlFor="fx-rate">
+          AUD per USD
+        </label>
+        <input
+          id="fx-rate"
+          type="number"
+          inputMode="decimal"
+          step="0.01"
+          min="0.5"
+          max="10"
+          value={fxDraft}
+          onChange={(e) => setFxDraft(e.target.value)}
+          onBlur={onFxCommit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              (e.target as HTMLInputElement).blur();
+            }
+          }}
+          className="w-24 rounded border border-zinc-200 bg-white px-2 py-0.5 font-mono text-xs dark:border-zinc-700 dark:bg-zinc-800"
+          aria-label="AUD per USD exchange rate"
+        />
+        <button
+          type="button"
+          onClick={onFxReset}
+          className="rounded border border-zinc-200 px-2 py-0.5 text-[11px] hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
+          title={`Reset to ${DEFAULT_FX_AUD_PER_USD}`}
+        >
+          Reset
+        </button>
+        <span className="ml-1 text-[11px] text-zinc-500">
+          Enter your treasury's current rate. Stored locally; affects AUD figures only.
+        </span>
+      </div>
 
       <ul className="space-y-1 rounded-md border border-amber-200 bg-amber-50/50 p-3 text-[11px] text-amber-900 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-200">
         {estimate.caveats.map((c) => (
