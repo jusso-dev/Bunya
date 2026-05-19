@@ -50,17 +50,20 @@ export const CATEGORY_THEME: Record<ServiceCategory, { bg: string; border: strin
 type IconProps = SVGProps<SVGSVGElement>;
 
 const base = (children: React.ReactNode): ComponentType<IconProps> => {
-  const Icon = (props: IconProps) => (
+  const Icon = ({ width = 24, height = 24, ...rest }: IconProps) => (
     <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width={width}
+      height={height}
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth={1.6}
+      strokeWidth={1.75}
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden
       focusable={false}
-      {...props}
+      {...rest}
     >
       {children}
     </svg>

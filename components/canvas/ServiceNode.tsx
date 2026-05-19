@@ -21,7 +21,7 @@ function ServiceNodeInner({ data, selected }: NodeProps<ServiceNodeData>) {
 
   return (
     <div
-      className="group flex w-[200px] items-stretch overflow-hidden rounded-lg border bg-white shadow-sm transition-all dark:bg-zinc-900"
+      className="group flex w-[210px] items-stretch overflow-hidden rounded-lg border bg-white shadow-sm transition-all dark:bg-zinc-900"
       style={{
         borderColor: active ? theme.border : theme.soft,
         boxShadow: active ? `0 0 0 2px ${theme.border}` : undefined,
@@ -29,12 +29,12 @@ function ServiceNodeInner({ data, selected }: NodeProps<ServiceNodeData>) {
     >
       <Handle type="target" position={Position.Left} style={{ background: theme.border }} />
       <div
-        className="flex w-12 shrink-0 items-center justify-center"
+        className="flex w-14 shrink-0 items-center justify-center"
         style={{ background: theme.bg, color: theme.ink }}
       >
-        <Icon style={{ width: 24, height: 24 }} />
+        <Icon width={28} height={28} style={{ color: theme.ink, display: "block" }} />
       </div>
-      <div className="flex min-w-0 flex-1 flex-col justify-center px-2.5 py-1.5">
+      <div className="flex min-w-0 flex-1 flex-col justify-center px-2.5 py-2">
         <div className="truncate text-[12px] font-semibold leading-tight text-zinc-900 dark:text-zinc-50">
           {data.name}
         </div>
