@@ -133,6 +133,7 @@ the user can promote them to explicit nodes.
 | PowerShell | `Deploy-Infrastructure.ps1` | `[CmdletBinding(SupportsShouldProcess)]`. Splatting. `Set-StrictMode -Version Latest`. No `Write-Host`. |
 | Mermaid | `architecture.mmd` | `flowchart LR` with per-category classDefs and edge-kind labels. |
 | README | `README.md` | Inlined Mermaid + deployment commands per format. |
+| Cost | `cost-estimate.md` + in-tab table | Indicative monthly estimate per resource. Currency toggle (AUD default + USD). Snapshot sourced from `https://prices.azure.com/api/retail/prices`; refresh via `pnpm prices:refresh`. |
 
 Conditional parameters: when the graph has no SQL Database, no generator
 emits a SQL admin password parameter. When the graph has no Virtual Network,
@@ -141,6 +142,10 @@ exactly.
 
 <p align="center">
   <img src="docs/screenshots/07-bicep-output.png" alt="Bicep generated for the three-tier template, side-by-side with the canvas" width="1100"/>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/09-cost-panel.png" alt="Cost tab showing monthly estimate per resource for the three-tier template" width="1100"/>
 </p>
 
 ## Rules engine
@@ -223,6 +228,7 @@ pnpm build           # next build (Turbopack)
 pnpm rules:import    # rebuild rule registry + COVERAGE.md + GAPS.md
 pnpm rules:verify    # assert every rule has source.url, no duplicates, >=100 total
 pnpm rules:coverage  # regenerate coverage docs without re-ingesting
+pnpm prices:refresh  # fetch Azure Retail Prices API and stage a snapshot diff
 ```
 
 ## Architecture
@@ -290,7 +296,6 @@ Bunya is honest about scope. The full live list is at
 - PCI DSS - commercial standard, out of project licence scope.
 - HITRUST CSF - commercial, out of scope for Australian-government workloads.
 - runtime policy enforcement (drift detection at runtime)
-- cost prediction / forecasting
 - AWS support, GCP support (intentionally out of scope - Azure only)
 
 ## The bunya pine
