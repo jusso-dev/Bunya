@@ -1,0 +1,14 @@
+{
+  "psrule": {
+    "commit": "v1.42.0",
+    "fetched_at": "2026-05-19T00:00:00Z"
+  },
+  "checkov": {
+    "commit": "v3.2.0",
+    "fetched_at": "2026-05-19T00:00:00Z"
+  },
+  "azurePolicy": {
+    "commit": "2026-04-01",
+    "fetched_at": "2026-05-19T00:00:00Z"
+  }
+}

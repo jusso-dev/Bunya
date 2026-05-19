@@ -48,8 +48,21 @@ export const subnetSchema = z.object({
   delegations: z.array(z.string()).default([]),
 });
 
+const nsgRuleSchema = z.object({
+  name: z.string(),
+  priority: z.number().int().min(100).max(4096),
+  direction: z.enum(["Inbound", "Outbound"]),
+  access: z.enum(["Allow", "Deny"]),
+  protocol: z.enum(["Tcp", "Udp", "Icmp", "*"]).default("*"),
+  sourceAddressPrefix: z.string().default("*"),
+  destinationAddressPrefix: z.string().default("*"),
+  destinationPortRange: z.string().default("*"),
+});
+
 export const nsgSchema = z.object({
   defaultDeny: z.boolean().default(true),
+  inboundRules: z.array(nsgRuleSchema).default([]),
+  outboundRules: z.array(nsgRuleSchema).default([]),
 });
 
 export const privateEndpointSchema = z.object({

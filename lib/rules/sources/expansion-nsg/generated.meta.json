@@ -1,0 +1,31 @@
+{
+  "source": "expansion-nsg",
+  "upstream": [
+    {
+      "name": "PSRule for Azure",
+      "repository": "https://github.com/Azure/PSRule.Rules.Azure",
+      "docs": "https://azure.github.io/PSRule.Rules.Azure/",
+      "license": "MIT",
+      "version": "v1.42.0"
+    },
+    {
+      "name": "Checkov",
+      "repository": "https://github.com/bridgecrewio/checkov",
+      "docs": "https://docs.bridgecrew.io/docs",
+      "license": "Apache-2.0",
+      "version": "v3.2.0"
+    },
+    {
+      "name": "Azure Policy built-ins",
+      "docs": "https://learn.microsoft.com/en-us/azure/governance/policy/samples/built-in-policies",
+      "license": "MIT",
+      "version": "2026-04-01"
+    }
+  ],
+  "generator": {
+    "version": "0.1.0",
+    "generated_at": "2026-05-19T00:00:00Z",
+    "notes": "NSG coverage expansion. Built against the extended nsgSchema (inboundRules / outboundRules arrays)."
+  },
+  "rule_count": 6
+}
