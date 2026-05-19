@@ -10,9 +10,11 @@ import { generateAzCli } from "@/lib/generators/azcli";
 import { generatePowerShell } from "@/lib/generators/powershell";
 import { generateMermaid } from "@/lib/generators/mermaid";
 import { generateReadme } from "@/lib/generators/readme";
+import { generateCostEstimate } from "@/lib/generators/cost";
 import { GeneratedFile, GeneratorResult } from "@/lib/generators/types";
+import { CostPanel } from "./CostPanel";
 
-type TabId = "terraform" | "bicep" | "arm" | "azcli" | "powershell" | "mermaid" | "readme";
+type TabId = "terraform" | "bicep" | "arm" | "azcli" | "powershell" | "mermaid" | "readme" | "cost";
 
 type Tab = {
   id: TabId;
@@ -29,6 +31,7 @@ const TABS: Tab[] = [
   { id: "powershell", label: "PowerShell", folder: "powershell", run: generatePowerShell },
   { id: "mermaid", label: "Mermaid", folder: "mermaid", run: generateMermaid },
   { id: "readme", label: "README", folder: ".", run: generateReadme },
+  { id: "cost", label: "Cost", folder: "cost", run: generateCostEstimate },
 ];
 
 function copyToClipboard(text: string) {
@@ -113,7 +116,11 @@ export function OutputTabs() {
         </button>
       </div>
       <div className="flex flex-1 flex-col overflow-y-auto px-3 py-2">
-        {active ? <ActivePanel tab={active.tab} result={active.result} /> : null}
+        {activeId === "cost" ? (
+          <CostPanel document={document} />
+        ) : active ? (
+          <ActivePanel tab={active.tab} result={active.result} />
+        ) : null}
       </div>
     </section>
   );
