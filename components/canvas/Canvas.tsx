@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactFlow, {
   Background,
   Connection,
@@ -56,9 +56,22 @@ function CanvasInner() {
 
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const [rfInstance, setRfInstance] = useState<ReactFlowInstance | null>(null);
-  const { screenToFlowPosition } = useReactFlow();
+  const { screenToFlowPosition, fitView } = useReactFlow();
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const nodeTypes = useMemo(() => ({ service: ServiceNode }), []);
+  const previousNodeCount = useRef(0);
+
+  useEffect(() => {
+    const count = document.nodes.length;
+    if (count > previousNodeCount.current && count > 0) {
+      const id = window.requestAnimationFrame(() => {
+        fitView({ padding: 0.3, duration: 250, maxZoom: 1.0, minZoom: 0.3 });
+      });
+      previousNodeCount.current = count;
+      return () => window.cancelAnimationFrame(id);
+    }
+    previousNodeCount.current = count;
+  }, [document.nodes.length, fitView]);
 
   const nodes = useMemo<Node<ServiceNodeData>[]>(() => {
     return document.nodes.map((n) => ({

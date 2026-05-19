@@ -45,12 +45,16 @@ export function ServicePalette() {
     return byCategory;
   }, [filter]);
 
+  const nodeCount = useGraphStore((s) => s.document.nodes.length);
+
   const handleQuickAdd = (def: ServiceDefinition) => {
+    const column = nodeCount % 3;
+    const row = Math.floor(nodeCount / 3);
     addNode({
       type: def.type,
       name: def.label,
       resourceName: defaultResourceNameFor(def.type),
-      position: { x: 120 + Math.random() * 200, y: 120 + Math.random() * 200 },
+      position: { x: 80 + column * 260, y: 60 + row * 120 },
       properties: { ...def.defaultProperties },
     });
   };
@@ -123,15 +127,13 @@ function ServiceCard({
       draggable
       onDragStart={onDragStart}
       onClick={onClick}
-      className="group flex cursor-grab items-center gap-2 rounded-md border bg-white px-2 py-2 text-sm text-zinc-800 transition-colors hover:bg-zinc-50 active:cursor-grabbing dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
-      style={{ borderColor: theme.soft }}
+      className={`group flex cursor-grab items-center gap-2 rounded-md border bg-white px-2 py-2 text-sm text-zinc-800 transition-colors hover:bg-zinc-50 active:cursor-grabbing dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800 ${theme.cardRing}`}
       data-service-type={def.type as ServiceType}
     >
       <span
-        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md"
-        style={{ background: theme.bg, color: theme.ink }}
+        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md ${theme.tile} ${theme.tileText}`}
       >
-        <Icon style={{ width: 20, height: 20 }} />
+        <Icon size={20} strokeWidth={1.75} aria-hidden />
       </span>
       <span className="flex min-w-0 flex-col">
         <span className="truncate text-sm font-medium leading-tight">{def.label}</span>

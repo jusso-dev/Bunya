@@ -21,19 +21,16 @@ function ServiceNodeInner({ data, selected }: NodeProps<ServiceNodeData>) {
 
   return (
     <div
-      className="group flex w-[210px] items-stretch overflow-hidden rounded-lg border bg-white shadow-sm transition-all dark:bg-zinc-900"
-      style={{
-        borderColor: active ? theme.border : theme.soft,
-        boxShadow: active ? `0 0 0 2px ${theme.border}` : undefined,
-      }}
+      className={`group flex w-[220px] items-stretch overflow-hidden rounded-lg border bg-white shadow-sm transition-all dark:bg-zinc-900 ${
+        active ? theme.cardRingActive : theme.cardRing
+      }`}
     >
-      <Handle type="target" position={Position.Left} style={{ background: theme.border }} />
-      <div
-        className="flex w-14 shrink-0 items-center justify-center"
-        style={{ background: theme.bg, color: theme.ink }}
+      <Handle type="target" position={Position.Left} className="!bg-zinc-400" />
+      <span
+        className={`flex h-full w-14 shrink-0 items-center justify-center ${theme.tile} ${theme.tileText}`}
       >
-        <Icon width={28} height={28} style={{ color: theme.ink, display: "block" }} />
-      </div>
+        <Icon size={26} strokeWidth={1.75} aria-hidden />
+      </span>
       <div className="flex min-w-0 flex-1 flex-col justify-center px-2.5 py-2">
         <div className="truncate text-[12px] font-semibold leading-tight text-zinc-900 dark:text-zinc-50">
           {data.name}
@@ -42,7 +39,7 @@ function ServiceNodeInner({ data, selected }: NodeProps<ServiceNodeData>) {
           {def.shortLabel} - {data.resourceName}
         </div>
       </div>
-      <Handle type="source" position={Position.Right} style={{ background: theme.border }} />
+      <Handle type="source" position={Position.Right} className="!bg-zinc-400" />
     </div>
   );
 }
