@@ -1,0 +1,44 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`generateCostEstimate > snapshots the full-stack cost markdown 1`] = `
+"# Cost estimate — full-stack
+
+**Currency:** A$ (AUD)  
+**Snapshot date:** 2026-05-19  
+**Source:** https://prices.azure.com/api/retail/prices
+
+## Caveats
+
+- Indicative monthly figures. Real bills depend on traffic, region, reservations, and tier features Bunya does not model.
+- Currency: A$ (AUD). AUD figures use a static 1.5 AUD/USD ratio; refresh with \`pnpm prices:refresh\`.
+- Snapshot date: 2026-05-19. Source: https://prices.azure.com/api/retail/prices.
+- Egress, premium-feature add-ons, backup retention, and per-call billing are excluded.
+
+## Line items
+
+| Resource | Service | SKU | Monthly | Note |
+| --- | --- | --- | ---: | --- |
+| \`rg-full-stack\` | Resource Group | container | A$0.00 | No direct cost |
+| \`vnet-full-stack\` | Virtual Network | container | A$0.00 | No direct cost for VNet itself |
+| \`snet-app\` | Subnet | child | A$0.00 | No direct cost for the subnet |
+| \`nsg-app\` | Network Security Group | ruleset | A$0.00 | No direct cost |
+| \`pe-stg\` | Private Endpoint | per-endpoint | A$10.95 | Per-endpoint fixed cost + data processing |
+| \`plan-full-stack\` | App Service Plan | B1 x 1 | A$82.13 | Basic B1, 1 instance, Linux |
+| \`app-full-stack\` | App Service | (plan) | A$0.00 | Compute billed via App Service Plan |
+| \`fn-full-stack\` | Function App | Consumption | A$0.00 | Consumption plan: first 1M executions/month free |
+| \`swa-full-stack\` | Static Web App | Standard | A$13.50 | Static Web Apps Standard tier baseline |
+| \`fullstackstg\` | Storage Account | Standard_LRS | A$3.60 | 100GB hot blob + 10k ops, LRS |
+| \`sqldb-full-stack\` | Azure SQL Database | S0 | A$22.50 | Standard S0 (10 DTU) |
+| \`cos-full-stack\` | Cosmos DB | Provisioned 400 RU/s | A$36.00 | Provisioned 400 RU/s |
+| \`kv-full-stack\` | Key Vault | standard | A$1.50 | Baseline operations (~10k/month) |
+| \`ai-full-stack\` | Application Insights | workspace-based | A$0.00 | Workspace-based: billed via the Log Analytics workspace |
+| \`log-full-stack\` | Log Analytics Workspace | PerGB2018 | A$17.25 | Pay-as-you-go, ~5GB ingested per month |
+| \`fd-full-stack\` | Front Door | Standard_AzureFrontDoor | A$52.50 | Standard baseline + 10GB egress; traffic billed separately |
+| \`agw-full-stack\` | Application Gateway | WAF_v2 | A$390.00 | WAF_v2, 2 capacity units, fixed price + capacity |
+| \`apim-full-stack\` | API Management | Consumption | A$4.50 | Consumption beyond 1M free calls |
+| \`acrfullstack\` | Container Registry | Basic | A$7.50 | Basic SKU |
+| \`umi-full-stack\` | User-Assigned Identity | identity | A$0.00 | No direct cost |
+
+**Total (indicative):** A$641.92 per month
+"
+`;
