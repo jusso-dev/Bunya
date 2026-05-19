@@ -11,6 +11,7 @@ import ReactFlow, {
   MiniMap,
   Node,
   NodeChange,
+  NodePositionChange,
   Position,
   ReactFlowProvider,
   applyEdgeChanges,
@@ -22,8 +23,17 @@ import "reactflow/dist/style.css";
 import { useGraphStore } from "@/lib/graph/store";
 import { getServiceDefinition, inferDefaultEdgeKind } from "@/lib/catalogue/services";
 import { canConnect } from "@/lib/catalogue/connections";
-import { EDGE_KINDS, EdgeKind, ServiceType } from "@/lib/graph/schema";
+import {
+  DEFAULT_CONTAINER_SIZE,
+  EDGE_KINDS,
+  EdgeKind,
+  GraphDocument,
+  GraphNode,
+  ServiceType,
+  isContainerType,
+} from "@/lib/graph/schema";
 import { ServiceNode, ServiceNodeData } from "./ServiceNode";
+import { ContainerNode } from "./ContainerNode";
 
 const EDGE_COLOUR: Record<EdgeKind, string> = {
   network: "#1d4ed8",
@@ -41,6 +51,65 @@ function defaultResourceName(type: ServiceType, index: number): string {
   return `${slug}-${index}`;
 }
 
+function nodeSize(node: GraphNode): { width: number; height: number } {
+  if (node.size) return node.size;
+  if (isContainerType(node.type)) return DEFAULT_CONTAINER_SIZE[node.type];
+  return { width: 220, height: 50 };
+}
+
+function absolutePosition(document: GraphDocument, node: GraphNode): { x: number; y: number } {
+  let { x, y } = node.position;
+  let cursor = node.parentId
+    ? document.nodes.find((n) => n.id === node.parentId)
+    : undefined;
+  while (cursor) {
+    x += cursor.position.x;
+    y += cursor.position.y;
+    cursor = cursor.parentId
+      ? document.nodes.find((n) => n.id === cursor!.parentId)
+      : undefined;
+  }
+  return { x, y };
+}
+
+function findContainerAt(
+  document: GraphDocument,
+  excludeId: string | null,
+  point: { x: number; y: number },
+  candidateType: ServiceType,
+): GraphNode | null {
+  const candidates = document.nodes
+    .filter((n) => n.id !== excludeId && isContainerType(n.type))
+    .filter((n) => acceptsChild(n.type, candidateType));
+  let chosen: GraphNode | null = null;
+  let chosenArea = Number.POSITIVE_INFINITY;
+  for (const c of candidates) {
+    const abs = absolutePosition(document, c);
+    const { width, height } = nodeSize(c);
+    if (
+      point.x >= abs.x &&
+      point.x <= abs.x + width &&
+      point.y >= abs.y &&
+      point.y <= abs.y + height
+    ) {
+      const area = width * height;
+      if (area < chosenArea) {
+        chosen = c;
+        chosenArea = area;
+      }
+    }
+  }
+  return chosen;
+}
+
+function acceptsChild(parentType: ServiceType, childType: ServiceType): boolean {
+  if (parentType === "virtualNetwork") return childType === "subnet";
+  if (parentType === "resourceGroup") {
+    return childType !== "resourceGroup";
+  }
+  return false;
+}
+
 function CanvasInner() {
   const document = useGraphStore((s) => s.document);
   const selectedEdgeId = useGraphStore((s) => s.selectedEdgeId);
@@ -53,12 +122,16 @@ function CanvasInner() {
   const setEdgeKind = useGraphStore((s) => s.setEdgeKind);
   const selectNode = useGraphStore((s) => s.selectNode);
   const selectEdge = useGraphStore((s) => s.selectEdge);
+  const reparentNode = useGraphStore((s) => s.reparentNode);
 
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const [rfInstance, setRfInstance] = useState<ReactFlowInstance | null>(null);
   const { screenToFlowPosition, fitView } = useReactFlow();
   const [connectionError, setConnectionError] = useState<string | null>(null);
-  const nodeTypes = useMemo(() => ({ service: ServiceNode }), []);
+  const nodeTypes = useMemo(
+    () => ({ service: ServiceNode, container: ContainerNode }),
+    [],
+  );
   const previousNodeCount = useRef(0);
 
   useEffect(() => {
@@ -74,20 +147,49 @@ function CanvasInner() {
   }, [document.nodes.length, fitView]);
 
   const nodes = useMemo<Node<ServiceNodeData>[]>(() => {
-    return document.nodes.map((n) => ({
-      id: n.id,
-      type: "service",
-      position: n.position,
-      sourcePosition: Position.Right,
-      targetPosition: Position.Left,
-      selected: selectedNodeId === n.id,
-      data: {
-        serviceType: n.type,
-        name: n.name,
-        resourceName: n.resourceName,
+    const sorted = [...document.nodes].sort((a, b) => {
+      if (isContainerType(a.type) && !isContainerType(b.type)) return -1;
+      if (!isContainerType(a.type) && isContainerType(b.type)) return 1;
+      return 0;
+    });
+    return sorted.map((n) => {
+      const size = nodeSize(n);
+      if (isContainerType(n.type)) {
+        return {
+          id: n.id,
+          type: "container",
+          position: n.position,
+          parentNode: n.parentId ?? undefined,
+          extent: n.parentId ? ("parent" as const) : undefined,
+          selected: selectedNodeId === n.id,
+          style: { width: size.width, height: size.height, zIndex: -1 },
+          sourcePosition: Position.Right,
+          targetPosition: Position.Left,
+          data: {
+            serviceType: n.type,
+            name: n.name,
+            resourceName: n.resourceName,
+            selected: selectedNodeId === n.id,
+          },
+        };
+      }
+      return {
+        id: n.id,
+        type: "service",
+        position: n.position,
+        parentNode: n.parentId ?? undefined,
+        extent: n.parentId ? ("parent" as const) : undefined,
+        sourcePosition: Position.Right,
+        targetPosition: Position.Left,
         selected: selectedNodeId === n.id,
-      },
-    }));
+        data: {
+          serviceType: n.type,
+          name: n.name,
+          resourceName: n.resourceName,
+          selected: selectedNodeId === n.id,
+        },
+      };
+    });
   }, [document.nodes, selectedNodeId]);
 
   const edges = useMemo<Edge[]>(() => {
@@ -116,12 +218,51 @@ function CanvasInner() {
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
       const next = applyNodeChanges(changes, nodes);
-      for (const node of next) moveNode(node.id, node.position);
       for (const change of changes) {
         if (change.type === "remove") removeNode(change.id);
       }
+      const positionChanges = changes.filter(
+        (c): c is NodePositionChange => c.type === "position" && c.dragging === false,
+      );
+      for (const change of positionChanges) {
+        const moved = next.find((n) => n.id === change.id);
+        if (!moved) continue;
+        const original = document.nodes.find((n) => n.id === change.id);
+        if (!original) continue;
+        if (isContainerType(original.type)) {
+          moveNode(change.id, moved.position);
+          continue;
+        }
+        const absPoint = (() => {
+          if (!moved.parentNode) return moved.position;
+          const parent = document.nodes.find((n) => n.id === moved.parentNode);
+          if (!parent) return moved.position;
+          const parentAbs = absolutePosition(document, parent);
+          return { x: parentAbs.x + moved.position.x, y: parentAbs.y + moved.position.y };
+        })();
+        const newParent = findContainerAt(document, change.id, absPoint, original.type);
+        const newParentId = newParent?.id ?? null;
+        if ((newParentId ?? null) === (original.parentId ?? null)) {
+          moveNode(change.id, moved.position);
+        } else {
+          const newPos = newParent
+            ? {
+                x: absPoint.x - absolutePosition(document, newParent).x,
+                y: absPoint.y - absolutePosition(document, newParent).y,
+              }
+            : absPoint;
+          reparentNode(change.id, newParentId, newPos);
+        }
+      }
+      const liveDrags = changes.filter(
+        (c): c is NodePositionChange => c.type === "position" && c.dragging === true,
+      );
+      for (const change of liveDrags) {
+        const moved = next.find((n) => n.id === change.id);
+        if (moved) moveNode(change.id, moved.position);
+      }
     },
-    [moveNode, nodes, removeNode],
+    [document, moveNode, nodes, removeNode, reparentNode],
   );
 
   const onEdgesChange = useCallback(
@@ -178,21 +319,30 @@ function CanvasInner() {
       const type = event.dataTransfer.getData("application/bunya-service") as ServiceType | "";
       if (!type) return;
       if (!rfInstance) return;
-      const position = screenToFlowPosition({
+      const absPosition = screenToFlowPosition({
         x: event.clientX,
         y: event.clientY,
       });
+      const parent = findContainerAt(document, null, absPosition, type);
       const def = getServiceDefinition(type);
       const index = counterRef.current++;
+      const position = parent
+        ? {
+            x: absPosition.x - absolutePosition(document, parent).x,
+            y: absPosition.y - absolutePosition(document, parent).y,
+          }
+        : absPosition;
       addNode({
         type,
         position,
+        parentId: parent?.id ?? null,
         name: `${def.label} ${index}`,
         resourceName: defaultResourceName(type, index),
         properties: { ...def.defaultProperties },
+        size: isContainerType(type) ? DEFAULT_CONTAINER_SIZE[type] : undefined,
       });
     },
-    [addNode, rfInstance, screenToFlowPosition],
+    [addNode, document, rfInstance, screenToFlowPosition],
   );
 
   const handleKeyDown = useCallback(
