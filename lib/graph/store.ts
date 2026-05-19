@@ -27,6 +27,12 @@ export type GraphStoreActions = {
   addNode: (input: AddNodeInput) => string;
   removeNode: (id: string) => void;
   moveNode: (id: string, position: { x: number; y: number }) => void;
+  resizeNode: (id: string, size: { width: number; height: number }) => void;
+  reparentNode: (
+    id: string,
+    parentId: string | null,
+    position: { x: number; y: number },
+  ) => void;
   updateNode: (id: string, patch: Partial<Omit<GraphNode, "id">>) => void;
   updateNodeProperties: (id: string, patch: Record<string, unknown>) => void;
   addEdge: (input: AddEdgeInput) => string;
@@ -101,6 +107,28 @@ const graphStoreInitializer: StateCreator<GraphStore> = (set, get) => ({
       document: {
         ...state.document,
         nodes: state.document.nodes.map((n) => (n.id === id ? { ...n, position } : n)),
+      },
+    }));
+  },
+
+  resizeNode: (id, size) => {
+    set((state) => ({
+      ...pushHistory(state),
+      document: {
+        ...state.document,
+        nodes: state.document.nodes.map((n) => (n.id === id ? { ...n, size } : n)),
+      },
+    }));
+  },
+
+  reparentNode: (id, parentId, position) => {
+    set((state) => ({
+      ...pushHistory(state),
+      document: {
+        ...state.document,
+        nodes: state.document.nodes.map((n) =>
+          n.id === id ? { ...n, parentId: parentId ?? null, position } : n,
+        ),
       },
     }));
   },

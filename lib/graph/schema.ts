@@ -49,7 +49,21 @@ export const GraphNodeSchema = z.object({
   name: z.string().min(1),
   resourceName: z.string().min(1),
   properties: z.record(z.string(), z.unknown()),
+  parentId: z.string().nullable().optional(),
+  size: z.object({ width: z.number(), height: z.number() }).optional(),
 });
+
+export const CONTAINER_SERVICE_TYPES = ["resourceGroup", "virtualNetwork"] as const;
+export type ContainerServiceType = (typeof CONTAINER_SERVICE_TYPES)[number];
+
+export function isContainerType(type: ServiceType): type is ContainerServiceType {
+  return (CONTAINER_SERVICE_TYPES as readonly ServiceType[]).includes(type);
+}
+
+export const DEFAULT_CONTAINER_SIZE: Record<ContainerServiceType, { width: number; height: number }> = {
+  resourceGroup: { width: 720, height: 480 },
+  virtualNetwork: { width: 520, height: 360 },
+};
 
 export const GraphEdgeSchema = z.object({
   id: z.string().min(1),
