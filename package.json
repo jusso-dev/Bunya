@@ -12,7 +12,8 @@
     "test:watch": "vitest",
     "rules:import": "tsx scripts/import-rules/run.ts",
     "rules:coverage": "tsx scripts/generate-coverage.ts",
-    "rules:verify": "tsx scripts/import-rules/verify.ts"
+    "rules:verify": "tsx scripts/import-rules/verify.ts",
+    "e2e": "playwright test"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
@@ -27,6 +28,7 @@
     "zustand": "^5.0.13"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
