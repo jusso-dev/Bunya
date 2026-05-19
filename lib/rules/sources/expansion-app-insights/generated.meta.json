@@ -1,0 +1,31 @@
+{
+  "source": "expansion-app-insights",
+  "upstream": [
+    {
+      "name": "Microsoft Cloud Security Benchmark v3",
+      "url": "https://learn.microsoft.com/en-us/security/benchmark/azure/",
+      "license": "CC-BY-4.0"
+    },
+    {
+      "name": "PSRule for Azure",
+      "url": "https://azure.github.io/PSRule.Rules.Azure/",
+      "license": "MIT",
+      "version": "v1.42.0"
+    },
+    {
+      "name": "Azure Policy built-ins",
+      "url": "https://learn.microsoft.com/en-us/azure/governance/policy/samples/built-in-policies",
+      "license": "MIT"
+    }
+  ],
+  "pinned": {
+    "revision": "2026-05-19",
+    "fetched_at": "2026-05-19T00:00:00Z"
+  },
+  "generator": {
+    "version": "0.1.0",
+    "generated_at": "2026-05-19T00:00:00Z",
+    "notes": "Curated Application Insights rule expansion. Advisory entries (predicate () => false / () => []) document gaps where Bunya's property model is too coarse to evaluate the upstream control."
+  },
+  "rule_count": 6
+}
