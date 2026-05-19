@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/logo.png" alt="Bunya logo" width="240"/>
+  <img src="docs/logo-bunya.png" alt="Bunya logo" width="240"/>
 </p>
 
 <h1 align="center">Bunya</h1>
