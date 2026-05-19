@@ -1,0 +1,111 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`estimateCost > snapshots line-item structure for the full-stack fixture 1`] = `
+{
+  "bySku": [
+    {
+      "monthly": 4.5,
+      "service": "API Management",
+      "sku": "Consumption",
+    },
+    {
+      "monthly": 0,
+      "service": "App Service",
+      "sku": "(plan)",
+    },
+    {
+      "monthly": 82.13,
+      "service": "App Service Plan",
+      "sku": "B1 x 1",
+    },
+    {
+      "monthly": 390,
+      "service": "Application Gateway",
+      "sku": "WAF_v2",
+    },
+    {
+      "monthly": 0,
+      "service": "Application Insights",
+      "sku": "workspace-based",
+    },
+    {
+      "monthly": 22.5,
+      "service": "Azure SQL Database",
+      "sku": "S0",
+    },
+    {
+      "monthly": 7.5,
+      "service": "Container Registry",
+      "sku": "Basic",
+    },
+    {
+      "monthly": 36,
+      "service": "Cosmos DB",
+      "sku": "Provisioned 400 RU/s",
+    },
+    {
+      "monthly": 52.5,
+      "service": "Front Door",
+      "sku": "Standard_AzureFrontDoor",
+    },
+    {
+      "monthly": 0,
+      "service": "Function App",
+      "sku": "Consumption",
+    },
+    {
+      "monthly": 1.5,
+      "service": "Key Vault",
+      "sku": "standard",
+    },
+    {
+      "monthly": 17.25,
+      "service": "Log Analytics Workspace",
+      "sku": "PerGB2018",
+    },
+    {
+      "monthly": 0,
+      "service": "Network Security Group",
+      "sku": "ruleset",
+    },
+    {
+      "monthly": 10.95,
+      "service": "Private Endpoint",
+      "sku": "per-endpoint",
+    },
+    {
+      "monthly": 0,
+      "service": "Resource Group",
+      "sku": "container",
+    },
+    {
+      "monthly": 13.5,
+      "service": "Static Web App",
+      "sku": "Standard",
+    },
+    {
+      "monthly": 3.6,
+      "service": "Storage Account",
+      "sku": "Standard_LRS",
+    },
+    {
+      "monthly": 0,
+      "service": "Subnet",
+      "sku": "child",
+    },
+    {
+      "monthly": 0,
+      "service": "User-Assigned Identity",
+      "sku": "identity",
+    },
+    {
+      "monthly": 0,
+      "service": "Virtual Network",
+      "sku": "container",
+    },
+  ],
+  "currency": "AUD",
+  "snapshotDate": "2026-05-19",
+  "total": 641.92,
+}
+`;
