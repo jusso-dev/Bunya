@@ -282,6 +282,27 @@ e2e/                                # Playwright tests
 
 No backend. No accounts. No database. All client-side.
 
+## Microsoft icon usage
+
+Bunya may display Microsoft or Azure product icons only in the way Microsoft
+permits them to be used for architecture diagrams, training materials, or
+documentation. See Microsoft's
+[Azure architecture icon guidance](https://learn.microsoft.com/en-us/azure/architecture/icons/)
+for the current source guidance.
+
+Do:
+
+- Use the icon to illustrate how products can work together.
+- In diagrams, include the product name somewhere close to the icon.
+- Use the icons as they would appear within Azure.
+
+Don't:
+
+- Crop, flip, or rotate icons.
+- Distort or change icon shape in any way.
+- Use Microsoft product icons to represent Bunya or any other product or
+  service.
+
 ## Known gaps
 
 Bunya is honest about scope. The full live list is at
