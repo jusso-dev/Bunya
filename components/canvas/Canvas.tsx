@@ -36,6 +36,11 @@ import { ServiceNode, ServiceNodeData } from "./ServiceNode";
 import { ContainerNode } from "./ContainerNode";
 import { isPortableFile, parsePortable, readFileAsText } from "@/lib/graph/portable";
 
+const NODE_TYPES = {
+  service: ServiceNode,
+  container: ContainerNode,
+};
+
 const EDGE_COLOUR: Record<EdgeKind, string> = {
   network: "#1d4ed8",
   identity: "#b91c1c",
@@ -111,6 +116,16 @@ function acceptsChild(parentType: ServiceType, childType: ServiceType): boolean 
   return false;
 }
 
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement ||
+    target.isContentEditable
+  );
+}
+
 function CanvasInner() {
   const document = useGraphStore((s) => s.document);
   const selectedEdgeId = useGraphStore((s) => s.selectedEdgeId);
@@ -130,10 +145,6 @@ function CanvasInner() {
   const [rfInstance, setRfInstance] = useState<ReactFlowInstance | null>(null);
   const { screenToFlowPosition, fitView } = useReactFlow();
   const [connectionError, setConnectionError] = useState<string | null>(null);
-  const nodeTypes = useMemo(
-    () => ({ service: ServiceNode, container: ContainerNode }),
-    [],
-  );
   const previousNodeCount = useRef(0);
 
   useEffect(() => {
@@ -367,8 +378,12 @@ function CanvasInner() {
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (event.defaultPrevented || isEditableTarget(event.target)) return;
+      if (event.key === "Enter") {
+        event.preventDefault();
+        return;
+      }
       if (event.key !== "Delete" && event.key !== "Backspace") return;
-      if (event.target instanceof HTMLInputElement) return;
       if (selectedNodeId) {
         removeNode(selectedNodeId);
         event.preventDefault();
@@ -397,7 +412,7 @@ function CanvasInner() {
       <ReactFlow
         nodes={nodes}
         edges={edges}
-        nodeTypes={nodeTypes}
+        nodeTypes={NODE_TYPES}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
@@ -414,6 +429,7 @@ function CanvasInner() {
         snapToGrid
         snapGrid={[16, 16]}
         deleteKeyCode={null}
+        disableKeyboardA11y
         connectionRadius={28}
       >
         <Background gap={16} />
