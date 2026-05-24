@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/logo-bunya.png" alt="Bunya logo" width="240"/>
+  <img src="project-docs/logo-bunya.png" alt="Bunya logo" width="240"/>
 </p>
 
 <h1 align="center">Bunya</h1>
@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/02-three-tier-canvas.png" alt="Bunya canvas with the three-tier private architecture template loaded" width="1100"/>
+  <img src="project-docs/screenshots/02-three-tier-canvas.png" alt="Bunya canvas with the three-tier private architecture template loaded" width="1100"/>
 </p>
 
 Bunya turns Azure architecture diagrams into production-shaped Terraform,
@@ -141,11 +141,11 @@ no generator emits networking scaffolding. The output mirrors the graph
 exactly.
 
 <p align="center">
-  <img src="docs/screenshots/07-bicep-output.png" alt="Bicep generated for the three-tier template, side-by-side with the canvas" width="1100"/>
+  <img src="project-docs/screenshots/07-bicep-output.png" alt="Bicep generated for the three-tier template, side-by-side with the canvas" width="1100"/>
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/09-cost-panel.png" alt="Cost tab showing monthly estimate per resource for the three-tier template" width="1100"/>
+  <img src="project-docs/screenshots/09-cost-panel.png" alt="Cost tab showing monthly estimate per resource for the three-tier template" width="1100"/>
 </p>
 
 ## Rules engine
@@ -175,13 +175,13 @@ Sources currently ingested:
 
 Findings carry a `source.url` you can click. Many carry an `autofixId` you can
 apply with one button. The compliance tables in
-[`docs/rules/COVERAGE.md`](docs/rules/COVERAGE.md) regenerate every build.
-[`docs/rules/GAPS.md`](docs/rules/GAPS.md) is honest about what is not
+[`project-docs/rules/COVERAGE.md`](project-docs/rules/COVERAGE.md) regenerate every build.
+[`project-docs/rules/GAPS.md`](project-docs/rules/GAPS.md) is honest about what is not
 checked: CIS Benchmarks, PCI DSS, HITRUST CSF, runtime policy, cost prediction,
 multi-region failover correctness.
 
 <p align="center">
-  <img src="docs/screenshots/05-validation-findings.png" alt="Validation findings panel with a real auto-fix" width="1100"/>
+  <img src="project-docs/screenshots/05-validation-findings.png" alt="Validation findings panel with a real auto-fix" width="1100"/>
 </p>
 
 ## Containers and hierarchy
@@ -194,7 +194,7 @@ parent. The generators walk the parent chain when resolving `resource_group_name
 or `virtual_network_name`, so re-parenting in the UI re-points the IaC.
 
 <p align="center">
-  <img src="docs/screenshots/06-resource-group-container.png" alt="Resource Group container with App Service Plan, App Service, Storage and Key Vault inside" width="1100"/>
+  <img src="project-docs/screenshots/06-resource-group-container.png" alt="Resource Group container with App Service Plan, App Service, Storage and Key Vault inside" width="1100"/>
 </p>
 
 ## Starter templates
@@ -260,7 +260,7 @@ lib/
 scripts/
   import-rules/                     # build-time ingestion pipeline
   generate-coverage.ts              # COVERAGE.md + GAPS.md generator
-docs/
+project-docs/
   rules/SOURCES.md                  # 20 sources, classified INGEST/MANUAL/OUT-OF-SCOPE
   rules/COVERAGE.md                 # auto-generated coverage tables
   rules/GAPS.md                     # auto-generated gap report
@@ -306,7 +306,7 @@ Don't:
 ## Known gaps
 
 Bunya is honest about scope. The full live list is at
-[`docs/rules/GAPS.md`](docs/rules/GAPS.md). Highlights:
+[`project-docs/rules/GAPS.md`](project-docs/rules/GAPS.md). Highlights:
 
 - **staticWebApp**, **logAnalytics**, **virtualNetwork** and **subnet** each
   have fewer than five rules. (`applicationInsights`, `appServicePlan`,

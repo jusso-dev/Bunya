@@ -16,5 +16,5 @@ test("capture Cost tab screenshot", async ({ page }) => {
   await page.getByRole("button", { name: "Cost" }).click();
   await page.waitForTimeout(400);
   await expect(page.getByText(/Estimated monthly cost/)).toBeVisible();
-  await page.screenshot({ path: join(process.cwd(), "docs", "screenshots", "09-cost-panel.png") });
+  await page.screenshot({ path: join(process.cwd(), "project-docs", "screenshots", "09-cost-panel.png") });
 });

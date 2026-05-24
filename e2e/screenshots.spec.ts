@@ -2,7 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
-const SHOTS_DIR = join(process.cwd(), "docs", "screenshots");
+const SHOTS_DIR = join(process.cwd(), "project-docs", "screenshots");
 mkdirSync(SHOTS_DIR, { recursive: true });
 
 async function collapsePanels(page: Page, hideOutput = false) {
