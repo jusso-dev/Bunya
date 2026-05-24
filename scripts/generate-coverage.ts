@@ -2,9 +2,9 @@
  * Generates auto-derived coverage and gaps reports for the rules registry.
  *
  * Outputs:
- *   - docs/rules/COVERAGE.md — Coverage by service / category / source +
+ *   - project-docs/rules/COVERAGE.md — Coverage by service / category / source +
  *     a compliance framework mapping.
- *   - docs/rules/GAPS.md — Services with thin coverage, frameworks not yet
+ *   - project-docs/rules/GAPS.md — Services with thin coverage, frameworks not yet
  *     ingested, categories with low counts, explicit out-of-scope items,
  *     and sources known to exist but not yet ingested (parsed best-effort
  *     from SOURCES.md when present).
@@ -24,7 +24,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const PROJECT_ROOT = path.resolve(__dirname, "..");
-const DOCS_DIR = path.join(PROJECT_ROOT, "docs", "rules");
+const DOCS_DIR = path.join(PROJECT_ROOT, "project-docs", "rules");
 const COVERAGE_PATH = path.join(DOCS_DIR, "COVERAGE.md");
 const GAPS_PATH = path.join(DOCS_DIR, "GAPS.md");
 const SOURCES_MD_PATH = path.join(DOCS_DIR, "SOURCES.md");
