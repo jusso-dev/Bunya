@@ -107,6 +107,8 @@ export function getServiceIcon(type: ServiceType): ServiceIconAsset {
   return SERVICE_ICONS[type] ?? SERVICE_ICONS.resourceGroup;
 }
 
+const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+
 export function ServiceIcon({
   size = 20,
   style,
@@ -125,7 +127,7 @@ export function ServiceIcon({
       alt={props["aria-hidden"] ? "" : label}
       draggable={false}
       height={size}
-      src={icon.src}
+      src={`${BASE_PATH}${icon.src}`}
       style={{
         display: "block",
         height: size,
