@@ -71,10 +71,16 @@ export const SERVICE_ICONS: Record<ServiceType, ServiceIconAsset> = {
     title: "Network Security Group",
   },
   privateEndpoint: { src: "/azure-icons/privateEndpoint.svg", title: "Private Endpoint" },
+  privateDnsZone: { src: "/azure-icons/virtualNetwork.svg", title: "Private DNS Zone" },
   appServicePlan: { src: "/azure-icons/appServicePlan.svg", title: "App Service Plan" },
   appService: { src: "/azure-icons/appService.svg", title: "App Service" },
   functionApp: { src: "/azure-icons/functionApp.svg", title: "Function App" },
   staticWebApp: { src: "/azure-icons/staticWebApp.svg", title: "Static Web App" },
+  aksCluster: { src: "/azure-icons/aksCluster.svg", title: "Azure Kubernetes Service" },
+  virtualMachineScaleSet: {
+    src: "/azure-icons/virtualMachineScaleSet.svg",
+    title: "Virtual Machine Scale Set",
+  },
   storageAccount: { src: "/azure-icons/storageAccount.svg", title: "Storage Account" },
   sqlDatabase: { src: "/azure-icons/sqlDatabase.svg", title: "Azure SQL Database" },
   cosmosDb: { src: "/azure-icons/cosmosDb.svg", title: "Cosmos DB" },
@@ -87,6 +93,8 @@ export const SERVICE_ICONS: Record<ServiceType, ServiceIconAsset> = {
     src: "/azure-icons/logAnalytics.svg",
     title: "Log Analytics Workspace",
   },
+  monitorAlert: { src: "/azure-icons/logAnalytics.svg", title: "Monitor Alert Rule" },
+  actionGroup: { src: "/azure-icons/applicationInsights.svg", title: "Action Group" },
   frontDoor: { src: "/azure-icons/frontDoor.svg", title: "Front Door" },
   applicationGateway: {
     src: "/azure-icons/applicationGateway.svg",
@@ -100,6 +108,10 @@ export const SERVICE_ICONS: Record<ServiceType, ServiceIconAsset> = {
   userAssignedIdentity: {
     src: "/azure-icons/userAssignedIdentity.svg",
     title: "User-Assigned Managed Identity",
+  },
+  roleAssignment: {
+    src: "/azure-icons/userAssignedIdentity.svg",
+    title: "Role Assignment",
   },
 };
 

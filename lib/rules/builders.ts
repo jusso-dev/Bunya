@@ -64,7 +64,7 @@ export type GraphRuleInput = {
 
 export function graphRule(input: GraphRuleInput): RuleEntry {
   const appliesTo = input.appliesToServices
-    ? input.appliesToServices.map(armTypeOf)
+    ? ["graph", ...input.appliesToServices.map(armTypeOf)]
     : ["graph"];
   const rule: Rule = {
     id: input.id,

@@ -13,21 +13,27 @@ export const SERVICE_TYPES = [
   "subnet",
   "networkSecurityGroup",
   "privateEndpoint",
+  "privateDnsZone",
   "appServicePlan",
   "appService",
   "functionApp",
   "staticWebApp",
+  "aksCluster",
+  "virtualMachineScaleSet",
   "storageAccount",
   "sqlDatabase",
   "cosmosDb",
   "keyVault",
   "applicationInsights",
   "logAnalytics",
+  "monitorAlert",
+  "actionGroup",
   "frontDoor",
   "applicationGateway",
   "apiManagement",
   "containerRegistry",
   "userAssignedIdentity",
+  "roleAssignment",
 ] as const;
 
 export const EDGE_KINDS = [
@@ -53,7 +59,7 @@ export const GraphNodeSchema = z.object({
   size: z.object({ width: z.number(), height: z.number() }).optional(),
 });
 
-export const CONTAINER_SERVICE_TYPES = ["resourceGroup", "virtualNetwork"] as const;
+export const CONTAINER_SERVICE_TYPES = ["resourceGroup", "virtualNetwork", "appServicePlan"] as const;
 export type ContainerServiceType = (typeof CONTAINER_SERVICE_TYPES)[number];
 
 export function isContainerType(type: ServiceType): type is ContainerServiceType {
@@ -63,6 +69,7 @@ export function isContainerType(type: ServiceType): type is ContainerServiceType
 export const DEFAULT_CONTAINER_SIZE: Record<ContainerServiceType, { width: number; height: number }> = {
   resourceGroup: { width: 720, height: 480 },
   virtualNetwork: { width: 520, height: 360 },
+  appServicePlan: { width: 460, height: 300 },
 };
 
 export const GraphEdgeSchema = z.object({

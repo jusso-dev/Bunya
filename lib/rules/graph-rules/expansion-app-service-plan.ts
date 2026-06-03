@@ -34,6 +34,10 @@ const CONSUMPTION_FRIENDLY_SKUS = new Set(["S1", "P1v3", "P2v3"]);
 const LINUX_ONLY_RUNTIMES = new Set(["node", "python"]);
 
 function planForCompute(graph: GraphDocument, compute: GraphNode): GraphNode | undefined {
+  if (compute.parentId) {
+    const parent = graph.nodes.find((n) => n.id === compute.parentId);
+    if (parent?.type === "appServicePlan") return parent;
+  }
   const planEdge = graph.edges.find(
     (e) => e.source === compute.id && e.kind === "depends_on",
   );
@@ -59,12 +63,18 @@ export const expansionAppServicePlanRules: RuleEntry[] = [
     predicate: (graph) => {
       const findings: Array<{ nodeIds?: string[]; message?: string }> = [];
       for (const plan of nodesOfType(graph, "appServicePlan")) {
-        // Find every compute node attached to this plan via depends_on.
-        const attached = graph.edges
+        // Find every compute node attached to this plan via nesting or depends_on.
+        const nested = graph.nodes.filter(
+          (n) =>
+            n.parentId === plan.id &&
+            (n.type === "appService" || n.type === "functionApp"),
+        );
+        const explicit = graph.edges
           .filter((e) => e.target === plan.id && e.kind === "depends_on")
           .map((e) => graph.nodes.find((n) => n.id === e.source))
           .filter((n): n is GraphNode => Boolean(n))
           .filter((n) => n.type === "appService" || n.type === "functionApp");
+        const attached = [...new Map([...nested, ...explicit].map((n) => [n.id, n])).values()];
         if (attached.length !== 1) continue;
         if (attached[0].type !== "functionApp") continue;
         const sku = (plan.properties as { sku?: string }).sku;

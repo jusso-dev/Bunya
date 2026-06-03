@@ -16,7 +16,7 @@ import {
   buildEnvelope,
   envelopeToBlob,
   isPortableFile,
-  parsePortable,
+  parseImportText,
   PORTABLE_EXTENSION,
   readFileAsText,
   suggestedFilename,
@@ -61,6 +61,9 @@ export function Toolbar() {
 
   const [shareMessage, setShareMessage] = useState<string | null>(null);
   const [templateOpen, setTemplateOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importMessage, setImportMessage] = useState<string | null>(null);
+  const [importText, setImportText] = useState("");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -131,23 +134,44 @@ export function Toolbar() {
   const importFromFile = useCallback(
     async (file: File) => {
       if (!isPortableFile(file)) {
-        setShareMessage(`Skipped ${file.name}: not a Bunya export.`);
+        setImportMessage(`Skipped ${file.name}: upload a .json or .bunya.json file.`);
         return;
       }
       const text = await readFileAsText(file);
-      const result = parsePortable(text);
+      const result = parseImportText(text);
       if (!result.ok) {
-        setShareMessage(`Import failed: ${result.reason}`);
+        setImportMessage(`Import failed: ${result.reason}`);
         return;
       }
       replaceDocument(result.document);
       if (typeof window !== "undefined") window.history.replaceState(null, "", "#");
       setShareMessage(`Imported ${file.name} (${result.document.nodes.length} nodes).`);
+      setImportMessage(null);
+      setImportOpen(false);
     },
     [replaceDocument],
   );
 
   const onImportClick = () => fileInputRef.current?.click();
+
+  const onImportPaste = useCallback(() => {
+    const text = importText.trim();
+    if (!text) {
+      setImportMessage("Paste a Bunya export or ARM template JSON first.");
+      return;
+    }
+    const result = parseImportText(text);
+    if (!result.ok) {
+      setImportMessage(`Import failed: ${result.reason}`);
+      return;
+    }
+    replaceDocument(result.document);
+    if (typeof window !== "undefined") window.history.replaceState(null, "", "#");
+    setImportText("");
+    setImportMessage(null);
+    setImportOpen(false);
+    setShareMessage(`Imported pasted JSON (${result.document.nodes.length} nodes).`);
+  }, [importText, replaceDocument]);
 
   const onFileChange = useCallback(
     async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -208,14 +232,74 @@ export function Toolbar() {
             </div>
           ) : null}
         </div>
-        <button
-          type="button"
-          onClick={onImportClick}
-          className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
-          title={`Import a ${PORTABLE_EXTENSION} file`}
-        >
-          Import
-        </button>
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => {
+              setImportMessage(null);
+              setImportOpen((v) => !v);
+            }}
+            className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+            title={`Import a ${PORTABLE_EXTENSION} file or Azure ARM template`}
+          >
+            Import
+          </button>
+          {importOpen ? (
+            <div className="absolute right-0 z-50 mt-1 flex w-96 flex-col gap-2 rounded-md border border-zinc-200 bg-white p-3 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+              <div className="text-xs font-semibold text-zinc-800 dark:text-zinc-100">
+                Import JSON
+              </div>
+              <textarea
+                value={importText}
+                onChange={(e) => {
+                  setImportText(e.target.value);
+                  setImportMessage(null);
+                }}
+                rows={7}
+                className="w-full resize-none rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1.5 font-mono text-[11px] text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100"
+                placeholder="Paste Azure Export Template ARM JSON or a Bunya export..."
+              />
+              {importMessage ? (
+                <div className="max-h-24 overflow-auto rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] leading-4 text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+                  {importMessage}
+                </div>
+              ) : (
+                <div className="text-[11px] leading-4 text-zinc-500">
+                  Accepts raw JSON or a fenced markdown JSON block.
+                </div>
+              )}
+              <div className="flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={onImportClick}
+                  className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+                >
+                  Upload JSON
+                </button>
+                <div className="flex gap-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setImportText("");
+                      setImportMessage(null);
+                      setImportOpen(false);
+                    }}
+                    className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onImportPaste}
+                    className="rounded-md bg-zinc-900 px-2 py-1 text-xs font-medium text-white hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900"
+                  >
+                    Import
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </div>
         <button
           type="button"
           onClick={onExport}

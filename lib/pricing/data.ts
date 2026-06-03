@@ -52,6 +52,14 @@ export const PRICE_BOOK: PriceBook = {
   "staticWebApp.Free": { monthlyUsd: 0, note: "Static Web Apps Free tier" },
   "staticWebApp.Standard": { monthlyUsd: 9.0, note: "Static Web Apps Standard tier baseline" },
 
+  // AKS and VMSS node compute baselines, Australia East, monthly assuming 730h.
+  "aksCluster.Standard_B2s": { monthlyUsd: 31.39, note: "AKS control plane is free; estimate is per B2s node" },
+  "aksCluster.Standard_D2s_v5": { monthlyUsd: 70.08, note: "AKS control plane is free; estimate is per D2s v5 node" },
+  "aksCluster.Standard_D4s_v5": { monthlyUsd: 140.16, note: "AKS control plane is free; estimate is per D4s v5 node" },
+  "virtualMachineScaleSet.Standard_B2s": { monthlyUsd: 31.39, note: "Linux VMSS, per B2s instance" },
+  "virtualMachineScaleSet.Standard_D2s_v5": { monthlyUsd: 70.08, note: "Linux VMSS, per D2s v5 instance" },
+  "virtualMachineScaleSet.Standard_D4s_v5": { monthlyUsd: 140.16, note: "Linux VMSS, per D4s v5 instance" },
+
   // Storage Account (Standard hot blob, 100GB baseline + 10k operations)
   "storageAccount.Standard_LRS": { monthlyUsd: 2.4, note: "100GB hot blob + 10k ops, LRS" },
   "storageAccount.Standard_ZRS": { monthlyUsd: 3.0, note: "100GB hot blob + 10k ops, ZRS" },

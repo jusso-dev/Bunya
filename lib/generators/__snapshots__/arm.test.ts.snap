@@ -105,7 +105,7 @@ exports[`generateArm > snapshots first-cut ARM output 1`] = `
     {
       "type": "Microsoft.Authorization/roleAssignments",
       "apiVersion": "2022-04-01",
-      "name": "[guid(resourceId('Microsoft.KeyVault/vaults','kv-first-cut'), 'app-first-cut', 'kv-secrets-user')]",
+      "name": "[guid(resourceId('Microsoft.KeyVault/vaults', 'kv-first-cut'), 'app-first-cut', 'Key Vault Secrets User')]",
       "properties": {
         "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions','4633458b-17de-408a-b874-0445c86b69e6')]",
         "principalId": "[reference(resourceId('Microsoft.Web/sites','app-first-cut'), '2023-12-01', 'Full').identity.principalId]",
@@ -113,7 +113,7 @@ exports[`generateArm > snapshots first-cut ARM output 1`] = `
       },
       "dependsOn": [
         "[resourceId('Microsoft.KeyVault/vaults', 'kv-first-cut')]",
-        "resourceId('Microsoft.Web/sites', 'app-first-cut')"
+        "[resourceId('Microsoft.Web/sites', 'app-first-cut')]"
       ]
     }
   ],

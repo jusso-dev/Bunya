@@ -27,6 +27,8 @@ exports[`generateCostEstimate > snapshots the full-stack cost markdown 1`] = `
 | \`app-full-stack\` | App Service | (plan) | A$0.00 | Compute billed via App Service Plan |
 | \`fn-full-stack\` | Function App | Consumption | A$0.00 | Consumption plan: first 1M executions/month free |
 | \`swa-full-stack\` | Static Web App | Standard | A$13.50 | Static Web Apps Standard tier baseline |
+| \`aks-full-stack\` | Azure Kubernetes Service | Standard_D2s_v5 x 3 | A$315.36 | AKS control plane is free; estimate is per D2s v5 node |
+| \`vmss-full-stack\` | Virtual Machine Scale Set | Standard_B2s x 2 | A$94.17 | Linux VMSS, per B2s instance |
 | \`fullstackstg\` | Storage Account | Standard_LRS | A$3.60 | 100GB hot blob + 10k ops, LRS |
 | \`sqldb-full-stack\` | Azure SQL Database | S0 | A$22.50 | Standard S0 (10 DTU) |
 | \`cos-full-stack\` | Cosmos DB | Provisioned 400 RU/s | A$36.00 | Provisioned 400 RU/s |
@@ -39,6 +41,6 @@ exports[`generateCostEstimate > snapshots the full-stack cost markdown 1`] = `
 | \`acrfullstack\` | Container Registry | Basic | A$7.50 | Basic SKU |
 | \`umi-full-stack\` | User-Assigned Identity | identity | A$0.00 | No direct cost |
 
-**Total (indicative):** A$641.92 per month
+**Total (indicative):** A$1051.45 per month
 "
 `;

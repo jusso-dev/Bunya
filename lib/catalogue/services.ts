@@ -80,6 +80,23 @@ export const privateEndpointSchema = z.object({
   manualApproval: z.boolean().default(false),
 });
 
+export const privateDnsZoneSchema = z.object({
+  zoneName: z
+    .enum([
+      "privatelink.blob.core.windows.net",
+      "privatelink.file.core.windows.net",
+      "privatelink.queue.core.windows.net",
+      "privatelink.table.core.windows.net",
+      "privatelink.vaultcore.azure.net",
+      "privatelink.azurecr.io",
+      "privatelink.azurewebsites.net",
+      "privatelink.database.windows.net",
+      "privatelink.documents.azure.com",
+    ])
+    .default("privatelink.blob.core.windows.net"),
+  linkedToVnet: z.boolean().default(true),
+});
+
 export const appServicePlanSchema = z.object({
   sku: z.enum(["B1", "B2", "S1", "P1v3", "P2v3"]).default("B1"),
   os: z.enum(["Linux", "Windows"]).default("Linux"),
@@ -108,6 +125,38 @@ export const staticWebAppSchema = z.object({
   sku: z.enum(["Free", "Standard"]).default("Standard"),
   repositoryUrl: z.string().default(""),
   branch: z.string().default("main"),
+});
+
+export const aksClusterSchema = z.object({
+  kubernetesVersion: z.string().default(""),
+  dnsPrefix: z.string().default("aks"),
+  nodeVmSize: z.enum(["Standard_B2s", "Standard_D2s_v5", "Standard_D4s_v5"]).default("Standard_D2s_v5"),
+  nodeCount: z.number().int().min(1).max(50).default(3),
+  networkPlugin: z.enum(["azure", "kubenet"]).default("azure"),
+  networkPolicy: z.enum(["azure", "calico", "none"]).default("azure"),
+  privateCluster: z.boolean().default(false),
+  authorizedIpRanges: z.array(z.string()).default([]),
+  managedIdentity: z.boolean().default(true),
+  availabilityZones: z.array(z.string()).default([]),
+  azureRbac: z.boolean().default(true),
+  oidcIssuer: z.boolean().default(false),
+});
+
+export const virtualMachineScaleSetSchema = z.object({
+  sku: z.enum(["Standard_B2s", "Standard_D2s_v5", "Standard_D4s_v5"]).default("Standard_B2s"),
+  capacity: z.number().int().min(1).max(100).default(2),
+  orchestrationMode: z.enum(["Flexible", "Uniform"]).default("Flexible"),
+  upgradeMode: z.enum(["Automatic", "Manual", "Rolling"]).default("Automatic"),
+  adminUsername: z.string().min(1).default("azureuser"),
+  imagePublisher: z.string().min(1).default("Canonical"),
+  imageOffer: z.string().min(1).default("0001-com-ubuntu-server-jammy"),
+  imageSku: z.string().min(1).default("22_04-lts-gen2"),
+  automaticRepairs: z.boolean().default(true),
+  healthProbeConfigured: z.boolean().default(false),
+  availabilityZones: z.array(z.string()).default([]),
+  managedIdentity: z.boolean().default(true),
+  azureMonitorAgent: z.boolean().default(false),
+  trustedLaunch: z.boolean().default(false),
 });
 
 export const storageAccountSchema = z.object({
@@ -156,6 +205,17 @@ export const logAnalyticsSchema = z.object({
   defaultDiagnosticTarget: z.boolean().default(false),
 });
 
+export const monitorAlertSchema = z.object({
+  severity: z.enum(["Sev0", "Sev1", "Sev2", "Sev3", "Sev4"]).default("Sev2"),
+  condition: z.string().default("Platform metric or log query threshold"),
+  enabled: z.boolean().default(true),
+});
+
+export const actionGroupSchema = z.object({
+  shortName: z.string().min(1).max(12).default("ops"),
+  email: z.string().email().default("ops@example.com"),
+});
+
 export const frontDoorSchema = z.object({
   sku: z.enum(["Standard_AzureFrontDoor", "Premium_AzureFrontDoor"]).default("Standard_AzureFrontDoor"),
   responseTimeoutSeconds: z.number().int().min(16).max(240).default(60),
@@ -181,6 +241,22 @@ export const containerRegistrySchema = z.object({
 
 export const userAssignedIdentitySchema = z.object({
   notes: z.string().default(""),
+});
+
+export const roleAssignmentSchema = z.object({
+  roleDefinitionName: z
+    .enum([
+      "AcrPull",
+      "Key Vault Secrets User",
+      "Storage Blob Data Contributor",
+      "Storage Queue Data Contributor",
+      "Monitoring Metrics Publisher",
+      "Reader",
+      "Contributor",
+    ])
+    .default("Reader"),
+  scope: z.string().default("target resource"),
+  principalType: z.enum(["ServicePrincipal", "ManagedIdentity"]).default("ServicePrincipal"),
 });
 
 function parseDefaults<T extends z.ZodTypeAny>(s: T): Record<string, unknown> {
@@ -270,12 +346,25 @@ export const SERVICES: Record<ServiceType, ServiceDefinition> = {
     azureNamePattern: "rg",
     icon: "PE",
   },
+  privateDnsZone: {
+    type: "privateDnsZone",
+    label: "Private DNS Zone",
+    shortLabel: "DNS",
+    category: "network",
+    description: "Private Link DNS zone linked to a virtual network.",
+    propertiesSchema: privateDnsZoneSchema,
+    defaultProperties: parseDefaults(privateDnsZoneSchema),
+    allowedEdgeTargets: ["virtualNetwork", "privateEndpoint"],
+    allowedOutgoingKinds: ["network", "depends_on"],
+    azureNamePattern: "global",
+    icon: "DNS",
+  },
   appServicePlan: {
     type: "appServicePlan",
     label: "App Service Plan",
     shortLabel: "Plan",
     category: "compute",
-    description: "Compute tier hosting App Services and Function Apps.",
+    description: "Hosting plan container for Web Apps and Function Apps.",
     propertiesSchema: appServicePlanSchema,
     defaultProperties: parseDefaults(appServicePlanSchema),
     allowedEdgeTargets: [],
@@ -285,7 +374,7 @@ export const SERVICES: Record<ServiceType, ServiceDefinition> = {
   },
   appService: {
     type: "appService",
-    label: "App Service",
+    label: "Web App (App Service)",
     shortLabel: "Web",
     category: "compute",
     description: "Managed web application on an App Service Plan.",
@@ -293,6 +382,7 @@ export const SERVICES: Record<ServiceType, ServiceDefinition> = {
     defaultProperties: parseDefaults(appServiceSchema),
     allowedEdgeTargets: [
       "appServicePlan",
+      "functionApp",
       "storageAccount",
       "keyVault",
       "sqlDatabase",
@@ -302,6 +392,7 @@ export const SERVICES: Record<ServiceType, ServiceDefinition> = {
       "userAssignedIdentity",
       "containerRegistry",
       "subnet",
+      "roleAssignment",
     ],
     allowedOutgoingKinds: allEdgeKinds,
     azureNamePattern: "lowercase-alphanum-global",
@@ -317,6 +408,7 @@ export const SERVICES: Record<ServiceType, ServiceDefinition> = {
     defaultProperties: parseDefaults(functionAppSchema),
     allowedEdgeTargets: [
       "appServicePlan",
+      "appService",
       "storageAccount",
       "keyVault",
       "sqlDatabase",
@@ -326,6 +418,7 @@ export const SERVICES: Record<ServiceType, ServiceDefinition> = {
       "userAssignedIdentity",
       "containerRegistry",
       "subnet",
+      "roleAssignment",
     ],
     allowedOutgoingKinds: allEdgeKinds,
     azureNamePattern: "lowercase-alphanum-global",
@@ -344,6 +437,45 @@ export const SERVICES: Record<ServiceType, ServiceDefinition> = {
     azureNamePattern: "rg",
     icon: "SWA",
   },
+  aksCluster: {
+    type: "aksCluster",
+    label: "Azure Kubernetes Service",
+    shortLabel: "AKS",
+    category: "compute",
+    description: "Managed Kubernetes cluster with VMSS-backed node pools.",
+    propertiesSchema: aksClusterSchema,
+    defaultProperties: parseDefaults(aksClusterSchema),
+    allowedEdgeTargets: [
+      "subnet",
+      "containerRegistry",
+      "logAnalytics",
+      "userAssignedIdentity",
+      "keyVault",
+      "roleAssignment",
+    ],
+    allowedOutgoingKinds: allEdgeKinds,
+    azureNamePattern: "rg",
+    icon: "AKS",
+  },
+  virtualMachineScaleSet: {
+    type: "virtualMachineScaleSet",
+    label: "Virtual Machine Scale Set",
+    shortLabel: "VMSS",
+    category: "compute",
+    description: "Elastic set of identical Linux virtual machines.",
+    propertiesSchema: virtualMachineScaleSetSchema,
+    defaultProperties: parseDefaults(virtualMachineScaleSetSchema),
+    allowedEdgeTargets: [
+      "subnet",
+      "networkSecurityGroup",
+      "logAnalytics",
+      "userAssignedIdentity",
+      "roleAssignment",
+    ],
+    allowedOutgoingKinds: allEdgeKinds,
+    azureNamePattern: "rg",
+    icon: "VMSS",
+  },
   storageAccount: {
     type: "storageAccount",
     label: "Storage Account",
@@ -352,7 +484,7 @@ export const SERVICES: Record<ServiceType, ServiceDefinition> = {
     description: "Blob, Queue, Table and File storage.",
     propertiesSchema: storageAccountSchema,
     defaultProperties: parseDefaults(storageAccountSchema),
-    allowedEdgeTargets: ["logAnalytics"],
+    allowedEdgeTargets: ["logAnalytics", "roleAssignment"],
     allowedOutgoingKinds: ["diagnostic"],
     azureNamePattern: "lowercase-alphanum-global",
     icon: "STG",
@@ -365,7 +497,7 @@ export const SERVICES: Record<ServiceType, ServiceDefinition> = {
     description: "Managed relational database with implicit SQL Server.",
     propertiesSchema: sqlDatabaseSchema,
     defaultProperties: parseDefaults(sqlDatabaseSchema),
-    allowedEdgeTargets: ["logAnalytics"],
+    allowedEdgeTargets: ["logAnalytics", "roleAssignment"],
     allowedOutgoingKinds: ["diagnostic"],
     azureNamePattern: "rg",
     icon: "SQL",
@@ -378,7 +510,7 @@ export const SERVICES: Record<ServiceType, ServiceDefinition> = {
     description: "Globally distributed document database (SQL API).",
     propertiesSchema: cosmosDbSchema,
     defaultProperties: parseDefaults(cosmosDbSchema),
-    allowedEdgeTargets: ["logAnalytics"],
+    allowedEdgeTargets: ["logAnalytics", "roleAssignment"],
     allowedOutgoingKinds: ["diagnostic"],
     azureNamePattern: "lowercase-alphanum-global",
     icon: "COS",
@@ -391,7 +523,7 @@ export const SERVICES: Record<ServiceType, ServiceDefinition> = {
     description: "Secrets, keys and certificates store.",
     propertiesSchema: keyVaultSchema,
     defaultProperties: parseDefaults(keyVaultSchema),
-    allowedEdgeTargets: ["logAnalytics"],
+    allowedEdgeTargets: ["logAnalytics", "roleAssignment"],
     allowedOutgoingKinds: ["diagnostic"],
     azureNamePattern: "lowercase-alphanum-global",
     icon: "KV",
@@ -421,6 +553,32 @@ export const SERVICES: Record<ServiceType, ServiceDefinition> = {
     allowedOutgoingKinds: [],
     azureNamePattern: "rg",
     icon: "LA",
+  },
+  monitorAlert: {
+    type: "monitorAlert",
+    label: "Monitor Alert Rule",
+    shortLabel: "Alert",
+    category: "observability",
+    description: "Azure Monitor alert rule attached to a resource or workspace.",
+    propertiesSchema: monitorAlertSchema,
+    defaultProperties: parseDefaults(monitorAlertSchema),
+    allowedEdgeTargets: ["logAnalytics", "actionGroup", "appService", "functionApp", "aksCluster", "virtualMachineScaleSet"],
+    allowedOutgoingKinds: ["diagnostic", "depends_on"],
+    azureNamePattern: "rg",
+    icon: "Alert",
+  },
+  actionGroup: {
+    type: "actionGroup",
+    label: "Action Group",
+    shortLabel: "Act",
+    category: "observability",
+    description: "Notification target for Azure Monitor alerts.",
+    propertiesSchema: actionGroupSchema,
+    defaultProperties: parseDefaults(actionGroupSchema),
+    allowedEdgeTargets: [],
+    allowedOutgoingKinds: [],
+    azureNamePattern: "rg",
+    icon: "AG",
   },
   frontDoor: {
     type: "frontDoor",
@@ -469,7 +627,7 @@ export const SERVICES: Record<ServiceType, ServiceDefinition> = {
     description: "Private Docker registry for container images.",
     propertiesSchema: containerRegistrySchema,
     defaultProperties: parseDefaults(containerRegistrySchema),
-    allowedEdgeTargets: ["logAnalytics"],
+    allowedEdgeTargets: ["logAnalytics", "roleAssignment"],
     allowedOutgoingKinds: ["diagnostic"],
     azureNamePattern: "lowercase-alphanum-global",
     icon: "ACR",
@@ -488,10 +646,31 @@ export const SERVICES: Record<ServiceType, ServiceDefinition> = {
       "sqlDatabase",
       "cosmosDb",
       "containerRegistry",
+      "roleAssignment",
     ],
     allowedOutgoingKinds: ["identity"],
     azureNamePattern: "rg",
     icon: "UMI",
+  },
+  roleAssignment: {
+    type: "roleAssignment",
+    label: "Role Assignment",
+    shortLabel: "RBAC",
+    category: "security",
+    description: "Azure RBAC binding between a principal, role and target scope.",
+    propertiesSchema: roleAssignmentSchema,
+    defaultProperties: parseDefaults(roleAssignmentSchema),
+    allowedEdgeTargets: [
+      "keyVault",
+      "storageAccount",
+      "sqlDatabase",
+      "cosmosDb",
+      "containerRegistry",
+      "logAnalytics",
+    ],
+    allowedOutgoingKinds: ["identity", "depends_on"],
+    azureNamePattern: "rg",
+    icon: "RBAC",
   },
 };
 
@@ -522,6 +701,8 @@ export function isServiceImplemented(type: ServiceType): boolean {
 const EDGE_INFERENCE: Partial<Record<`${ServiceType}->${ServiceType}`, EdgeKind>> = {
   "appService->appServicePlan": "depends_on",
   "functionApp->appServicePlan": "depends_on",
+  "appService->functionApp": "network",
+  "functionApp->appService": "network",
   "appService->storageAccount": "data",
   "functionApp->storageAccount": "data",
   "appService->keyVault": "identity",
@@ -534,11 +715,27 @@ const EDGE_INFERENCE: Partial<Record<`${ServiceType}->${ServiceType}`, EdgeKind>
   "functionApp->applicationInsights": "diagnostic",
   "appService->logAnalytics": "diagnostic",
   "functionApp->logAnalytics": "diagnostic",
+  "aksCluster->logAnalytics": "diagnostic",
+  "virtualMachineScaleSet->logAnalytics": "diagnostic",
+  "aksCluster->subnet": "network",
+  "virtualMachineScaleSet->subnet": "network",
+  "virtualMachineScaleSet->networkSecurityGroup": "network",
+  "aksCluster->containerRegistry": "identity",
+  "aksCluster->keyVault": "identity",
+  "aksCluster->userAssignedIdentity": "identity",
+  "aksCluster->roleAssignment": "identity",
+  "virtualMachineScaleSet->userAssignedIdentity": "identity",
+  "virtualMachineScaleSet->roleAssignment": "identity",
   "storageAccount->logAnalytics": "diagnostic",
+  "storageAccount->roleAssignment": "identity",
   "sqlDatabase->logAnalytics": "diagnostic",
+  "sqlDatabase->roleAssignment": "identity",
   "cosmosDb->logAnalytics": "diagnostic",
+  "cosmosDb->roleAssignment": "identity",
   "keyVault->logAnalytics": "diagnostic",
+  "keyVault->roleAssignment": "identity",
   "containerRegistry->logAnalytics": "diagnostic",
+  "containerRegistry->roleAssignment": "identity",
   "applicationGateway->logAnalytics": "diagnostic",
   "frontDoor->logAnalytics": "diagnostic",
   "apiManagement->logAnalytics": "diagnostic",
@@ -552,7 +749,16 @@ const EDGE_INFERENCE: Partial<Record<`${ServiceType}->${ServiceType}`, EdgeKind>
   "privateEndpoint->containerRegistry": "network",
   "privateEndpoint->appService": "network",
   "privateEndpoint->functionApp": "network",
+  "privateEndpoint->privateDnsZone": "network",
+  "privateDnsZone->privateEndpoint": "network",
+  "privateDnsZone->virtualNetwork": "network",
   "applicationInsights->logAnalytics": "depends_on",
+  "monitorAlert->logAnalytics": "diagnostic",
+  "monitorAlert->actionGroup": "depends_on",
+  "monitorAlert->appService": "diagnostic",
+  "monitorAlert->functionApp": "diagnostic",
+  "monitorAlert->aksCluster": "diagnostic",
+  "monitorAlert->virtualMachineScaleSet": "diagnostic",
   "frontDoor->appService": "network",
   "frontDoor->functionApp": "network",
   "frontDoor->staticWebApp": "network",
@@ -566,12 +772,21 @@ const EDGE_INFERENCE: Partial<Record<`${ServiceType}->${ServiceType}`, EdgeKind>
   "userAssignedIdentity->sqlDatabase": "identity",
   "userAssignedIdentity->cosmosDb": "identity",
   "userAssignedIdentity->containerRegistry": "identity",
+  "userAssignedIdentity->roleAssignment": "identity",
+  "roleAssignment->keyVault": "identity",
+  "roleAssignment->storageAccount": "identity",
+  "roleAssignment->sqlDatabase": "identity",
+  "roleAssignment->cosmosDb": "identity",
+  "roleAssignment->containerRegistry": "identity",
+  "roleAssignment->logAnalytics": "identity",
   "appService->containerRegistry": "identity",
   "functionApp->containerRegistry": "identity",
   "appService->subnet": "network",
   "functionApp->subnet": "network",
   "appService->userAssignedIdentity": "identity",
   "functionApp->userAssignedIdentity": "identity",
+  "appService->roleAssignment": "identity",
+  "functionApp->roleAssignment": "identity",
   "staticWebApp->functionApp": "depends_on",
 };
 

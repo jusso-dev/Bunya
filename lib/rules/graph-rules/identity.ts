@@ -172,4 +172,41 @@ export const identityRules: RuleEntry[] = [
       return findings;
     },
   }),
+
+  graphRule({
+    id: "BUNYA.IDN.006",
+    source: {
+      name: MS_LEARN,
+      url: "https://learn.microsoft.com/en-us/azure/role-based-access-control/role-assignments",
+      license: "CC-BY-4.0",
+    },
+    category: "identity",
+    severity: "info",
+    message: "Identity edge should have an explicit Role Assignment node or generated RBAC binding.",
+    longExplanation:
+      "A managed identity relationship is not complete until Azure RBAC grants the principal a role at the target scope. Bunya's ARM generator expands direct identity edges into roleAssignments, but explicit Role Assignment nodes make the role name and target scope reviewable in the diagram. Add a Role Assignment node between the principal and target for production designs or confirm the generated binding is acceptable.",
+    tags: ["bunya", "rbac", "role-assignment", "managed-identity"],
+    predicate: (graph) => {
+      const findings: Array<{ nodeIds?: string[]; edgeIds?: string[] }> = [];
+      for (const edge of graph.edges) {
+        if (edge.kind !== "identity") continue;
+        const source = graph.nodes.find((n) => n.id === edge.source);
+        const target = graph.nodes.find((n) => n.id === edge.target);
+        if (!source || !target) continue;
+        if (source.type === "roleAssignment" || target.type === "roleAssignment") continue;
+        const assignment = graph.nodes.find((node) => {
+          if (node.type !== "roleAssignment") return false;
+          const hasPrincipal = graph.edges.some(
+            (e) => e.kind === "identity" && e.source === source.id && e.target === node.id,
+          );
+          const hasScope = graph.edges.some(
+            (e) => e.kind === "identity" && e.source === node.id && e.target === target.id,
+          );
+          return hasPrincipal && hasScope;
+        });
+        if (!assignment) findings.push({ edgeIds: [edge.id], nodeIds: [source.id, target.id] });
+      }
+      return findings;
+    },
+  }),
 ];

@@ -14,7 +14,7 @@ describe("generateBicep", () => {
     expect(result.files.find((f) => f.path === "main.bicep")?.content).toMatchSnapshot();
   });
 
-  it("covers all 20 service resource types for the full-stack fixture", () => {
+  it("covers all service resource types for the full-stack fixture", () => {
     const result = generateBicep(fullStackGraph);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -27,6 +27,8 @@ describe("generateBicep", () => {
       "Microsoft.Web/serverfarms",
       "Microsoft.Web/sites",
       "Microsoft.Web/staticSites",
+      "Microsoft.ContainerService/managedClusters",
+      "Microsoft.Compute/virtualMachineScaleSets",
       "Microsoft.Storage/storageAccounts",
       "Microsoft.Sql/servers",
       "Microsoft.Sql/servers/databases",

@@ -58,4 +58,26 @@ describe("expandImplicits", () => {
     const result = expandImplicits(tinyGraph());
     expect(result.autoNodeIds.size).toBeGreaterThan(0);
   });
+
+  it("treats App Service Plan containment as a hosting relationship", () => {
+    const graph = tinyGraph();
+    graph.nodes.unshift({
+      id: "plan",
+      type: "appServicePlan",
+      name: "Plan",
+      resourceName: "plan-demo",
+      position: { x: 0, y: 0 },
+      properties: { ...getServiceDefinition("appServicePlan").defaultProperties },
+    });
+    graph.nodes = graph.nodes.map((node) =>
+      node.id === "fn" ? { ...node, parentId: "plan" } : node,
+    );
+    const result = expandImplicits(graph);
+    expect(result.document.nodes.filter((n) => n.type === "appServicePlan")).toHaveLength(1);
+    expect(
+      result.document.edges.some(
+        (e) => e.source === "fn" && e.target === "plan" && e.kind === "depends_on",
+      ),
+    ).toBe(false);
+  });
 });

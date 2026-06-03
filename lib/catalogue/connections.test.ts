@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { canConnect } from "./connections";
 import { firstCutGraph } from "@/lib/generators/__fixtures__/firstCut";
+import { fullStackGraph } from "@/lib/generators/__fixtures__/fullStack";
 
 describe("canConnect", () => {
   it("rejects self-connections", () => {
@@ -36,5 +37,12 @@ describe("canConnect", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.kind).toBe("data");
+  });
+
+  it("allows Function App to Web App application links", () => {
+    const result = canConnect(fullStackGraph, "fn", "app");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.kind).toBe("network");
   });
 });

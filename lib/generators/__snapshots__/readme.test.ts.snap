@@ -34,9 +34,6 @@ flowchart LR
 ### App Service Plan
 - \`plan-first-cut\` - Web Plan
 
-### App Service
-- \`app-first-cut\` - API Web App
-
 ### Key Vault
 - \`kv-first-cut-11vqlt\` - Secrets Vault
 
@@ -45,6 +42,9 @@ flowchart LR
 
 ### Storage Account
 - \`firstcutstg10rsix\` - Blob Storage
+
+### Web App (App Service)
+- \`app-first-cut\` - API Web App
 
 ## Dependencies
 

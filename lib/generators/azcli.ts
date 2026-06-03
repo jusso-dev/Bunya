@@ -1,6 +1,12 @@
 import { GraphDocument, GraphNode, ServiceType } from "@/lib/graph/schema";
-import { GeneratorContext, buildGeneratorContext, effectiveResourceGroup, outgoingOf } from "./shared/context";
-import { GeneratedFile, GeneratorResult } from "./types";
+import {
+  GeneratorContext,
+  buildGeneratorContext,
+  effectiveResourceGroup,
+  outgoingOf,
+  resolveAppServicePlan,
+} from "./shared/context";
+import { GeneratorResult } from "./types";
 
 function rgName(ctx: GeneratorContext, node?: GraphNode): string {
   if (node) {
@@ -72,16 +78,19 @@ function emit(node: GraphNode, ctx: GeneratorContext): string[] {
         `az network private-endpoint create ${COMMON} --name "${name}" --vnet-name "${vnetName}" --subnet "${subnetName}" --private-connection-resource-id "$target_id" --group-id "${(node.properties.groupId as string) ?? "blob"}" --connection-name "${name}-psc" --location "${region}" >/dev/null`,
       ];
     }
+    case "privateDnsZone":
+      return [
+        `# Private DNS Zone ${name}`,
+        `az network private-dns zone create ${COMMON} --name "${(node.properties.zoneName as string) ?? name}" >/dev/null`,
+      ];
     case "appServicePlan":
       return [
         `# App Service Plan ${name}`,
         `az appservice plan create ${COMMON} --name "${name}" --location "${region}" --sku "${(node.properties.sku as string) ?? "B1"}" ${(node.properties.os as string) === "Linux" ? "--is-linux" : ""} >/dev/null`,
       ];
     case "appService": {
-      const planEdge = outgoingOf(ctx, node.id, "depends_on").find(
-        (e) => ctx.nodesById.get(e.target)?.type === "appServicePlan",
-      );
-      const planName = planEdge ? ctx.resourceNames.get(planEdge.target)! : "main-plan";
+      const plan = resolveAppServicePlan(ctx, node);
+      const planName = plan ? ctx.resourceNames.get(plan.id)! : "main-plan";
       const runtime = (node.properties.runtime as string) ?? "node";
       const version = (node.properties.runtimeVersion as string) ?? "20-lts";
       return [
@@ -90,13 +99,11 @@ function emit(node: GraphNode, ctx: GeneratorContext): string[] {
       ];
     }
     case "functionApp": {
-      const planEdge = outgoingOf(ctx, node.id, "depends_on").find(
-        (e) => ctx.nodesById.get(e.target)?.type === "appServicePlan",
-      );
       const stEdge = outgoingOf(ctx, node.id, "data").find(
         (e) => ctx.nodesById.get(e.target)?.type === "storageAccount",
       );
-      const planName = planEdge ? ctx.resourceNames.get(planEdge.target)! : "main-plan";
+      const plan = resolveAppServicePlan(ctx, node);
+      const planName = plan ? ctx.resourceNames.get(plan.id)! : "main-plan";
       const stName = stEdge ? ctx.resourceNames.get(stEdge.target)! : "mainstorage";
       const runtime = (node.properties.runtime as string) ?? "node";
       const version = (node.properties.runtimeVersion as string) ?? "20";
@@ -110,6 +117,32 @@ function emit(node: GraphNode, ctx: GeneratorContext): string[] {
         `# Static Web App ${name}`,
         `az staticwebapp create ${COMMON} --name "${name}" --location "${region}" --sku "${(node.properties.sku as string) ?? "Standard"}" >/dev/null`,
       ];
+    case "aksCluster": {
+      const subnetEdge = outgoingOf(ctx, node.id, "network").find(
+        (e) => ctx.nodesById.get(e.target)?.type === "subnet",
+      );
+      const subnetArg = subnetEdge
+        ? ` --vnet-subnet-id "$(az network vnet subnet show ${COMMON} --name "${ctx.resourceNames.get(subnetEdge.target)!}" --vnet-name "main-vnet" --query id -o tsv)"`
+        : "";
+      const privateArg = node.properties.privateCluster === true ? " --enable-private-cluster" : "";
+      const policy = (node.properties.networkPolicy as string) ?? "azure";
+      const policyArg = policy === "none" ? "" : ` --network-policy "${policy}"`;
+      return [
+        `# AKS ${name}`,
+        `az aks create ${COMMON} --name "${name}" --location "${region}" --node-count ${(node.properties.nodeCount as number) ?? 3} --node-vm-size "${(node.properties.nodeVmSize as string) ?? "Standard_D2s_v5"}" --network-plugin "${(node.properties.networkPlugin as string) ?? "azure"}"${policyArg} --enable-managed-identity${privateArg}${subnetArg} >/dev/null`,
+      ];
+    }
+    case "virtualMachineScaleSet": {
+      const subnetEdge = outgoingOf(ctx, node.id, "network").find(
+        (e) => ctx.nodesById.get(e.target)?.type === "subnet",
+      );
+      const subnetName = subnetEdge ? ctx.resourceNames.get(subnetEdge.target)! : "main-subnet";
+      return [
+        `# Virtual Machine Scale Set ${name}`,
+        `: "\${VMSS_SSH_PUBLIC_KEY:?Set VMSS_SSH_PUBLIC_KEY before creating VM scale sets}"`,
+        `az vmss create ${COMMON} --name "${name}" --location "${region}" --image "${(node.properties.imagePublisher as string) ?? "Canonical"}:${(node.properties.imageOffer as string) ?? "0001-com-ubuntu-server-jammy"}:${(node.properties.imageSku as string) ?? "22_04-lts-gen2"}:latest" --vm-sku "${(node.properties.sku as string) ?? "Standard_B2s"}" --instance-count ${(node.properties.capacity as number) ?? 2} --admin-username "${(node.properties.adminUsername as string) ?? "azureuser"}" --ssh-key-value "$VMSS_SSH_PUBLIC_KEY" --upgrade-policy-mode "${(node.properties.upgradeMode as string) ?? "Automatic"}" --subnet "${subnetName}" >/dev/null`,
+      ];
+    }
     case "storageAccount":
       return [
         `# Storage Account ${name}`,
@@ -146,6 +179,17 @@ function emit(node: GraphNode, ctx: GeneratorContext): string[] {
         `# Log Analytics Workspace ${name}`,
         `az monitor log-analytics workspace create ${COMMON} --workspace-name "${name}" --location "${region}" --sku "${(node.properties.sku as string) ?? "PerGB2018"}" --retention-time ${(node.properties.retentionDays as number) ?? 30} >/dev/null`,
       ];
+    case "monitorAlert":
+      return [
+        `# Monitor Alert ${name}`,
+        `# Create metric/log alert criteria for '${name}' after confirming the workload-specific signal.`,
+        `echo "Skipping alert rule ${name}: generated ARM/Bicep has the richer alert model." >/dev/null`,
+      ];
+    case "actionGroup":
+      return [
+        `# Action Group ${name}`,
+        `az monitor action-group create ${COMMON} --name "${name}" --short-name "${(node.properties.shortName as string) ?? "ops"}" --action email ops "${(node.properties.email as string) ?? "ops@example.com"}" >/dev/null`,
+      ];
     case "frontDoor":
       return [
         `# Front Door (Standard) ${name}`,
@@ -171,6 +215,12 @@ function emit(node: GraphNode, ctx: GeneratorContext): string[] {
       return [
         `# User-assigned Managed Identity ${name}`,
         `az identity create ${COMMON} --name "${name}" --location "${region}" >/dev/null`,
+      ];
+    case "roleAssignment":
+      return [
+        `# Role Assignment ${name}`,
+        `# Role assignments require a principalId and scope. Generated ARM/Bicep can infer these from identity edges.`,
+        `echo "Skipping role assignment ${name}: use generated ARM/Bicep for RBAC binding." >/dev/null`,
       ];
   }
 }

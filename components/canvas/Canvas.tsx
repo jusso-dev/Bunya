@@ -34,7 +34,7 @@ import {
 } from "@/lib/graph/schema";
 import { ServiceNode, ServiceNodeData } from "./ServiceNode";
 import { ContainerNode } from "./ContainerNode";
-import { isPortableFile, parsePortable, readFileAsText } from "@/lib/graph/portable";
+import { isPortableFile, parseImportText, readFileAsText } from "@/lib/graph/portable";
 
 const NODE_TYPES = {
   service: ServiceNode,
@@ -110,6 +110,9 @@ function findContainerAt(
 
 function acceptsChild(parentType: ServiceType, childType: ServiceType): boolean {
   if (parentType === "virtualNetwork") return childType === "subnet";
+  if (parentType === "appServicePlan") {
+    return childType === "appService" || childType === "functionApp";
+  }
   if (parentType === "resourceGroup") {
     return childType !== "resourceGroup";
   }
@@ -335,7 +338,7 @@ function CanvasInner() {
         if (file) {
           void (async () => {
             const text = await readFileAsText(file);
-            const result = parsePortable(text);
+            const result = parseImportText(text);
             if (result.ok) {
               replaceDocument(result.document);
               if (typeof window !== "undefined") window.history.replaceState(null, "", "#");

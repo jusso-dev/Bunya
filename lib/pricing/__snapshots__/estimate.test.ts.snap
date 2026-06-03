@@ -29,6 +29,11 @@ exports[`estimateCost > snapshots line-item structure for the full-stack fixture
       "sku": "workspace-based",
     },
     {
+      "monthly": 315.36,
+      "service": "Azure Kubernetes Service",
+      "sku": "Standard_D2s_v5 x 3",
+    },
+    {
       "monthly": 22.5,
       "service": "Azure SQL Database",
       "sku": "S0",
@@ -99,6 +104,11 @@ exports[`estimateCost > snapshots line-item structure for the full-stack fixture
       "sku": "identity",
     },
     {
+      "monthly": 94.17,
+      "service": "Virtual Machine Scale Set",
+      "sku": "Standard_B2s x 2",
+    },
+    {
       "monthly": 0,
       "service": "Virtual Network",
       "sku": "container",
@@ -106,6 +116,6 @@ exports[`estimateCost > snapshots line-item structure for the full-stack fixture
   ],
   "currency": "AUD",
   "snapshotDate": "2026-05-19",
-  "total": 641.92,
+  "total": 1051.45,
 }
 `;

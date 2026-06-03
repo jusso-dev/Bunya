@@ -42,21 +42,27 @@ const SERVICE_LABELS: Record<ServiceType, string> = {
   subnet: "Subnet",
   networkSecurityGroup: "Network Security Group",
   privateEndpoint: "Private Endpoint",
+  privateDnsZone: "Private DNS Zone",
   appServicePlan: "App Service Plan",
   appService: "App Service",
   functionApp: "Function App",
   staticWebApp: "Static Web App",
+  aksCluster: "Azure Kubernetes Service",
+  virtualMachineScaleSet: "Virtual Machine Scale Set",
   storageAccount: "Storage Account",
   sqlDatabase: "Azure SQL Database",
   cosmosDb: "Cosmos DB",
   keyVault: "Key Vault",
   applicationInsights: "Application Insights",
   logAnalytics: "Log Analytics Workspace",
+  monitorAlert: "Monitor Alert Rule",
+  actionGroup: "Action Group",
   frontDoor: "Front Door",
   applicationGateway: "Application Gateway",
   apiManagement: "API Management",
   containerRegistry: "Container Registry",
   userAssignedIdentity: "User-Assigned Identity",
+  roleAssignment: "Role Assignment",
 };
 
 function priceKeyFor(node: GraphNode): { key: string; sku: string } {
@@ -76,6 +82,14 @@ function priceKeyFor(node: GraphNode): { key: string; sku: string } {
     case "staticWebApp": {
       const sku = String(props.sku ?? "Standard");
       return { key: `staticWebApp.${sku}`, sku };
+    }
+    case "aksCluster": {
+      const sku = String(props.nodeVmSize ?? "Standard_D2s_v5");
+      return { key: `aksCluster.${sku}`, sku };
+    }
+    case "virtualMachineScaleSet": {
+      const sku = String(props.sku ?? "Standard_B2s");
+      return { key: `virtualMachineScaleSet.${sku}`, sku };
     }
     case "storageAccount": {
       const sku = String(props.sku ?? "Standard_LRS");
@@ -118,6 +132,12 @@ function priceKeyFor(node: GraphNode): { key: string; sku: string } {
     }
     case "privateEndpoint":
       return { key: "privateEndpoint.base", sku: "per-endpoint" };
+    case "privateDnsZone":
+      return { key: "privateDnsZone.base", sku: "zone" };
+    case "monitorAlert":
+      return { key: "monitorAlert.base", sku: String(props.severity ?? "Sev2") };
+    case "actionGroup":
+      return { key: "actionGroup.base", sku: "notification routing" };
     case "resourceGroup":
       return { key: "resourceGroup.base", sku: "container" };
     case "virtualNetwork":
@@ -128,6 +148,8 @@ function priceKeyFor(node: GraphNode): { key: string; sku: string } {
       return { key: "networkSecurityGroup.base", sku: "ruleset" };
     case "userAssignedIdentity":
       return { key: "userAssignedIdentity.base", sku: "identity" };
+    case "roleAssignment":
+      return { key: "roleAssignment.base", sku: String(props.roleDefinitionName ?? "Reader") };
   }
 }
 
@@ -161,6 +183,38 @@ export function estimateCost(
         sku: `${sku} x ${capacity}`,
         monthly: scaled,
         note: entry?.note,
+      });
+      continue;
+    }
+    if (node.type === "aksCluster") {
+      const count = Number((node.properties as Record<string, unknown>).nodeCount ?? 1);
+      const scaled = monthly * Math.max(1, count);
+      total += scaled;
+      lineItems.push({
+        nodeId: node.id,
+        serviceType: node.type,
+        serviceLabel: SERVICE_LABELS[node.type],
+        resourceName: node.resourceName,
+        sku: `${sku} x ${count}`,
+        monthly: scaled,
+        note: entry?.note,
+        unmodelled,
+      });
+      continue;
+    }
+    if (node.type === "virtualMachineScaleSet") {
+      const capacity = Number((node.properties as Record<string, unknown>).capacity ?? 1);
+      const scaled = monthly * Math.max(1, capacity);
+      total += scaled;
+      lineItems.push({
+        nodeId: node.id,
+        serviceType: node.type,
+        serviceLabel: SERVICE_LABELS[node.type],
+        resourceName: node.resourceName,
+        sku: `${sku} x ${capacity}`,
+        monthly: scaled,
+        note: entry?.note,
+        unmodelled,
       });
       continue;
     }

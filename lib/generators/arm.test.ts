@@ -34,6 +34,8 @@ describe("generateArm", () => {
       "Microsoft.Web/serverfarms",
       "Microsoft.Web/sites",
       "Microsoft.Web/staticSites",
+      "Microsoft.ContainerService/managedClusters",
+      "Microsoft.Compute/virtualMachineScaleSets",
       "Microsoft.Storage/storageAccounts",
       "Microsoft.Sql/servers",
       "Microsoft.DocumentDB/databaseAccounts",

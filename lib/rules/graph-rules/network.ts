@@ -8,6 +8,23 @@ function getProp<T = unknown>(node: { properties: Record<string, unknown> }, key
   return node.properties[key] as T | undefined;
 }
 
+const PRIVATE_DNS_ZONE_BY_GROUP_ID: Record<string, string> = {
+  blob: "privatelink.blob.core.windows.net",
+  file: "privatelink.file.core.windows.net",
+  queue: "privatelink.queue.core.windows.net",
+  table: "privatelink.table.core.windows.net",
+  vault: "privatelink.vaultcore.azure.net",
+  registry: "privatelink.azurecr.io",
+  sites: "privatelink.azurewebsites.net",
+  sqlServer: "privatelink.database.windows.net",
+  Sql: "privatelink.documents.azure.com",
+};
+
+function publicNetworkDisabled(node: { properties: Record<string, unknown> }): boolean {
+  const pna = getProp<boolean | string>(node, "publicNetworkAccess");
+  return pna === false || pna === "Disabled";
+}
+
 export const networkRules: RuleEntry[] = [
   // BUNYA.NET.001 — PE subnet must not be delegated to Microsoft.Web/serverFarms
   nodeRule({
@@ -370,6 +387,117 @@ export const networkRules: RuleEntry[] = [
           if (peIds.length >= 2) {
             findings.push({ nodeIds: [...peIds, targetId] });
           }
+        }
+      }
+      return findings;
+    },
+  }),
+
+  graphRule({
+    id: "BUNYA.NET.011",
+    source: {
+      name: MS_LEARN,
+      url: "https://learn.microsoft.com/en-us/azure/private-link/private-endpoint-dns",
+      license: "CC-BY-4.0",
+    },
+    category: "network",
+    severity: "warning",
+    message: "Private Endpoint should be connected to the matching Private DNS Zone and VNet link.",
+    longExplanation:
+      "Private Endpoints change the service endpoint to a private IP, but clients only use that IP when Private DNS resolves the service FQDN to the private endpoint address. Each Private Endpoint needs a Private DNS Zone for its groupId and that zone must be linked to the VNet containing the Private Endpoint subnet. Without the DNS zone group or VNet link, deployment may succeed while clients continue resolving public endpoints.",
+    tags: ["bunya", "private-link", "private-dns", "dns-zone-group"],
+    predicate: (graph: GraphDocument) => {
+      const findings: ReturnType<Parameters<typeof graphRule>[0]["predicate"]> = [];
+      for (const pe of graph.nodes.filter((n) => n.type === "privateEndpoint")) {
+        const groupId = getProp<string>(pe, "groupId") ?? "blob";
+        const expectedZone = PRIVATE_DNS_ZONE_BY_GROUP_ID[groupId];
+        const subnetId = graph.edges.find((e) => {
+          if (e.source !== pe.id || e.kind !== "network") return false;
+          return graph.nodes.find((n) => n.id === e.target)?.type === "subnet";
+        })?.target;
+        const vnetId = subnetId
+          ? graph.nodes.find((n) => n.id === subnetId)?.parentId ??
+            graph.edges.find((e) => e.source === subnetId && graph.nodes.find((n) => n.id === e.target)?.type === "virtualNetwork")?.target
+          : undefined;
+        const zone = graph.nodes.find((candidate) => {
+          if (candidate.type !== "privateDnsZone") return false;
+          const zoneName = getProp<string>(candidate, "zoneName") ?? candidate.resourceName;
+          if (expectedZone && zoneName !== expectedZone) return false;
+          return graph.edges.some(
+            (e) =>
+              e.kind === "network" &&
+              ((e.source === pe.id && e.target === candidate.id) ||
+                (e.source === candidate.id && e.target === pe.id)),
+          );
+        });
+        const linkedToVnet =
+          !!zone &&
+          !!vnetId &&
+          graph.edges.some(
+            (e) =>
+              e.kind === "network" &&
+              e.source === zone.id &&
+              e.target === vnetId,
+          );
+        if (!zone || !linkedToVnet) {
+          findings.push({
+            nodeIds: zone ? [pe.id, zone.id] : [pe.id],
+            message: expectedZone
+              ? `Private Endpoint should use ${expectedZone} and link that zone to the VNet.`
+              : undefined,
+          });
+        }
+      }
+      return findings;
+    },
+  }),
+
+  graphRule({
+    id: "BUNYA.NET.012",
+    source: {
+      name: MS_LEARN,
+      url: "https://learn.microsoft.com/en-us/azure/private-link/private-endpoint-overview",
+      license: "CC-BY-4.0",
+    },
+    category: "network",
+    severity: "warning",
+    message: "Resource has public network access disabled but no valid private access path.",
+    longExplanation:
+      "Disabling public network access is only deployable when the design also includes a private ingress path. Data services generally need an incoming Private Endpoint. App Service and Function App origins need Private Endpoint/Private Link or an explicitly modelled private gateway path. Without that path, clients and upstream services cannot reach the resource after deployment.",
+    tags: ["bunya", "private-link", "public-network-access", "private-path"],
+    predicate: (graph: GraphDocument) => {
+      const targetTypes = new Set([
+        "storageAccount",
+        "keyVault",
+        "sqlDatabase",
+        "cosmosDb",
+        "containerRegistry",
+        "appService",
+        "functionApp",
+      ]);
+      const findings: ReturnType<Parameters<typeof graphRule>[0]["predicate"]> = [];
+      for (const node of graph.nodes.filter((n) => targetTypes.has(n.type))) {
+        if (!publicNetworkDisabled(node)) continue;
+        const hasPrivateEndpoint = graph.edges.some((e) => {
+          if (e.target !== node.id || e.kind !== "network") return false;
+          return graph.nodes.find((n) => n.id === e.source)?.type === "privateEndpoint";
+        });
+        const hasGatewayPath =
+          node.type === "appService" || node.type === "functionApp"
+            ? graph.edges.some((e) => {
+                if (e.target !== node.id || e.kind !== "network") return false;
+                const src = graph.nodes.find((n) => n.id === e.source);
+                if (src?.type !== "applicationGateway") return false;
+                return graph.edges.some(
+                  (gatewayEdge) =>
+                    gatewayEdge.source === src.id &&
+                    gatewayEdge.kind === "network" &&
+                    graph.nodes.find((n) => n.id === gatewayEdge.target)?.type === "subnet",
+                );
+              })
+            : false;
+        if (!hasPrivateEndpoint && !hasGatewayPath) {
+          findings.push({ nodeIds: [node.id] });
         }
       }
       return findings;

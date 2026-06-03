@@ -11,6 +11,7 @@ import {
   findFirstOfType,
   incomingOf,
   outgoingOf,
+  resolveAppServicePlan,
   resolveVirtualNetwork,
 } from "./shared/context";
 import { GeneratorResult, GeneratedFile } from "./types";
@@ -19,10 +20,6 @@ function rgRef(ctx: GeneratorContext, node?: GraphNode): string {
   const rg = node ? effectiveResourceGroup(ctx, node) : ctx.rgNode;
   if (!rg) return "azurerm_resource_group.main";
   return `azurerm_resource_group.${ctx.identifiers.get(rg.id)}`;
-}
-
-function ref(ctx: GeneratorContext, id: string, resource: string, attr: string): string {
-  return `${resource}.${ctx.identifiers.get(id)}.${attr}`;
 }
 
 function tagsBlock(ctx: GeneratorContext, node: GraphNode): string {
@@ -170,11 +167,9 @@ function emitAppService(node: GraphNode, ctx: GeneratorContext): string {
   const runtime = (node.properties.runtime as string) ?? "node";
   const runtimeVersion = (node.properties.runtimeVersion as string) ?? "20-lts";
   const publicNetworkAccess = node.properties.publicNetworkAccess !== false;
-  const planEdge = outgoingOf(ctx, node.id, "depends_on").find(
-    (e) => ctx.nodesById.get(e.target)?.type === "appServicePlan",
-  );
-  const planRef = planEdge
-    ? `azurerm_service_plan.${ctx.identifiers.get(planEdge.target)}.id`
+  const plan = resolveAppServicePlan(ctx, node);
+  const planRef = plan
+    ? `azurerm_service_plan.${ctx.identifiers.get(plan.id)}.id`
     : `azurerm_service_plan.main.id`;
   const settings: string[] = [];
   for (const edge of outgoingOf(ctx, node.id, "data")) {
@@ -241,11 +236,9 @@ function emitFunctionApp(node: GraphNode, ctx: GeneratorContext): string {
   const httpsOnly = node.properties.httpsOnly !== false;
   const runtime = (node.properties.runtime as string) ?? "node";
   const runtimeVersion = (node.properties.runtimeVersion as string) ?? "20";
-  const planEdge = outgoingOf(ctx, node.id, "depends_on").find(
-    (e) => ctx.nodesById.get(e.target)?.type === "appServicePlan",
-  );
-  const planRef = planEdge
-    ? `azurerm_service_plan.${ctx.identifiers.get(planEdge.target)}.id`
+  const plan = resolveAppServicePlan(ctx, node);
+  const planRef = plan
+    ? `azurerm_service_plan.${ctx.identifiers.get(plan.id)}.id`
     : `azurerm_service_plan.main.id`;
   const storageEdge = outgoingOf(ctx, node.id, "data").find(
     (e) => ctx.nodesById.get(e.target)?.type === "storageAccount",
@@ -293,6 +286,126 @@ function emitStaticWebApp(node: GraphNode, ctx: GeneratorContext): string {
     `  location            = ${rgRef(ctx, node)}.location`,
     `  sku_tier            = "${sku}"`,
     `  sku_size            = "${sku}"`,
+    tagsBlock(ctx, node),
+    `}`,
+  ].filter(Boolean).join("\n");
+}
+
+function subnetIdRef(ctx: GeneratorContext, subnetId?: string): string {
+  return subnetId
+    ? `azurerm_subnet.${ctx.identifiers.get(subnetId)}.id`
+    : `azurerm_subnet.main.id`;
+}
+
+function emitAksCluster(node: GraphNode, ctx: GeneratorContext): string {
+  const ident = ctx.identifiers.get(node.id);
+  const subnetEdge = outgoingOf(ctx, node.id, "network").find(
+    (e) => ctx.nodesById.get(e.target)?.type === "subnet",
+  );
+  const workspaceEdge = outgoingOf(ctx, node.id, "diagnostic").find(
+    (e) => ctx.nodesById.get(e.target)?.type === "logAnalytics",
+  );
+  const privateCluster = node.properties.privateCluster === true;
+  const authorizedRanges = (node.properties.authorizedIpRanges as string[] | undefined) ?? [];
+  const networkPolicy = (node.properties.networkPolicy as string) ?? "azure";
+  const lines = [
+    autoComment(ctx, node.id),
+    `resource "azurerm_kubernetes_cluster" "${ident}" {`,
+    `  name                = "${ctx.resourceNames.get(node.id)}"`,
+    `  resource_group_name = ${rgRef(ctx, node)}.name`,
+    `  location            = ${rgRef(ctx, node)}.location`,
+    `  dns_prefix          = "${(node.properties.dnsPrefix as string) || ctx.resourceNames.get(node.id)}"`,
+    `  private_cluster_enabled = ${privateCluster}`,
+    `  role_based_access_control_enabled = true`,
+  ];
+  if ((node.properties.kubernetesVersion as string | undefined)?.trim()) {
+    lines.push(`  kubernetes_version = "${node.properties.kubernetesVersion}"`);
+  }
+  if (authorizedRanges.length > 0 && !privateCluster) {
+    lines.push(
+      `  api_server_authorized_ip_ranges = [${authorizedRanges.map((r) => `"${r}"`).join(", ")}]`,
+    );
+  }
+  lines.push(
+    ``,
+    `  default_node_pool {`,
+    `    name       = "system"`,
+    `    node_count = ${(node.properties.nodeCount as number) ?? 3}`,
+    `    vm_size    = "${(node.properties.nodeVmSize as string) ?? "Standard_D2s_v5"}"`,
+    ...(subnetEdge ? [`    vnet_subnet_id = ${subnetIdRef(ctx, subnetEdge.target)}`] : []),
+    `  }`,
+    ``,
+    `  identity {`,
+    `    type = "${node.properties.managedIdentity === false ? "SystemAssigned" : "SystemAssigned"}"`,
+    `  }`,
+    ``,
+    `  network_profile {`,
+    `    network_plugin = "${(node.properties.networkPlugin as string) ?? "azure"}"`,
+    `    load_balancer_sku = "standard"`,
+    ...(networkPolicy === "none" ? [] : [`    network_policy = "${networkPolicy}"`]),
+    `  }`,
+  );
+  if (workspaceEdge) {
+    lines.push(
+      ``,
+      `  oms_agent {`,
+      `    log_analytics_workspace_id = azurerm_log_analytics_workspace.${ctx.identifiers.get(workspaceEdge.target)}.id`,
+      `  }`,
+    );
+  }
+  lines.push(tagsBlock(ctx, node), `}`);
+  return lines.filter(Boolean).join("\n");
+}
+
+function emitVmss(node: GraphNode, ctx: GeneratorContext): string {
+  const ident = ctx.identifiers.get(node.id);
+  const subnetEdge = outgoingOf(ctx, node.id, "network").find(
+    (e) => ctx.nodesById.get(e.target)?.type === "subnet",
+  );
+  return [
+    autoComment(ctx, node.id),
+    `resource "azurerm_linux_virtual_machine_scale_set" "${ident}" {`,
+    `  name                = "${ctx.resourceNames.get(node.id)}"`,
+    `  resource_group_name = ${rgRef(ctx, node)}.name`,
+    `  location            = ${rgRef(ctx, node)}.location`,
+    `  sku                 = "${(node.properties.sku as string) ?? "Standard_B2s"}"`,
+    `  instances           = ${(node.properties.capacity as number) ?? 2}`,
+    `  admin_username      = "${(node.properties.adminUsername as string) ?? "azureuser"}"`,
+    `  upgrade_mode        = "${(node.properties.upgradeMode as string) ?? "Automatic"}"`,
+    `  zones               = ["1", "2", "3"]`,
+    ``,
+    `  admin_ssh_key {`,
+    `    username   = "${(node.properties.adminUsername as string) ?? "azureuser"}"`,
+    `    public_key = var.vmss_ssh_public_key`,
+    `  }`,
+    ``,
+    `  source_image_reference {`,
+    `    publisher = "${(node.properties.imagePublisher as string) ?? "Canonical"}"`,
+    `    offer     = "${(node.properties.imageOffer as string) ?? "0001-com-ubuntu-server-jammy"}"`,
+    `    sku       = "${(node.properties.imageSku as string) ?? "22_04-lts-gen2"}"`,
+    `    version   = "latest"`,
+    `  }`,
+    ``,
+    `  os_disk {`,
+    `    caching              = "ReadWrite"`,
+    `    storage_account_type = "Premium_LRS"`,
+    `  }`,
+    ``,
+    `  network_interface {`,
+    `    name    = "nic"`,
+    `    primary = true`,
+    ``,
+    `    ip_configuration {`,
+    `      name      = "ipconfig1"`,
+    `      primary   = true`,
+    `      subnet_id = ${subnetIdRef(ctx, subnetEdge?.target)}`,
+    `    }`,
+    `  }`,
+    ``,
+    `  automatic_instance_repair {`,
+    `    enabled      = ${node.properties.automaticRepairs !== false}`,
+    `    grace_period = "PT30M"`,
+    `  }`,
     tagsBlock(ctx, node),
     `}`,
   ].filter(Boolean).join("\n");
@@ -579,27 +692,111 @@ function emitUserAssignedIdentity(node: GraphNode, ctx: GeneratorContext): strin
   ].filter(Boolean).join("\n");
 }
 
+function emitPrivateDnsZone(node: GraphNode, ctx: GeneratorContext): string {
+  const ident = ctx.identifiers.get(node.id);
+  return [
+    autoComment(ctx, node.id),
+    `resource "azurerm_private_dns_zone" "${ident}" {`,
+    `  name                = "${(node.properties.zoneName as string) ?? ctx.resourceNames.get(node.id)}"`,
+    `  resource_group_name = ${rgRef(ctx, node)}.name`,
+    tagsBlock(ctx, node),
+    `}`,
+  ].filter(Boolean).join("\n");
+}
+
+function emitActionGroup(node: GraphNode, ctx: GeneratorContext): string {
+  const ident = ctx.identifiers.get(node.id);
+  return [
+    autoComment(ctx, node.id),
+    `resource "azurerm_monitor_action_group" "${ident}" {`,
+    `  name                = "${ctx.resourceNames.get(node.id)}"`,
+    `  resource_group_name = ${rgRef(ctx, node)}.name`,
+    `  short_name          = "${(node.properties.shortName as string) ?? "ops"}"`,
+    ``,
+    `  email_receiver {`,
+    `    name                    = "ops"`,
+    `    email_address           = "${(node.properties.email as string) ?? "ops@example.com"}"`,
+    `    use_common_alert_schema = true`,
+    `  }`,
+    tagsBlock(ctx, node),
+    `}`,
+  ].filter(Boolean).join("\n");
+}
+
+function emitMonitorAlert(node: GraphNode, ctx: GeneratorContext): string {
+  const ident = ctx.identifiers.get(node.id);
+  const actionEdge = outgoingOf(ctx, node.id, "depends_on").find(
+    (e) => ctx.nodesById.get(e.target)?.type === "actionGroup",
+  );
+  const actionIdent = actionEdge ? ctx.identifiers.get(actionEdge.target) : undefined;
+  return [
+    autoComment(ctx, node.id),
+    `# Monitor Alert ${ctx.resourceNames.get(node.id)}: tune metric_name/threshold for the workload before production.`,
+    `resource "azurerm_monitor_metric_alert" "${ident}" {`,
+    `  name                = "${ctx.resourceNames.get(node.id)}"`,
+    `  resource_group_name = ${rgRef(ctx, node)}.name`,
+    `  scopes              = [${rgRef(ctx, node)}.id]`,
+    `  description         = "${(node.properties.condition as string) ?? "Platform metric threshold"}"`,
+    `  enabled             = ${node.properties.enabled !== false}`,
+    `  frequency           = "PT5M"`,
+    `  window_size         = "PT5M"`,
+    `  severity            = 2`,
+    ``,
+    `  criteria {`,
+    `    metric_namespace = "Microsoft.Resources/subscriptions/resourceGroups"`,
+    `    metric_name      = "AllMetrics"`,
+    `    aggregation      = "Total"`,
+    `    operator         = "GreaterThan"`,
+    `    threshold        = 0`,
+    `  }`,
+    ...(actionIdent
+      ? [
+          ``,
+          `  action {`,
+          `    action_group_id = azurerm_monitor_action_group.${actionIdent}.id`,
+          `  }`,
+        ]
+      : []),
+    tagsBlock(ctx, node),
+    `}`,
+  ].filter(Boolean).join("\n");
+}
+
+function emitRoleAssignmentNode(node: GraphNode, ctx: GeneratorContext): string {
+  return [
+    autoComment(ctx, node.id),
+    `# Role Assignment ${ctx.resourceNames.get(node.id)} (${(node.properties.roleDefinitionName as string) ?? "Reader"})`,
+    `# Direct identity edges are expanded into azurerm_role_assignment blocks where principal and scope are resolvable.`,
+  ].filter(Boolean).join("\n");
+}
+
 const EMITTERS: Record<ServiceType, (node: GraphNode, ctx: GeneratorContext) => string> = {
   resourceGroup: emitResourceGroup,
   virtualNetwork: emitVirtualNetwork,
   subnet: emitSubnet,
   networkSecurityGroup: emitNsg,
   privateEndpoint: emitPrivateEndpoint,
+  privateDnsZone: emitPrivateDnsZone,
   appServicePlan: emitAppServicePlan,
   appService: emitAppService,
   functionApp: emitFunctionApp,
   staticWebApp: emitStaticWebApp,
+  aksCluster: emitAksCluster,
+  virtualMachineScaleSet: emitVmss,
   storageAccount: emitStorageAccount,
   sqlDatabase: emitSqlDatabase,
   cosmosDb: emitCosmosDb,
   keyVault: emitKeyVault,
   applicationInsights: emitAppInsights,
   logAnalytics: emitLogAnalytics,
+  monitorAlert: emitMonitorAlert,
+  actionGroup: emitActionGroup,
   frontDoor: emitFrontDoor,
   applicationGateway: emitApplicationGateway,
   apiManagement: emitApiManagement,
   containerRegistry: emitContainerRegistry,
   userAssignedIdentity: emitUserAssignedIdentity,
+  roleAssignment: emitRoleAssignmentNode,
 };
 
 function emitDiagnostics(ctx: GeneratorContext): string {
@@ -619,6 +816,8 @@ function emitDiagnostics(ctx: GeneratorContext): string {
       sqlDatabase: "azurerm_mssql_database",
       cosmosDb: "azurerm_cosmosdb_account",
       containerRegistry: "azurerm_container_registry",
+      aksCluster: "azurerm_kubernetes_cluster",
+      virtualMachineScaleSet: "azurerm_linux_virtual_machine_scale_set",
       applicationGateway: "azurerm_application_gateway",
       frontDoor: "azurerm_cdn_frontdoor_profile",
       apiManagement: "azurerm_api_management",
@@ -669,7 +868,11 @@ function renderVersionsFile(): GeneratedFile {
   };
 }
 
-function renderVariablesFile(document: GraphDocument, includeSqlAdmin: boolean): GeneratedFile {
+function renderVariablesFile(
+  document: GraphDocument,
+  includeSqlAdmin: boolean,
+  includeVmssSsh: boolean,
+): GeneratedFile {
   const lines = [
     `variable "location" {`,
     `  type    = string`,
@@ -688,6 +891,16 @@ function renderVariablesFile(document: GraphDocument, includeSqlAdmin: boolean):
       `  type      = string`,
       `  sensitive = true`,
       `  default   = "ReplaceMeUsingTFVars!"`,
+      `}`,
+      ``,
+    );
+  }
+  if (includeVmssSsh) {
+    lines.push(
+      `variable "vmss_ssh_public_key" {`,
+      `  type      = string`,
+      `  sensitive = true`,
+      `  default   = "ssh-rsa ReplaceMe"`,
       `}`,
       ``,
     );
@@ -728,6 +941,14 @@ function renderOutputsFile(ctx: GeneratorContext): GeneratedFile {
         ``,
       );
     }
+    if (node.type === "aksCluster") {
+      lines.push(
+        `output "${ident}_fqdn" {`,
+        `  value = azurerm_kubernetes_cluster.${ident}.fqdn`,
+        `}`,
+        ``,
+      );
+    }
   }
   return {
     path: "outputs.tf",
@@ -755,10 +976,11 @@ export function generateTerraform(document: GraphDocument): GeneratorResult {
   if (diag) blocks.push(diag, "");
 
   const hasSql = ctx.document.nodes.some((n) => n.type === "sqlDatabase");
+  const hasVmss = ctx.document.nodes.some((n) => n.type === "virtualMachineScaleSet");
   const files: GeneratedFile[] = [
     renderVersionsFile(),
     { path: "main.tf", language: "hcl", content: blocks.join("\n") },
-    renderVariablesFile(document, hasSql),
+    renderVariablesFile(document, hasSql, hasVmss),
     renderOutputsFile(ctx),
   ];
   return { ok: true, files };

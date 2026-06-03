@@ -15,7 +15,7 @@
 Bunya turns Azure architecture diagrams into production-shaped Terraform,
 Bicep, ARM, az CLI, PowerShell, Mermaid, and an auto-generated README, in one
 pass. The diagram is the input. The IaC is the output. And before anything is
-emitted, the graph is checked against ~240 cited rules drawn from PSRule,
+emitted, the graph is checked against 293 cited rules drawn from PSRule,
 Checkov, Azure Policy, the Microsoft Cloud Security Benchmark, the Australian
 ISM, and the Essential Eight.
 
@@ -43,7 +43,7 @@ What that means in practice:
 | Export-to-Terraform is a half-finished feature | Six generators with snapshot tests |
 | Edges are decoration | Edges have semantics: `network`, `identity`, `data`, `depends_on`, `diagnostic` - and they shape the generated resources |
 | One Resource Group, hard-coded | Multi-RG architectures with nested containers, parent-aware emitters |
-| Free text validation if any | ~240 rules, each citing an authoritative publisher |
+| Free text validation if any | 293 rules, each citing an authoritative publisher |
 | "Looks good" is the gate | Every rule has an autofix or an explainable failure |
 
 The whole point is the IaC. Drop a Resource Group on the canvas, drop an App
@@ -84,7 +84,7 @@ Templates┘              │
             ▼           ▼            ▼
     ┌──────────┐ ┌──────────┐ ┌──────────┐
     │ Validate │ │  Render  │ │ Generate │
-    │ 240 rules│ │ ReactFlow│ │  6 IaC   │
+    │293 rules │ │ ReactFlow│ │  6 IaC   │
     └────┬─────┘ └──────────┘ └────┬─────┘
          │                         │
          ▼                         ▼
@@ -96,7 +96,8 @@ Templates┘              │
 
 1. **Drag a service from the palette onto the canvas.** Hit-test places the
    node inside the smallest container that accepts it. Resource Groups accept
-   anything except other RGs. Virtual Networks accept Subnets.
+   anything except other RGs. Virtual Networks accept Subnets. App Service
+   Plans accept Web Apps and Function Apps.
 2. **Drag from a node handle to another node to connect them.** The edge kind
    is inferred from the pair: `App Service -> Storage` is `data`, `App Service
    -> Key Vault` is `identity`, anything `-> Log Analytics` is `diagnostic`.
@@ -114,7 +115,46 @@ Persistence is `localStorage` plus three escape hatches:
 
 - **Share URL** - gzips the graph into the URL fragment. Paste, open, same canvas.
 - **Export** - downloads a versioned `.bunya.json` envelope (`{ format, version, exportedAt, generator, document }`). Hand it to a colleague, attach it to a Jira ticket, check it into a repo. It survives schema migrations because it pins `schemaVersion` and runs through `lib/graph/migrate.ts` on load.
-- **Import** - via the toolbar button OR by dragging a `.bunya.json` file onto the canvas. Malformed files surface an explanation without clobbering the current graph.
+- **Import** - via the toolbar button OR by dragging a `.bunya.json` or ARM
+  template JSON file onto the canvas. You can also paste Azure Portal
+  **Export Template** ARM JSON into the import dialog. Malformed files surface
+  an explanation without clobbering the current graph.
+
+## Supported services and import
+
+Bunya currently models 26 Azure service/resource types:
+
+- **Scaffold:** Resource Group.
+- **Network:** Virtual Network, Subnet, Network Security Group, Private
+  Endpoint, Private DNS Zone, Front Door, Application Gateway.
+- **Compute:** App Service Plan, Web App (App Service), Function App, Static
+  Web App, Azure Kubernetes Service, Virtual Machine Scale Set.
+- **Data:** Storage Account, Azure SQL Database, Cosmos DB, Container Registry.
+- **Security and identity:** Key Vault, User-Assigned Managed Identity, Role
+  Assignment.
+- **Observability:** Application Insights, Log Analytics Workspace, Monitor
+  Alert Rule, Action Group.
+- **Integration:** API Management.
+
+ARM import is designed for the Azure Portal **Export Template** workflow. Paste
+the ARM JSON or upload the file, and Bunya converts supported resources into a
+working graph:
+
+- Resource Groups, Virtual Networks, App Service Plans and their children are
+  imported as nested containers where appropriate.
+- App Service Plans become bounding boxes for Web Apps and Function Apps.
+- AKS and VMSS imports preserve subnet references, node sizing, networking
+  settings, managed identity, availability zones, monitoring hints and
+  Log Analytics links where ARM exposes them.
+- Private Endpoints import their subnet and target service edges.
+- Private DNS Zones, VNet links and Private Endpoint DNS zone groups import as
+  graphable DNS nodes and network edges.
+- Function Apps infer backing Storage Account edges from `AzureWebJobsStorage`
+  and ARM app settings.
+- Role Assignments, Monitor Alert Rules and Action Groups import as explicit
+  graph nodes where the exported template contains them.
+- Unsupported ARM resources are skipped with a warning instead of failing the
+  whole import.
 
 ## Generators
 
@@ -126,11 +166,11 @@ the user can promote them to explicit nodes.
 
 | Target | Files emitted | Idiom |
 | --- | --- | --- |
-| Terraform | `versions.tf`, `main.tf`, `variables.tf`, `outputs.tf` | AzureRM 4.x. Per-resource module-friendly layout. Role assignments for identity edges. Diagnostic settings per `diagnostic` edge. Parent-aware `resource_group_name`. |
-| Bicep | `main.bicep`, `main.parameters.json` | `targetScope = 'resourceGroup'`. `@allowed` decorators on enum properties. `@secure()` only when SQL is in the graph. |
-| ARM JSON | `azuredeploy.json`, `azuredeploy.parameters.json` | Verbose but valid. Dependency graph derived from edges, not hand-rolled. |
-| az CLI | `deploy.sh` | `set -euo pipefail`. `--only-show-errors`. Login check. `SQL_ADMIN_PASSWORD` guard only emitted when SQL is present. |
-| PowerShell | `Deploy-Infrastructure.ps1` | `[CmdletBinding(SupportsShouldProcess)]`. Splatting. `Set-StrictMode -Version Latest`. No `Write-Host`. |
+| Terraform | `versions.tf`, `main.tf`, `variables.tf`, `outputs.tf` | AzureRM 4.x. Per-resource module-friendly layout. Role assignments for identity edges. Diagnostic settings per `diagnostic` edge. Parent-aware `resource_group_name`. Includes AKS, VMSS, Private DNS Zone, Action Group and alert scaffolding. |
+| Bicep | `main.bicep`, `main.parameters.json` | `targetScope = 'resourceGroup'`. `@allowed` decorators on enum properties. `@secure()` only when SQL is in the graph. Includes explicit service resources and comments where workload-specific alert/RBAC criteria need review. |
+| ARM JSON | `azuredeploy.json`, `azuredeploy.parameters.json` | Verbose but valid. Dependency graph derived from edges, not hand-rolled. Emits Private DNS zones, VNet links, Private Endpoint DNS zone groups, generalized role assignments, alerts and action groups. |
+| az CLI | `deploy.sh` | `set -euo pipefail`. `--only-show-errors`. Login check. `SQL_ADMIN_PASSWORD` guard only emitted when SQL is present. Emits deployable commands where CLI supports the resource cleanly and review comments for complex alert/RBAC cases. |
+| PowerShell | `Deploy-Infrastructure.ps1` | `[CmdletBinding(SupportsShouldProcess)]`. Splatting. `Set-StrictMode -Version Latest`. No `Write-Host`. Emits deployable Az cmdlets where practical and explicit review comments for complex alert/RBAC cases. |
 | Mermaid | `architecture.mmd` | `flowchart LR` with per-category classDefs and edge-kind labels. |
 | README | `README.md` | Inlined Mermaid + deployment commands per format. |
 | Cost | `cost-estimate.md` + in-tab table | Indicative monthly estimate per resource with AUD/USD toggle and a **user-editable AUD/USD exchange rate** (persisted to `localStorage`, plug in your treasury's number for accurate AUD). Source: `https://prices.azure.com/api/retail/prices`; refresh via `pnpm prices:refresh`. |
@@ -150,7 +190,7 @@ exactly.
 
 ## Rules engine
 
-Bunya checks every graph against ~240 rules from twenty publishers. Every
+Bunya checks every graph against 293 rules from curated source bundles. Every
 rule cites a real URL. The running app never makes HTTP calls; rules ship
 as committed TypeScript and are refreshed at build time with `pnpm rules:import`.
 
@@ -169,9 +209,29 @@ Sources currently ingested:
 - **Azure Private Link FAQ** - 9 hand-encoded rules for Private Endpoint
   topology, the single richest source for edge rules.
 - **Microsoft Learn well-known patterns** - 10 reference-architecture rules.
-- **Bunya hand-written graph-rules** - 49 rules under `lib/rules/graph-rules/`
+- **Application Insights expansion** - 6 workspace, sampling and retention
+  rules.
+- **App Service Plan expansion** - 6 hosting-plan reliability, cost and
+  capacity rules.
+- **NSG expansion** - 6 attachment and rule-shape checks.
+- **User-Assigned Identity expansion** - 5 lifecycle and attachment checks.
+- **Bunya hand-written graph-rules** - 77 rules under `lib/rules/graph-rules/`
   covering implicit dependencies, identity flow, observability, sovereignty,
   naming, cost, and compliance.
+
+Recent graph-level coverage includes:
+
+- Private Endpoint DNS correctness: matching Private DNS Zone, DNS zone group
+  and VNet link.
+- AKS hardening: kubenet retirement warning, network policy in prod, ACR
+  identity edge, private/API exposure, Log Analytics and availability zones.
+- VMSS hardening: subnet attachment, rolling upgrade mode, health probe /
+  Application Health extension, Azure Monitor Agent / Log Analytics and
+  availability zones.
+- Public-network-disabled resources must have a valid private access path.
+- Identity edges generate/check Azure RBAC role-assignment intent.
+- Production graphs need Monitor Alert Rules and Action Groups, not only log
+  storage.
 
 Findings carry a `source.url` you can click. Many carry an `autofixId` you can
 apply with one button. The compliance tables in
@@ -186,12 +246,15 @@ multi-region failover correctness.
 
 ## Containers and hierarchy
 
-Real Azure architectures span multiple Resource Groups, and Virtual Networks
-hold Subnets. Bunya's graph models both. Resource Groups and Virtual Networks
-render as dashed bounding boxes with a coloured header pill. Drop a Storage
-Account inside an RG and it becomes a child node, dragging-bound to its
-parent. The generators walk the parent chain when resolving `resource_group_name`
-or `virtual_network_name`, so re-parenting in the UI re-points the IaC.
+Real Azure architectures span multiple Resource Groups, Virtual Networks hold
+Subnets, and App Service Plans are the compute boundary for Web Apps and
+Function Apps. Bunya's graph models all three. Resource Groups, Virtual
+Networks and App Service Plans render as dashed bounding boxes with a coloured
+header pill. Drop a Storage Account inside an RG, a Subnet inside a VNet, or a
+Function App inside a Plan and it becomes a child node, dragging-bound to its
+parent. The generators walk the parent chain when resolving
+`resource_group_name`, `virtual_network_name` or `serverFarmId`, so re-parenting
+in the UI re-points the IaC.
 
 <p align="center">
   <img src="project-docs/screenshots/06-resource-group-container.png" alt="Resource Group container with App Service Plan, App Service, Storage and Key Vault inside" width="1100"/>
@@ -222,7 +285,7 @@ Scripts:
 
 ```bash
 pnpm typecheck       # tsc --noEmit, strict
-pnpm test            # vitest run (63 unit tests, snapshot coverage of every generator)
+pnpm test            # vitest run (97 unit tests, snapshot coverage of every generator)
 pnpm e2e             # playwright tests against the dev server
 pnpm build           # next build (Turbopack)
 pnpm rules:import    # rebuild rule registry + COVERAGE.md + GAPS.md
@@ -237,19 +300,19 @@ pnpm prices:refresh  # fetch Azure Retail Prices API and stage a snapshot diff
 app/(canvas)/page.tsx               # editor route
 components/
   canvas/Canvas.tsx                 # React Flow wrapper
-  canvas/ServiceNode.tsx            # custom node, Lucide icon per service
-  canvas/ContainerNode.tsx          # bounding-box for Resource Group and VNet
+  canvas/ServiceNode.tsx            # custom service node renderer
+  canvas/ContainerNode.tsx          # bounding-box for Resource Group, VNet and App Service Plan
   canvas/Toolbar.tsx                # Undo/Redo, Templates, Share, panel toggles
   canvas/ValidationPanel.tsx        # cited findings + autofix buttons
-  catalogue/ServicePalette.tsx      # 20 services in 7 categories, drag + click
+  catalogue/ServicePalette.tsx      # 26 services in 7 categories, drag + click
   output/OutputTabs.tsx             # seven tabs, copy/download/zip
   properties/PropertiesPanel.tsx    # auto-generated form from Zod schema
 lib/
   graph/schema.ts                   # Zod schemas for GraphDocument/Node/Edge
   graph/store.ts                    # Zustand store, undo/redo, reparent
   graph/serialise.ts                # gzip + base64url share URL, localStorage
-  catalogue/services.ts             # 20-service catalogue, allowed targets
-  catalogue/icons.tsx               # Lucide icon mapping + category theme
+  catalogue/services.ts             # 26-service catalogue, allowed targets
+  catalogue/icons.tsx               # Azure icon assets + category theme
   catalogue/templates.ts            # three starter templates
   catalogue/connections.ts          # canConnect() drag-time validator
   generators/                       # six generators + Mermaid + README
@@ -276,7 +339,8 @@ e2e/                                # Playwright tests
 - Zustand for graph state
 - Zod for schema and form generation
 - Tailwind CSS v4
-- Lucide for icons (200+ services worth of Microsoft-aesthetic glyphs)
+- Lucide for toolbar/action icons; Azure architecture icon assets for service
+  nodes.
 - Vitest for unit tests, Playwright for end-to-end and visual capture
 - `tsx` for the rules-engine build scripts
 
@@ -308,11 +372,24 @@ Don't:
 Bunya is honest about scope. The full live list is at
 [`project-docs/rules/GAPS.md`](project-docs/rules/GAPS.md). Highlights:
 
-- **staticWebApp**, **logAnalytics**, **virtualNetwork** and **subnet** each
-  have fewer than five rules. (`applicationInsights`, `appServicePlan`,
-  `networkSecurityGroup`, `userAssignedIdentity` were lifted past 5 in
-  [#1](https://github.com/jusso-dev/Bunya/issues/1)
-  -[#4](https://github.com/jusso-dev/Bunya/issues/4).)
+- Azure services outside the 26 modelled node types are skipped during ARM
+  import with a warning. The most important missing first-class services are
+  Load Balancer, Public IP, NAT Gateway, Route Table, Azure Firewall, Bastion,
+  Data Collection Rule, Recovery Services Vault, Service Bus, Event Grid,
+  Event Hubs, Logic Apps, Container Apps, PostgreSQL Flexible Server, Redis and
+  Virtual Machines.
+- Monitor Alert Rule generation is intentionally scaffolded: the graph models
+  alert ownership and routing, but metric names, dimensions and thresholds
+  still need workload-specific review.
+- Explicit Role Assignment nodes are graphable and ARM-exportable when Bunya
+  can resolve principal and scope. Some CLI/PowerShell/Terraform/Bicep cases
+  emit review comments where a principal ID or exact scope cannot be inferred
+  safely.
+- AKS node pools are modelled as properties of the AKS node, not separate
+  draggable node-pool resources yet.
+- VMSS health probes and Azure Monitor Agent are modelled as properties today;
+  Load Balancer probes, Application Health extension and Data Collection Rules
+  are not first-class graph nodes yet.
 - CIS Microsoft Azure Foundations Benchmark - commercial, not redistributable.
 - PCI DSS - commercial standard, out of project licence scope.
 - HITRUST CSF - commercial, out of scope for Australian-government workloads.

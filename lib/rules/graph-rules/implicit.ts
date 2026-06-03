@@ -50,13 +50,16 @@ export const implicitRules: RuleEntry[] = [
       for (const site of graph.nodes.filter(
         (n) => n.type === "appService" || n.type === "functionApp",
       )) {
+        const parentIsPlan =
+          !!site.parentId &&
+          graph.nodes.find((n) => n.id === site.parentId)?.type === "appServicePlan";
         const hasPlan = graph.edges.some(
           (e) =>
             e.source === site.id &&
             e.kind === "depends_on" &&
             graph.nodes.find((n) => n.id === e.target)?.type === "appServicePlan",
         );
-        if (!hasPlan) partials.push({ nodeIds: [site.id], autofixId: "add-plan" });
+        if (!hasPlan && !parentIsPlan) partials.push({ nodeIds: [site.id], autofixId: "add-plan" });
       }
       return partials;
     },

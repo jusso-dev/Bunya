@@ -46,11 +46,17 @@ export const costRules: RuleEntry[] = [
     predicate: (n, graph) => {
       const sku = (n.properties as { sku?: string }).sku;
       if (sku !== "P1v3" && sku !== "P2v3") return false;
-      const attached = graph.edges.some((e) => {
-        if (e.target !== n.id) return false;
-        const src = graph.nodes.find((x) => x.id === e.source);
-        return src?.type === "appService" || src?.type === "functionApp";
-      });
+      const attached =
+        graph.nodes.some(
+          (child) =>
+            child.parentId === n.id &&
+            (child.type === "appService" || child.type === "functionApp"),
+        ) ||
+        graph.edges.some((e) => {
+          if (e.target !== n.id) return false;
+          const src = graph.nodes.find((x) => x.id === e.source);
+          return src?.type === "appService" || src?.type === "functionApp";
+        });
       return !attached;
     },
   }),

@@ -1,6 +1,11 @@
 import { GraphDocument, GraphNode } from "@/lib/graph/schema";
-import { GeneratorContext, buildGeneratorContext, outgoingOf } from "./shared/context";
-import { GeneratedFile, GeneratorResult } from "./types";
+import {
+  GeneratorContext,
+  buildGeneratorContext,
+  outgoingOf,
+  resolveAppServicePlan,
+} from "./shared/context";
+import { GeneratorResult } from "./types";
 
 function header(document: GraphDocument, includeSqlAdmin: boolean): string[] {
   const lines = [
@@ -83,6 +88,11 @@ function emitNode(node: GraphNode, ctx: GeneratorContext): string[] {
         `# Configure with New-AzPrivateEndpoint after upstream resources exist.`,
         `Write-Information 'Skipping ${name} configure step; see Bunya documentation.' -InformationAction Continue`,
       ];
+    case "privateDnsZone":
+      return [
+        `# Private DNS Zone ${name}`,
+        `New-AzPrivateDnsZone -ResourceGroupName $ResourceGroupName -Name '${(node.properties.zoneName as string) ?? name}' | Out-Null`,
+      ];
     case "appServicePlan":
       return [
         `# App Service Plan ${name}`,
@@ -98,10 +108,8 @@ function emitNode(node: GraphNode, ctx: GeneratorContext): string[] {
         `New-AzAppServicePlan @planParams -Force | Out-Null`,
       ];
     case "appService": {
-      const planEdge = outgoingOf(ctx, node.id, "depends_on").find(
-        (e) => ctx.nodesById.get(e.target)?.type === "appServicePlan",
-      );
-      const planName = planEdge ? ctx.resourceNames.get(planEdge.target)! : "main-plan";
+      const plan = resolveAppServicePlan(ctx, node);
+      const planName = plan ? ctx.resourceNames.get(plan.id)! : "main-plan";
       return [
         `# App Service ${name}`,
         `$appParams = @{`,
@@ -115,13 +123,11 @@ function emitNode(node: GraphNode, ctx: GeneratorContext): string[] {
       ];
     }
     case "functionApp": {
-      const planEdge = outgoingOf(ctx, node.id, "depends_on").find(
-        (e) => ctx.nodesById.get(e.target)?.type === "appServicePlan",
-      );
       const stEdge = outgoingOf(ctx, node.id, "data").find(
         (e) => ctx.nodesById.get(e.target)?.type === "storageAccount",
       );
-      const planName = planEdge ? ctx.resourceNames.get(planEdge.target)! : "main-plan";
+      const plan = resolveAppServicePlan(ctx, node);
+      const planName = plan ? ctx.resourceNames.get(plan.id)! : "main-plan";
       const stName = stEdge ? ctx.resourceNames.get(stEdge.target)! : "mainstorage";
       return [
         `# Function App ${name}`,
@@ -149,6 +155,16 @@ function emitNode(node: GraphNode, ctx: GeneratorContext): string[] {
         `    SkuName           = '${(node.properties.sku as string) ?? "Standard"}'`,
         `}`,
         `New-AzStaticWebApp @swaParams | Out-Null`,
+      ];
+    case "aksCluster":
+      return [
+        `# AKS ${name}`,
+        `Write-Information 'Create AKS ${name} with New-AzAksCluster or deploy the generated Bicep/ARM for full node pool and networking support.' -InformationAction Continue`,
+      ];
+    case "virtualMachineScaleSet":
+      return [
+        `# Virtual Machine Scale Set ${name}`,
+        `Write-Information 'Create VMSS ${name} with New-AzVmss or deploy the generated Bicep/ARM for SSH key and network profile support.' -InformationAction Continue`,
       ];
     case "storageAccount":
       return [
@@ -243,6 +259,17 @@ function emitNode(node: GraphNode, ctx: GeneratorContext): string[] {
         `}`,
         `New-AzOperationalInsightsWorkspace @logParams -Force | Out-Null`,
       ];
+    case "monitorAlert":
+      return [
+        `# Monitor Alert ${name}`,
+        `Write-Information 'Skipping alert ${name}; deploy generated Bicep/ARM for alert criteria support.' -InformationAction Continue`,
+      ];
+    case "actionGroup":
+      return [
+        `# Action Group ${name}`,
+        `$ag = New-AzActionGroupReceiver -Name 'ops' -EmailReceiver -EmailAddress '${(node.properties.email as string) ?? "ops@example.com"}'`,
+        `Set-AzActionGroup -ResourceGroupName $ResourceGroupName -Name '${name}' -ShortName '${(node.properties.shortName as string) ?? "ops"}' -Receiver $ag | Out-Null`,
+      ];
     case "frontDoor":
       return [
         `# Front Door ${name}`,
@@ -292,6 +319,11 @@ function emitNode(node: GraphNode, ctx: GeneratorContext): string[] {
         `    Location          = $Location`,
         `}`,
         `New-AzUserAssignedIdentity @umiParams | Out-Null`,
+      ];
+    case "roleAssignment":
+      return [
+        `# Role Assignment ${name}`,
+        `Write-Information 'Skipping role assignment ${name}; deploy generated Bicep/ARM for RBAC binding support.' -InformationAction Continue`,
       ];
   }
 }

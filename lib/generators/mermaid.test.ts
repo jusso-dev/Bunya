@@ -16,6 +16,6 @@ describe("generateMermaid", () => {
     if (!result.ok) throw new Error("expected ok");
     const content = result.files[0].content;
     expect(content).toContain("flowchart LR");
-    expect(content.split("\n").filter((l) => l.includes(":::"))).toHaveLength(20);
+    expect(content.split("\n").filter((l) => l.includes(":::"))).toHaveLength(22);
   });
 });

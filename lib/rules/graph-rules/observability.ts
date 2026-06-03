@@ -13,6 +13,8 @@ const PROD_ISH_TYPES: ReadonlyArray<ServiceType> = [
   "applicationGateway",
   "apiManagement",
   "containerRegistry",
+  "aksCluster",
+  "virtualMachineScaleSet",
 ];
 
 function targetType(
@@ -167,6 +169,36 @@ export const observabilityRules: RuleEntry[] = [
         if (!hasDiag) partials.push({ nodeIds: [edge.id] });
       }
       return partials;
+    },
+  }),
+  graphRule({
+    id: "BUNYA.OBS.010",
+    source: {
+      name: "Azure Monitor alerts overview",
+      url: "https://learn.microsoft.com/en-us/azure/azure-monitor/alerts/alerts-overview",
+      license: "CC-BY-4.0",
+    },
+    category: "observability",
+    severity: "warning",
+    message: "Production graph should include alert rules and an Action Group.",
+    longExplanation:
+      "Log Analytics stores telemetry, but it does not notify operators by itself. Production Azure designs need Azure Monitor alert rules for service health, availability, error rates, capacity and security signals, plus an Action Group that routes notifications to the team that owns the workload. Model at least one Monitor Alert connected to an Action Group so alerting is part of the deployable architecture.",
+    tags: ["bunya", "azure-monitor", "alerts", "action-group", "prod"],
+    predicate: (graph) => {
+      if (graph.metadata.environment !== "prod") return [];
+      const prodish = graph.nodes.filter((n) => PROD_ISH_TYPES.includes(n.type as ServiceType));
+      if (prodish.length === 0) return [];
+      const alerts = graph.nodes.filter((n) => n.type === "monitorAlert");
+      const actionGroups = graph.nodes.filter((n) => n.type === "actionGroup");
+      const alertRoutes = alerts.some((alert) =>
+        graph.edges.some(
+          (e) =>
+            e.source === alert.id &&
+            graph.nodes.find((n) => n.id === e.target)?.type === "actionGroup",
+        ),
+      );
+      if (alerts.length > 0 && actionGroups.length > 0 && alertRoutes) return [];
+      return [{ nodeIds: prodish.map((n) => n.id) }];
     },
   }),
 ];

@@ -1,5 +1,6 @@
 import { GraphDocument } from "./schema";
 import { migrate } from "./migrate";
+import { parseArmTemplate } from "./arm-import";
 
 const PORTABLE_FORMAT = "bunya" as const;
 const PORTABLE_VERSION = 1 as const;
@@ -41,6 +42,18 @@ export function suggestedFilename(document: GraphDocument): string {
 export type ImportResult =
   | { ok: true; document: GraphDocument; envelope: PortableEnvelope }
   | { ok: false; reason: string };
+
+function normaliseImportText(text: string): string {
+  const trimmed = text.trim();
+  const fence = trimmed.match(/^```(?:json|arm|bunya)?\s*([\s\S]*?)\s*```$/i);
+  if (fence?.[1]) return fence[1].trim();
+  const firstBrace = trimmed.indexOf("{");
+  const lastBrace = trimmed.lastIndexOf("}");
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    return trimmed.slice(firstBrace, lastBrace + 1).trim();
+  }
+  return trimmed;
+}
 
 export function parsePortable(text: string): ImportResult {
   let parsed: unknown;
@@ -104,6 +117,34 @@ export function parsePortable(text: string): ImportResult {
     return {
       ok: false,
       reason: `Document failed migration: ${err instanceof Error ? err.message : String(err)}.`,
+    };
+  }
+}
+
+export function parseImportText(text: string): ImportResult {
+  const normalised = normaliseImportText(text);
+  const portable = parsePortable(normalised);
+  if (portable.ok) return portable;
+  try {
+    const arm = parseArmTemplate(normalised);
+    if (arm.ok) {
+      return {
+        ok: true,
+        document: arm.document,
+        envelope: buildEnvelope(
+          arm.document,
+          arm.warning ? `azure-arm-export (${arm.warning})` : "azure-arm-export",
+        ),
+      };
+    }
+    return {
+      ok: false,
+      reason: `${portable.reason} Also failed ARM import: ${arm.reason}`,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      reason: `Unexpected ARM import error: ${err instanceof Error ? err.message : String(err)}.`,
     };
   }
 }

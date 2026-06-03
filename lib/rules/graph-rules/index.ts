@@ -7,6 +7,7 @@ import { sovereigntyRules } from "./sovereignty";
 import { namingRules } from "./naming";
 import { costRules } from "./cost";
 import { complianceRules } from "./compliance";
+import { computeRules } from "./compute";
 import { expansionAppInsightsRules } from "./expansion-app-insights";
 import { expansionAppServicePlanRules } from "./expansion-app-service-plan";
 import { expansionNsgRules } from "./expansion-nsg";
@@ -21,6 +22,7 @@ export const GRAPH_RULES: RuleEntry[] = [
   ...namingRules,
   ...costRules,
   ...complianceRules,
+  ...computeRules,
   ...expansionAppInsightsRules,
   ...expansionAppServicePlanRules,
   ...expansionNsgRules,

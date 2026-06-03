@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">Virtual Machine Scale Set</title>
+  <rect x="8" y="14" width="20" height="16" rx="3" fill="#5c2d91"/>
+  <rect x="36" y="14" width="20" height="16" rx="3" fill="#5c2d91"/>
+  <rect x="22" y="34" width="20" height="16" rx="3" fill="#5c2d91"/>
+  <path d="M18 30v7h4M46 30v7h-4M32 34v-7" fill="none" stroke="#7fba00" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M13 23h10M41 23h10M27 43h10" stroke="#fff" stroke-width="3" stroke-linecap="round"/>
+</svg>

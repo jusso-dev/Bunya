@@ -105,6 +105,22 @@ export function resolveVirtualNetwork(
   return null;
 }
 
+export function resolveAppServicePlan(
+  ctx: GeneratorContext,
+  node: GraphNode,
+): GraphNode | null {
+  if (node.parentId) {
+    const parent = ctx.nodesById.get(node.parentId);
+    if (parent?.type === "appServicePlan") return parent;
+  }
+  for (const edge of ctx.edges) {
+    if (edge.source !== node.id || edge.kind !== "depends_on") continue;
+    const target = ctx.nodesById.get(edge.target);
+    if (target?.type === "appServicePlan") return target;
+  }
+  return null;
+}
+
 export function effectiveResourceGroup(ctx: GeneratorContext, node: GraphNode): GraphNode | null {
   return resolveResourceGroup(ctx, node) ?? ctx.rgNode;
 }

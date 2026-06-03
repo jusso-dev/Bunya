@@ -65,6 +65,8 @@ export function expandImplicits(document: GraphDocument): ExpandedGraph {
         nodes.find((n) => n.id === e.target)?.type === targetType &&
         (kind === undefined || e.kind === kind),
     );
+  const hasParent = (node: GraphNode, parentType: ServiceType) =>
+    !!node.parentId && nodes.find((n) => n.id === node.parentId)?.type === parentType;
 
   let resourceGroup = findFirstOfType("resourceGroup");
   if (!resourceGroup) {
@@ -86,7 +88,7 @@ export function expandImplicits(document: GraphDocument): ExpandedGraph {
   );
 
   for (const c of computeNodes) {
-    if (!hasOutgoing(c.id, "appServicePlan", "depends_on")) {
+    if (!hasOutgoing(c.id, "appServicePlan", "depends_on") && !hasParent(c, "appServicePlan")) {
       if (!plan) {
         plan = makeNode("appServicePlan", `plan-${document.metadata.name}`, {
           x: c.position.x,
