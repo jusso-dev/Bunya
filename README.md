@@ -22,6 +22,7 @@ ISM, and the Essential Eight.
 [Skip to: How it works](#how-it-works) -
 [Generators](#generators) -
 [Rules engine](#rules-engine) -
+[Organisation rule engine](#organisation-rule-engine) -
 [Local dev](#local-development) -
 [Known gaps](#known-gaps)
 
@@ -244,6 +245,97 @@ multi-region failover correctness.
   <img src="project-docs/screenshots/05-validation-findings.png" alt="Validation findings panel with a real auto-fix" width="1100"/>
 </p>
 
+## Organisation rule engine
+
+Bunya also has a session-scoped organisation rule engine for rules that are
+specific to your platform team, landing zone, IRAP boundary, or internal Azure
+Policy initiative. Open `Org Rules` in the toolbar to create rules without
+changing the built-in rule bundle.
+
+Organisation rules run in the same validation pipeline as PSRule, Checkov,
+Azure Policy, ISM and Bunya graph rules. Findings show in the same panel,
+carry the configured severity, and link back to the offending node. They are
+stored separately from the diagram so teams can test different policy packs
+against the same architecture.
+
+What the creator supports today:
+
+- **Property violation rules** - flag resources when a property is `equals`,
+  `not_equals`, `present`, `missing`, `truthy`, `falsy` or `includes` a value.
+  Example: `publicNetworkAccess equals true` on Web Apps, Functions, Key
+  Vaults and Container Registries.
+- **Relationship rules** - require or forbid graph edges by direction, edge
+  kind and target service. Example: VMSS must have an outgoing `diagnostic`
+  edge to Log Analytics, or Storage must have an incoming `network` edge from
+  Private Endpoint.
+- **Service scoping** - apply a rule to one service type, several service
+  types, or every graph node.
+- **Severity and enablement** - set `error`, `warning` or `info`, then toggle
+  individual rules on and off without deleting them.
+- **Presets** - add starter packs for `No Public`, `Private Path`, and
+  `Diagnostics`. These are ordinary organisation rules after import, so they
+  can be edited by exporting the pack, changing the JSON, and importing it
+  again.
+
+The Azure Policy import path is designed for the policy JSON teams already
+have. Paste an Azure Policy definition, upload a JSON policy file, or import a
+previous Bunya organisation rule pack. Bunya translates simple `policyRule.if`
+conditions into graph checks by mapping common ARM resource types and aliases,
+including:
+
+- `Microsoft.Web/sites` -> Web App / Function App style `publicNetworkAccess`
+  checks where the graph exposes that property.
+- `Microsoft.Storage/storageAccounts` -> Storage Account public network,
+  anonymous blob access and minimum TLS checks.
+- `Microsoft.KeyVault/vaults` -> Key Vault public network and purge
+  protection checks.
+- `Microsoft.ContainerRegistry/registries` -> Container Registry public
+  network access checks.
+- `Microsoft.ContainerService/managedClusters` -> AKS-scoped rules when the
+  policy field can be mapped to a Bunya property.
+- `Microsoft.Compute/virtualMachineScaleSets` -> VMSS-scoped rules when the
+  policy field can be mapped to a Bunya property.
+
+Translation is intentionally conservative: if a policy condition cannot be
+represented as a node-property or graph-edge check, import reports that it
+could not extract usable rules instead of pretending runtime Azure Policy can
+be fully simulated in a diagram. Complex effects, parameters, deployment-time
+remediation and `deployIfNotExists` resources still belong in Azure Policy.
+Bunya's value is catching the design intent while the architecture is still
+being shaped.
+
+Rule packs export as a versioned `.bunya-rules.json` envelope:
+
+```json
+{
+  "format": "bunya-organisation-rules",
+  "version": 1,
+  "exportedAt": "2026-06-03T00:00:00.000Z",
+  "rules": [
+    {
+      "id": "ORG.NO.PUBLIC.INGRESS",
+      "name": "No public ingress",
+      "description": "Internet-facing ingress must be explicitly approved.",
+      "severity": "error",
+      "enabled": true,
+      "serviceTypes": ["appService", "functionApp"],
+      "property": {
+        "key": "publicNetworkAccess",
+        "operator": "equals",
+        "value": true
+      },
+      "message": "Public network access is not allowed for these workloads."
+    }
+  ]
+}
+```
+
+Rules persist in `localStorage` under `bunya.organisationRules` for the current
+browser session. They do not affect generated IaC directly; they affect the
+validation gate, which is deliberate. If an organisation rule says "no public
+ingress", the graph must model the private path explicitly before the design
+goes clean.
+
 ## Containers and hierarchy
 
 Real Azure architectures span multiple Resource Groups, Virtual Networks hold
@@ -285,7 +377,7 @@ Scripts:
 
 ```bash
 pnpm typecheck       # tsc --noEmit, strict
-pnpm test            # vitest run (97 unit tests, snapshot coverage of every generator)
+pnpm test            # vitest run (101 unit tests, snapshot coverage of every generator)
 pnpm e2e             # playwright tests against the dev server
 pnpm build           # next build (Turbopack)
 pnpm rules:import    # rebuild rule registry + COVERAGE.md + GAPS.md
@@ -303,6 +395,7 @@ components/
   canvas/ServiceNode.tsx            # custom service node renderer
   canvas/ContainerNode.tsx          # bounding-box for Resource Group, VNet and App Service Plan
   canvas/Toolbar.tsx                # Undo/Redo, Templates, Share, panel toggles
+  canvas/OrganisationRulesPanel.tsx # custom org rules, Azure Policy import/export
   canvas/ValidationPanel.tsx        # cited findings + autofix buttons
   catalogue/ServicePalette.tsx      # 26 services in 7 categories, drag + click
   output/OutputTabs.tsx             # seven tabs, copy/download/zip
@@ -317,9 +410,10 @@ lib/
   catalogue/connections.ts          # canConnect() drag-time validator
   generators/                       # six generators + Mermaid + README
   rules/                            # rules engine: schema, runtime, sources
+    organisation.ts                 # session custom rules + Azure Policy translation
     sources/<publisher>/            # one folder per upstream source
     graph-rules/                    # Bunya's hand-written BUNYA.* rules
-  validation/runner.ts              # thin shim over rules/runtime
+  validation/runner.ts              # built-in + organisation rule validation
 scripts/
   import-rules/                     # build-time ingestion pipeline
   generate-coverage.ts              # COVERAGE.md + GAPS.md generator

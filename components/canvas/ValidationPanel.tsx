@@ -15,8 +15,9 @@ export function ValidationPanel() {
   const selectNode = useGraphStore((s) => s.selectNode);
   const selectEdge = useGraphStore((s) => s.selectEdge);
   const replaceDocument = useGraphStore((s) => s.replaceDocument);
+  const organisationRules = useGraphStore((s) => s.organisationRules);
 
-  const findings = useMemo(() => runValidation(document), [document]);
+  const findings = useMemo(() => runValidation(document, organisationRules), [document, organisationRules]);
 
   if (findings.length === 0) {
     return (

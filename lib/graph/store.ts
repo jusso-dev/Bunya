@@ -9,6 +9,7 @@ import {
   GraphNode,
   emptyGraph,
 } from "./schema";
+import type { OrganisationRule } from "@/lib/rules/organisation";
 
 type AddNodeInput = Omit<GraphNode, "id">;
 type AddEdgeInput = Omit<GraphEdge, "id">;
@@ -23,6 +24,7 @@ export type GraphStoreState = {
   future: GraphDocument[];
   collapsed: Record<PanelId, boolean>;
   fxAudPerUsd: number;
+  organisationRules: OrganisationRule[];
 };
 
 export type GraphStoreActions = {
@@ -50,6 +52,10 @@ export type GraphStoreActions = {
   togglePanel: (id: PanelId) => void;
   setPanelCollapsed: (id: PanelId, collapsed: boolean) => void;
   setFxAudPerUsd: (rate: number) => void;
+  addOrganisationRule: (rule: OrganisationRule) => void;
+  updateOrganisationRule: (id: string, patch: Partial<OrganisationRule>) => void;
+  removeOrganisationRule: (id: string) => void;
+  replaceOrganisationRules: (rules: OrganisationRule[]) => void;
 };
 
 export type GraphStore = GraphStoreState & GraphStoreActions;
@@ -69,6 +75,31 @@ const graphStoreInitializer: StateCreator<GraphStore> = (set, get) => ({
   future: [],
   collapsed: { palette: false, properties: false, output: false, validation: false },
   fxAudPerUsd: DEFAULT_FX_AUD_PER_USD,
+  organisationRules: [],
+
+  addOrganisationRule: (rule) => {
+    set((state) => ({
+      organisationRules: [...state.organisationRules.filter((r) => r.id !== rule.id), rule],
+    }));
+  },
+
+  updateOrganisationRule: (id, patch) => {
+    set((state) => ({
+      organisationRules: state.organisationRules.map((rule) =>
+        rule.id === id ? { ...rule, ...patch } : rule,
+      ),
+    }));
+  },
+
+  removeOrganisationRule: (id) => {
+    set((state) => ({
+      organisationRules: state.organisationRules.filter((rule) => rule.id !== id),
+    }));
+  },
+
+  replaceOrganisationRules: (rules) => {
+    set({ organisationRules: rules });
+  },
 
   setFxAudPerUsd: (rate) => {
     const clamped = clampFxRate(rate);

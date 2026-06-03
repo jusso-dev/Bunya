@@ -22,6 +22,7 @@ import {
   suggestedFilename,
 } from "@/lib/graph/portable";
 import { emptyGraph } from "@/lib/graph/schema";
+import { OrganisationRulesPanel } from "./OrganisationRulesPanel";
 
 function PanelToggles() {
   const collapsed = useGraphStore((s) => s.collapsed);
@@ -300,6 +301,7 @@ export function Toolbar() {
             </div>
           ) : null}
         </div>
+        <OrganisationRulesPanel />
         <button
           type="button"
           onClick={onExport}
