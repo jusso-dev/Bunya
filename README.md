@@ -23,6 +23,7 @@ ISM, and the Essential Eight.
 [Generators](#generators) -
 [Rules engine](#rules-engine) -
 [Organisation rule engine](#organisation-rule-engine) -
+[MCP server](#mcp-server) -
 [Local dev](#local-development) -
 [Known gaps](#known-gaps)
 
@@ -363,11 +364,64 @@ Three templates exist; choose one from the toolbar's `Templates` dropdown:
 - **Event-driven Functions** - Function App + Storage + Cosmos DB with
   managed identity to Key Vault and App Insights to Log Analytics.
 
+## MCP server
+
+Bunya includes a Node.js MCP server so an MCP-compatible assistant can turn a
+plain-English Azure architecture discussion into the same graph used by the
+editor. The connected assistant interprets the description; Bunya then builds
+and validates the explicit Azure service plan, returns a link that opens the
+diagram in the canvas, and exports the generated IaC.
+
+It provides four tools:
+
+- `bunya_list_services` — supported Azure services, defaults and permitted connections.
+- `bunya_create_diagram` — creates a graph, returns Mermaid, rule findings and a Bunya view URL.
+- `bunya_validate_diagram` — runs the cited Azure and compliance rules against a graph.
+- `bunya_export_iac` — returns Terraform, Bicep, ARM JSON, az CLI, PowerShell, Mermaid or README files.
+
+### Local MCP connection
+
+The stdio process is the simplest option for desktop MCP clients. Start it with
+`pnpm mcp`, or register it in your client configuration:
+
+```json
+{
+  "mcpServers": {
+    "bunya": {
+      "command": "pnpm",
+      "args": ["--dir", "/absolute/path/to/Bunya", "mcp"],
+      "env": {
+        "BUNYA_APP_URL": "http://localhost:3000/"
+      }
+    }
+  }
+}
+```
+
+Set `BUNYA_APP_URL` to the deployed Bunya editor URL when it is not running on
+localhost. Created diagrams are encoded in the URL fragment, so the link opens
+the exact graph without server-side storage.
+
+### Hosted MCP endpoint
+
+For a remote deployment, run the stateless Streamable HTTP server:
+
+```bash
+PORT=3001 BUNYA_APP_URL=https://bunya.example.com/ pnpm mcp:http
+```
+
+It serves `POST /mcp` and `GET /health`. Put authentication and TLS at the
+reverse proxy or platform edge before exposing `/mcp` to other people. The
+server does not apply infrastructure or retain diagrams; it only constructs,
+validates and renders graph/IaC responses.
+
 ## Local development
 
 ```bash
 pnpm install
 pnpm dev          # http://localhost:3000
+pnpm mcp          # local stdio MCP server
+pnpm mcp:http     # Streamable HTTP MCP server on http://localhost:3001/mcp
 ```
 
 Open the editor. Drag from the left palette. Click `Templates` to load a
@@ -417,6 +471,11 @@ lib/
 scripts/
   import-rules/                     # build-time ingestion pipeline
   generate-coverage.ts              # COVERAGE.md + GAPS.md generator
+mcp/
+  server.ts                          # stdio MCP entry point
+  http.ts                            # stateless Streamable HTTP MCP entry point
+  create-server.ts                   # shared MCP tools and authoring guide
+  bunya.ts                           # graph construction, validation and export adapter
 project-docs/
   rules/SOURCES.md                  # 20 sources, classified INGEST/MANUAL/OUT-OF-SCOPE
   rules/COVERAGE.md                 # auto-generated coverage tables

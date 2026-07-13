@@ -7,6 +7,9 @@
     "build": "next build",
     "build:pages": "GITHUB_PAGES=true next build && rm -rf docs && cp -r out docs && touch docs/.nojekyll",
     "start": "next start",
+    "mcp": "tsx mcp/server.ts",
+    "mcp:http": "tsx mcp/http.ts",
+    "mcp:inspect": "npx @modelcontextprotocol/inspector pnpm mcp",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -19,6 +22,7 @@
   },
   "dependencies": {
     "@hookform/resolvers": "^5.4.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "jszip": "^3.10.1",
     "next": "16.2.6",
     "react": "19.2.4",
