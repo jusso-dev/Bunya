@@ -1,3 +1,4 @@
+import { validateGeneration } from "./shared/validate";
 import type { GraphDocument } from "@/lib/graph/schema";
 import { estimateCost, formatMoney } from "@/lib/pricing/estimate";
 import type { GeneratedFile, GeneratorResult } from "./types";
@@ -10,6 +11,9 @@ export function generateCostEstimate(
   document: GraphDocument,
   options: CostGeneratorOptions = {},
 ): GeneratorResult {
+  const validated = validateGeneration(document, false);
+  if (!validated.ok) return validated;
+  document = validated.document;
   const estimate = estimateCost(document, { currency: "AUD", audPerUsd: options.audPerUsd });
   const lines: string[] = [
     `# Cost estimate — ${document.metadata.name}`,

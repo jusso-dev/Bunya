@@ -115,7 +115,12 @@ const graphStoreInitializer: StateCreator<GraphStore> = (set, get) => ({
 
   togglePanel: (id) => {
     set((state) => ({
-      collapsed: { ...state.collapsed, [id]: !state.collapsed[id] },
+      collapsed: {
+        ...state.collapsed,
+        ...(typeof window !== "undefined" && window.matchMedia("(max-width: 1023px)").matches && state.collapsed[id]
+          ? { palette: true, properties: true, output: true } : {}),
+        [id]: !state.collapsed[id],
+      },
     }));
   },
 
@@ -138,15 +143,25 @@ const graphStoreInitializer: StateCreator<GraphStore> = (set, get) => ({
   },
 
   removeNode: (id) => {
-    set((state) => ({
-      ...pushHistory(state),
-      document: {
-        ...state.document,
-        nodes: state.document.nodes.filter((n) => n.id !== id),
-        edges: state.document.edges.filter((e) => e.source !== id && e.target !== id),
-      },
-      selectedNodeId: state.selectedNodeId === id ? null : state.selectedNodeId,
-    }));
+    set((state) => {
+      const removed = new Set([id]);
+      for (let changed = true; changed;) {
+        changed = false;
+        for (const node of state.document.nodes) {
+          if (node.parentId && removed.has(node.parentId) && !removed.has(node.id)) { removed.add(node.id); changed = true; }
+        }
+      }
+      return {
+        ...pushHistory(state),
+        document: {
+          ...state.document,
+          nodes: state.document.nodes.filter((node) => !removed.has(node.id)),
+          edges: state.document.edges.filter((edge) => !removed.has(edge.source) && !removed.has(edge.target)),
+        },
+        selectedNodeId: null,
+        selectedEdgeId: null,
+      };
+    });
   },
 
   moveNode: (id, position) => {
@@ -272,6 +287,7 @@ const graphStoreInitializer: StateCreator<GraphStore> = (set, get) => ({
     if (!prev) return;
     set({
       document: prev,
+      selectedNodeId: null, selectedEdgeId: null,
       history: state.history.slice(0, -1),
       future: [state.document, ...state.future],
     });
@@ -283,6 +299,7 @@ const graphStoreInitializer: StateCreator<GraphStore> = (set, get) => ({
     if (!next) return;
     set({
       document: next,
+      selectedNodeId: null, selectedEdgeId: null,
       future: rest,
       history: [...state.history, state.document],
     });

@@ -49,7 +49,7 @@ function portMatches(range: string | undefined, port: string): boolean {
 }
 
 function isInternetSource(prefix: string | undefined): boolean {
-  return prefix === "*" || prefix === "Internet" || prefix === "0.0.0.0/0";
+  return prefix === "*" || prefix === "Internet" || prefix === "0.0.0.0/0" || prefix === "::/0";
 }
 
 export const EXPANSION_NSG_RULES: RuleEntry[] = [

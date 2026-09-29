@@ -32,7 +32,7 @@ test("dragging a service emits no React Flow `project` deprecation warning", asy
   expect(pageErrors, JSON.stringify(pageErrors, null, 2)).toEqual([]);
 });
 
-test("dropped node renders a Lucide icon at 26px with computed stroke colour", async ({ page }) => {
+test("dropped node renders a loaded Azure icon at 26px", async ({ page }) => {
   await page.goto("/");
   await collapseSidePanels(page);
 
@@ -43,20 +43,10 @@ test("dropped node renders a Lucide icon at 26px with computed stroke colour", a
   const node = page.locator(".react-flow__node").first();
   await expect(node).toHaveCount(1);
 
-  const iconSvg = node.locator("svg.lucide").first();
-  await expect(iconSvg).toHaveCount(1);
-
-  const width = await iconSvg.evaluate((el) => Number((el as SVGElement).getAttribute("width") ?? "0"));
-  expect(width).toBe(26);
-
-  const strokeColor = await iconSvg.evaluate((el) => {
-    const computed = getComputedStyle(el as SVGElement);
-    return { stroke: computed.stroke, color: computed.color };
-  });
-  expect(strokeColor.stroke).not.toBe("");
-  expect(strokeColor.stroke).not.toBe("none");
-  expect(strokeColor.stroke).not.toBe("rgb(0, 0, 0)");
-  expect(strokeColor.stroke).not.toBe("rgba(0, 0, 0, 0)");
+  const icon = node.locator('img[src*="azure-icons/"]').first();
+  await expect(icon).toBeVisible();
+  await expect(icon).toHaveAttribute("width", "26");
+  expect(await icon.evaluate((el) => (el as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
 });
 
 test("drag-and-drop from palette lands the node at the cursor without console errors", async ({ page }) => {

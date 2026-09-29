@@ -1,4 +1,4 @@
-import { GraphDocument, ServiceType } from "@/lib/graph/schema";
+import { GraphDocument, GraphNode, ServiceType } from "@/lib/graph/schema";
 import { getServiceDefinition } from "./services";
 
 const epoch = "2026-01-01T00:00:00.000Z";
@@ -10,13 +10,17 @@ function buildNode(
   resourceName: string,
   x: number,
   y: number,
-) {
+  parentId?: string,
+  size?: { width: number; height: number },
+): GraphNode {
   return {
     id,
     type,
     name,
     resourceName,
     position: { x, y },
+    parentId,
+    size,
     properties: { ...getServiceDefinition(type).defaultProperties },
   };
 }
@@ -45,12 +49,12 @@ export const STARTER_TEMPLATES: StarterTemplate[] = [
         resourceGroupName: "rg-static-with-api",
       },
       nodes: [
-        buildNode("rg", "resourceGroup", "Resource Group", "rg-static-with-api", 0, 0),
-        buildNode("swa", "staticWebApp", "Portal", "swa-static", 200, 0),
-        buildNode("fn", "functionApp", "API", "fn-static-api", 400, 0),
-        buildNode("stg", "storageAccount", "API Storage", "staticapistg", 600, 100),
-        buildNode("ai", "applicationInsights", "Telemetry", "ai-static", 600, -100),
-        buildNode("la", "logAnalytics", "Workspace", "log-static", 800, -100),
+        buildNode("rg", "resourceGroup", "Resource Group", "rg-static-with-api", 0, 0, undefined, { width: 1220, height: 380 }),
+        buildNode("swa", "staticWebApp", "Portal", "swa-static", 40, 60, "rg"),
+        buildNode("fn", "functionApp", "API", "fn-static-api", 340, 60, "rg"),
+        buildNode("stg", "storageAccount", "API Storage", "staticapistg", 640, 230, "rg"),
+        buildNode("ai", "applicationInsights", "Telemetry", "ai-static", 640, 60, "rg"),
+        buildNode("la", "logAnalytics", "Workspace", "log-static", 940, 60, "rg"),
       ],
       edges: [
         { id: "e1", source: "swa", target: "fn", kind: "depends_on" },
@@ -76,18 +80,18 @@ export const STARTER_TEMPLATES: StarterTemplate[] = [
         resourceGroupName: "rg-three-tier",
       },
       nodes: [
-        buildNode("rg", "resourceGroup", "Resource Group", "rg-three-tier", 0, 0),
-        buildNode("vnet", "virtualNetwork", "VNet", "vnet-three-tier", 200, 0),
-        buildNode("snet-app", "subnet", "App Subnet", "snet-app", 400, -80),
-        buildNode("snet-pe", "subnet", "PE Subnet", "snet-pe", 400, 80),
-        buildNode("plan", "appServicePlan", "Plan", "plan-three-tier", 600, -200),
-        buildNode("app", "appService", "Web", "app-three-tier", 800, -200),
-        buildNode("kv", "keyVault", "Secrets", "kv-three-tier", 1000, -200),
-        buildNode("stg", "storageAccount", "Assets", "threetierstg", 1000, 0),
-        buildNode("sql", "sqlDatabase", "AppDB", "sqldb-three-tier", 1000, 200),
-        buildNode("pe-stg", "privateEndpoint", "Stg PE", "pe-stg", 600, 0),
-        buildNode("pe-sql", "privateEndpoint", "SQL PE", "pe-sql", 600, 200),
-        buildNode("la", "logAnalytics", "Workspace", "log-three-tier", 1200, 200),
+        buildNode("rg", "resourceGroup", "Resource Group", "rg-three-tier", 0, 0, undefined, { width: 1540, height: 730 }),
+        buildNode("vnet", "virtualNetwork", "VNet", "vnet-three-tier", 40, 350, "rg", { width: 520, height: 300 }),
+        buildNode("snet-app", "subnet", "App Subnet", "snet-app", 40, 60, "vnet"),
+        buildNode("snet-pe", "subnet", "PE Subnet", "snet-pe", 40, 200, "vnet"),
+        buildNode("plan", "appServicePlan", "Plan", "plan-three-tier", 40, 60, "rg", { width: 300, height: 180 }),
+        buildNode("app", "appService", "Web", "app-three-tier", 40, 60, "plan"),
+        buildNode("kv", "keyVault", "Secrets", "kv-three-tier", 980, 80, "rg"),
+        buildNode("stg", "storageAccount", "Assets", "threetierstg", 980, 310, "rg"),
+        buildNode("sql", "sqlDatabase", "AppDB", "sqldb-three-tier", 980, 560, "rg"),
+        buildNode("pe-stg", "privateEndpoint", "Stg PE", "pe-stg", 660, 380, "rg"),
+        buildNode("pe-sql", "privateEndpoint", "SQL PE", "pe-sql", 660, 550, "rg"),
+        buildNode("la", "logAnalytics", "Workspace", "log-three-tier", 1260, 560, "rg"),
       ],
       edges: [
         { id: "snet-app-vnet", source: "snet-app", target: "vnet", kind: "depends_on" },
@@ -124,14 +128,14 @@ export const STARTER_TEMPLATES: StarterTemplate[] = [
         resourceGroupName: "rg-event-driven",
       },
       nodes: [
-        buildNode("rg", "resourceGroup", "Resource Group", "rg-event-driven", 0, 0),
-        buildNode("plan", "appServicePlan", "Consumption", "plan-event-driven", 200, 0),
-        buildNode("fn", "functionApp", "Ingest", "fn-event-driven", 400, 0),
-        buildNode("stg", "storageAccount", "Function Storage", "eventdrivenstg", 600, 100),
-        buildNode("cos", "cosmosDb", "Documents", "cos-event-driven", 600, -100),
-        buildNode("ai", "applicationInsights", "Telemetry", "ai-event-driven", 800, -100),
-        buildNode("la", "logAnalytics", "Workspace", "log-event-driven", 1000, -100),
-        buildNode("kv", "keyVault", "Secrets", "kv-event-driven", 800, 100),
+        buildNode("rg", "resourceGroup", "Resource Group", "rg-event-driven", 0, 0, undefined, { width: 1320, height: 500 }),
+        buildNode("plan", "appServicePlan", "Consumption", "plan-event-driven", 40, 60, "rg", { width: 300, height: 180 }),
+        buildNode("fn", "functionApp", "Ingest", "fn-event-driven", 40, 60, "plan"),
+        buildNode("stg", "storageAccount", "Function Storage", "eventdrivenstg", 400, 340, "rg"),
+        buildNode("cos", "cosmosDb", "Documents", "cos-event-driven", 400, 80, "rg"),
+        buildNode("ai", "applicationInsights", "Telemetry", "ai-event-driven", 700, 80, "rg"),
+        buildNode("la", "logAnalytics", "Workspace", "log-event-driven", 1000, 80, "rg"),
+        buildNode("kv", "keyVault", "Secrets", "kv-event-driven", 700, 340, "rg"),
       ],
       edges: [
         { id: "fn-plan", source: "fn", target: "plan", kind: "depends_on" },

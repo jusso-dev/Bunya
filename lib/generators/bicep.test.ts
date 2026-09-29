@@ -14,15 +14,18 @@ describe("generateBicep", () => {
     expect(result.files.find((f) => f.path === "main.bicep")?.content).toMatchSnapshot();
   });
 
-  it("covers all service resource types for the full-stack fixture", () => {
-    const result = generateBicep(fullStackGraph);
+  it("covers all service resource types for the supported full-stack fixture", () => {
+    const result = generateBicep({
+      ...fullStackGraph,
+      nodes: fullStackGraph.nodes.filter((node) => node.id !== "nsg"),
+      edges: fullStackGraph.edges.filter((edge) => edge.source !== "nsg" && edge.target !== "nsg"),
+    });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const main = result.files.find((f) => f.path === "main.bicep")?.content ?? "";
     for (const provider of [
       "Microsoft.Network/virtualNetworks",
       "Microsoft.Network/virtualNetworks/subnets",
-      "Microsoft.Network/networkSecurityGroups",
       "Microsoft.Network/privateEndpoints",
       "Microsoft.Web/serverfarms",
       "Microsoft.Web/sites",

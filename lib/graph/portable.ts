@@ -1,3 +1,4 @@
+import { MAX_IMPORT_BYTES, checkImportText, checkObjectDepth } from "./limits";
 import { GraphDocument } from "./schema";
 import { migrate } from "./migrate";
 import { parseArmTemplate } from "./arm-import";
@@ -58,7 +59,9 @@ function normaliseImportText(text: string): string {
 export function parsePortable(text: string): ImportResult {
   let parsed: unknown;
   try {
+    checkImportText(text);
     parsed = JSON.parse(text);
+    checkObjectDepth(parsed);
   } catch (err) {
     return {
       ok: false,
@@ -122,6 +125,7 @@ export function parsePortable(text: string): ImportResult {
 }
 
 export function parseImportText(text: string): ImportResult {
+  try { checkImportText(text); } catch (error) { return { ok: false, reason: (error as Error).message }; }
   const normalised = normaliseImportText(text);
   const portable = parsePortable(normalised);
   if (portable.ok) return portable;
@@ -130,7 +134,7 @@ export function parseImportText(text: string): ImportResult {
     if (arm.ok) {
       return {
         ok: true,
-        document: arm.document,
+        document: migrate(arm.document),
         envelope: buildEnvelope(
           arm.document,
           arm.warning ? `azure-arm-export (${arm.warning})` : "azure-arm-export",
@@ -150,6 +154,7 @@ export function parseImportText(text: string): ImportResult {
 }
 
 export async function readFileAsText(file: File): Promise<string> {
+  if (file.size > MAX_IMPORT_BYTES) throw new Error("File exceeds the 1 MiB import limit.");
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result ?? ""));

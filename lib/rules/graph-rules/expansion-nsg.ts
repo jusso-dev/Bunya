@@ -29,41 +29,20 @@ function outboundRulesOf(node: GraphNode): NsgRule[] {
   return Array.isArray(raw) ? (raw as NsgRule[]) : [];
 }
 
-function portContains(range: string | undefined, port: number): boolean {
-  if (range === undefined) return false;
+function coversGatewayPorts(range: string | undefined): boolean {
   if (range === "*") return true;
-  if (range.includes(",")) {
-    return range.split(",").map((s) => s.trim()).some((p) => Number(p) === port);
+  const intervals = (range ?? "").split(",").map((part) => {
+    const [low, high = low] = part.trim().split("-").map(Number);
+    return [low, high];
+  }).filter(([low, high]) => Number.isInteger(low) && Number.isInteger(high) && low <= high)
+    .sort((a, b) => a[0] - b[0]);
+  let next = 65200;
+  for (const [low, high] of intervals) {
+    if (low > next) break;
+    if (high >= next) next = high + 1;
+    if (next > 65535) return true;
   }
-  if (range.includes("-")) {
-    const [lo, hi] = range.split("-").map((s) => Number(s.trim()));
-    if (Number.isFinite(lo) && Number.isFinite(hi)) {
-      return port >= lo && port <= hi;
-    }
-  }
-  return Number(range) === port;
-}
-
-function rangesOverlap(range: string | undefined, lo: number, hi: number): boolean {
-  if (range === undefined) return false;
-  if (range === "*") return true;
-  if (range.includes(",")) {
-    return range
-      .split(",")
-      .map((s) => s.trim())
-      .some((p) => {
-        const n = Number(p);
-        return Number.isFinite(n) && n >= lo && n <= hi;
-      });
-  }
-  if (range.includes("-")) {
-    const [a, b] = range.split("-").map((s) => Number(s.trim()));
-    if (Number.isFinite(a) && Number.isFinite(b)) {
-      return a <= hi && b >= lo;
-    }
-  }
-  const single = Number(range);
-  return Number.isFinite(single) && single >= lo && single <= hi;
+  return false;
 }
 
 export const expansionNsgRules: RuleEntry[] = [
@@ -155,7 +134,8 @@ export const expansionNsgRules: RuleEntry[] = [
               (r) =>
                 r.access === "Allow" &&
                 r.sourceAddressPrefix === "GatewayManager" &&
-                rangesOverlap(r.destinationPortRange, 65200, 65535),
+                (r.protocol === "Tcp" || r.protocol === "*") &&
+                coversGatewayPorts(r.destinationPortRange),
             );
             if (!ok) {
               findings.push({ nodeIds: [nsg.id, subnetId, agw.id] });

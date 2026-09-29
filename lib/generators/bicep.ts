@@ -1,3 +1,4 @@
+import { validateGeneration } from "./shared/validate";
 import { GraphDocument, GraphNode, ServiceType } from "@/lib/graph/schema";
 import {
   GeneratorContext,
@@ -20,7 +21,7 @@ function name(ctx: GeneratorContext, id: string): string {
 }
 
 function nodeRef(ctx: GeneratorContext, id: string): string {
-  return bicepIdent(ctx.nodesById.get(id)?.resourceName ?? id);
+  return `node_${ctx.document.nodes.findIndex((node) => node.id === id)}_${ctx.identifiers.get(id) ?? bicepIdent(id)}_resource`;
 }
 
 function tagsLiteral(ctx: GeneratorContext, node: GraphNode): string {
@@ -31,7 +32,7 @@ function tagsLiteral(ctx: GeneratorContext, node: GraphNode): string {
     ...userTags,
   };
   const entries = Object.entries(merged)
-    .map(([k, v]) => `    ${k}: '${v}'`)
+    .map(([k, v]) => `    '${k}': '${v}'`)
     .join("\n");
   return `  tags: {\n${entries}\n  }`;
 }
@@ -173,11 +174,12 @@ function emitAppService(node: GraphNode, ctx: GeneratorContext): string {
     `  }`,
     `  properties: {`,
     `    serverFarmId: ${planIdent}.id`,
+    `    publicNetworkAccess: '${node.properties.publicNetworkAccess === false ? "Disabled" : "Enabled"}'`,
     `    httpsOnly: ${httpsOnly}`,
     `    siteConfig: {`,
     `      minTlsVersion: '1.2'`,
     `      alwaysOn: ${node.properties.alwaysOn !== false}`,
-    `      linuxFxVersion: 'NODE|20-lts'`,
+    `      linuxFxVersion: '${node.properties.runtime === "dotnet" ? "DOTNETCORE" : String(node.properties.runtime).toUpperCase()}|${node.properties.runtimeVersion}'`,
     `    }`,
     `  }`,
     tagsLiteral(ctx, node),
@@ -204,10 +206,16 @@ function emitFunctionApp(node: GraphNode, ctx: GeneratorContext): string {
     `  }`,
     `  properties: {`,
     `    serverFarmId: ${planIdent}.id`,
+    `    publicNetworkAccess: '${node.properties.publicNetworkAccess === false ? "Disabled" : "Enabled"}'`,
     `    httpsOnly: ${node.properties.httpsOnly !== false}`,
     `    siteConfig: {`,
     `      minTlsVersion: '1.2'`,
+    `      linuxFxVersion: '${String(node.properties.runtime).toUpperCase()}|${node.properties.runtimeVersion}'`,
     `      appSettings: [`,
+    `        {`,
+    `          name: 'FUNCTIONS_WORKER_RUNTIME'`,
+    `          value: '${node.properties.runtime}'`,
+    `        }`,
     `        {`,
     `          name: 'AzureWebJobsStorage'`,
     `          value: 'DefaultEndpointsProtocol=https;AccountName=\${${stIdent}.name};EndpointSuffix=\${environment().suffixes.storage};AccountKey=\${${stIdent}.listKeys().keys[0].value}'`,
@@ -815,11 +823,11 @@ function renderParametersFile(
     environmentTag: { value: document.metadata.environment },
   };
   if (includeSqlAdmin) {
-    parameters.sqlAdminPassword = { value: "ReplaceMe!" };
+    // Supply sqlAdminPassword securely at deployment time.
   }
   if (includeVmssSsh) {
     parameters.vmAdminUsername = { value: "azureuser" };
-    parameters.vmSshPublicKey = { value: "ssh-rsa ReplaceMe" };
+    // Supply vmSshPublicKey at deployment time.
   }
   return {
     path: "main.parameters.json",
@@ -837,6 +845,9 @@ function renderParametersFile(
 }
 
 export function generateBicep(document: GraphDocument): GeneratorResult {
+  const validated = validateGeneration(document);
+  if (!validated.ok) return validated;
+  document = validated.document;
   const ctx = buildGeneratorContext(document);
   if (!ctx.topo.ok) {
     return { ok: false, reason: "cycle detected", cycle: ctx.topo.cycle };

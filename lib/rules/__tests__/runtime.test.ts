@@ -61,6 +61,30 @@ function graphFixture(
 }
 
 describe("rules-engine runtime", () => {
+  it("does not confuse anonymous access, public networking and HTTPS", () => {
+    const graph = graphFixture([testNode("storage", "storageAccount", { allowPublicAccess: true }), testNode("pe", "privateEndpoint")], [
+      { id: "pe-edge", source: "pe", target: "storage", kind: "network" },
+    ]);
+    const findings = runRules(graph, TEST_ENTRIES);
+    expect(findingsForRule(findings, "PSRULE.STORAGE.FIREWALL")).toHaveLength(1);
+    expect(findingsForRule(findings, "PSRULE.STORAGE.SECURETRANSFER")[0]?.severity).toBe("info");
+    expect(TEST_ENTRIES.some((entry) => entry.rule.id === "BUNYA.NET.002")).toBe(false);
+  });
+
+  it("requires the complete TCP gateway management port range", () => {
+    const nsg = testNode("nsg", "networkSecurityGroup", { inboundRules: [{ access: "Allow", protocol: "Tcp", sourceAddressPrefix: "GatewayManager", destinationPortRange: "65200" }] });
+    const graph = graphFixture([testNode("gateway", "applicationGateway"), testNode("subnet", "subnet"), nsg], [
+      { id: "gateway-subnet", source: "gateway", target: "subnet", kind: "network" },
+      { id: "subnet-nsg", source: "subnet", target: "nsg", kind: "network" },
+    ]);
+    const rule = TEST_ENTRIES.filter((entry) => entry.rule.id.includes("GATEWAY") && entry.rule.id.includes("NSG"));
+    expect(rule).toHaveLength(1);
+    expect(runRules(graph, rule)).toHaveLength(1);
+    (nsg.properties.inboundRules as Array<Record<string, unknown>>)[0].destinationPortRange = "65200-65535";
+    expect(runRules(graph, rule)).toHaveLength(0);
+    (nsg.properties.inboundRules as Array<Record<string, unknown>>)[0].protocol = "Udp";
+    expect(runRules(graph, rule)).toHaveLength(1);
+  });
   it("healthy.ts produces zero error-severity findings", () => {
     const findings = runRules(healthyGraph, TEST_ENTRIES);
     const errors = findings.filter((f) => f.severity === "error");

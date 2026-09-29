@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { Dialog } from "@/components/Dialog";
 import { getServiceDefinition } from "@/lib/catalogue/services";
 import { EDGE_KINDS, SERVICE_TYPES, type EdgeKind, type ServiceType } from "@/lib/graph/schema";
 import { useGraphStore } from "@/lib/graph/store";
@@ -97,7 +98,9 @@ export function OrganisationRulesPanel() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const stored = window.localStorage.getItem(ORG_RULES_STORAGE_KEY);
+    let stored: string | null;
+    try { stored = window.localStorage.getItem(ORG_RULES_STORAGE_KEY); }
+    catch { return; }
     if (!stored) return;
     const result = parseOrganisationRulesText(stored);
     if (result.ok) replaceOrganisationRules(result.rules);
@@ -109,10 +112,11 @@ export function OrganisationRulesPanel() {
       skippedInitialSave.current = true;
       return;
     }
-    window.localStorage.setItem(
+    const timer = window.setTimeout(() => { try { window.localStorage.setItem(
       ORG_RULES_STORAGE_KEY,
       JSON.stringify({ format: "bunya-organisation-rules", version: 1, rules: organisationRules }),
-    );
+    ); } catch { setMessage("Rules could not be saved. Export them to keep your changes."); } }, 250);
+    return () => window.clearTimeout(timer);
   }, [organisationRules]);
 
   const enabledCount = useMemo(
@@ -203,7 +207,9 @@ export function OrganisationRulesPanel() {
 
   const importRulesFile = useCallback(
     async (file: File) => {
-      const text = await readFileAsText(file);
+      let text: string;
+      try { text = await readFileAsText(file); }
+      catch (error) { setMessage(error instanceof Error ? error.message : "Could not read rules file."); return; }
       const result = parseOrganisationRulesText(text);
       if (!result.ok) {
         setMessage(`Import failed: ${result.reason}`);
@@ -299,11 +305,12 @@ export function OrganisationRulesPanel() {
         Org Rules {organisationRules.length > 0 ? `(${enabledCount}/${organisationRules.length})` : ""}
       </button>
       {open ? (
-        <div className="absolute right-0 z-50 mt-1 grid w-[640px] max-w-[calc(100vw-2rem)] grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3 rounded-md border border-zinc-200 bg-white p-3 text-xs shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+        <Dialog label="Organisation rules" onClose={() => setOpen(false)}>
+        <div className="grid w-[640px] max-w-full grid-cols-1 gap-3 text-xs sm:grid-cols-2">
           <section className="flex min-w-0 flex-col gap-2">
             <div>
               <div className="font-semibold text-zinc-800 dark:text-zinc-100">Organisation Rule Engine</div>
-              <div className="text-[11px] leading-4 text-zinc-500">
+              <div className="text-[11px] leading-4 text-zinc-500 dark:text-zinc-400">
                 Session rules are added to validation findings and can be imported from Azure Policy JSON.
               </div>
             </div>
@@ -440,7 +447,7 @@ export function OrganisationRulesPanel() {
             </div>
             <div className="max-h-40 overflow-y-auto rounded-md border border-zinc-200 dark:border-zinc-800">
               {organisationRules.length === 0 ? (
-                <div className="px-2 py-4 text-center text-[11px] text-zinc-500">No organisation rules in this session.</div>
+                <div className="px-2 py-4 text-center text-[11px] text-zinc-500 dark:text-zinc-400">No organisation rules in this session.</div>
               ) : (
                 organisationRules.map((rule) => (
                   <div key={rule.id} className="border-b border-zinc-200 px-2 py-1.5 last:border-b-0 dark:border-zinc-800">
@@ -454,7 +461,7 @@ export function OrganisationRulesPanel() {
                       />
                       <div className="min-w-0 flex-1">
                         <div className="truncate font-medium text-zinc-800 dark:text-zinc-100">{rule.name}</div>
-                        <div className="truncate text-[11px] text-zinc-500">{rule.id} · {rule.severity}</div>
+                        <div className="truncate text-[11px] text-zinc-500 dark:text-zinc-400">{rule.id} · {rule.severity}</div>
                       </div>
                       <button
                         type="button"
@@ -469,6 +476,7 @@ export function OrganisationRulesPanel() {
               )}
             </div>
             <textarea
+              aria-label="Organisation rules JSON"
               value={importText}
               onChange={(event) => {
                 setImportText(event.target.value);
@@ -479,7 +487,7 @@ export function OrganisationRulesPanel() {
               placeholder="Paste Azure Policy JSON or exported Bunya organisation rules..."
             />
             {message ? (
-              <div className="max-h-16 overflow-auto rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] leading-4 text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+              <div role="status" className="max-h-16 overflow-auto rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] leading-4 text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
                 {message}
               </div>
             ) : null}
@@ -509,6 +517,7 @@ export function OrganisationRulesPanel() {
             />
           </section>
         </div>
+        </Dialog>
       ) : null}
     </div>
   );

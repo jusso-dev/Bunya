@@ -1,3 +1,4 @@
+import { validateGeneration } from "./shared/validate";
 import {
   GraphDocument,
   GraphNode,
@@ -30,7 +31,7 @@ function tagsBlock(ctx: GeneratorContext, node: GraphNode): string {
   const userTags = (node.properties.tags as Record<string, string> | undefined) ?? {};
   const merged = { ...baseTags, ...userTags };
   const lines = Object.entries(merged)
-    .map(([k, v]) => `    ${k} = "${v}"`)
+    .map(([k, v]) => `    "${k}" = "${v}"`)
     .join("\n");
   return `  tags = {\n${lines}\n  }`;
 }
@@ -258,6 +259,7 @@ function emitFunctionApp(node: GraphNode, ctx: GeneratorContext): string {
     `  service_plan_id               = ${planRef}`,
     `  storage_account_name          = ${storageName}`,
     `  storage_account_access_key    = ${storageKey}`,
+    `  public_network_access_enabled = ${node.properties.publicNetworkAccess !== false}`,
     `  https_only                    = ${httpsOnly}`,
     ``,
     `  site_config {`,
@@ -464,6 +466,7 @@ function emitSqlDatabase(node: GraphNode, ctx: GeneratorContext): string {
     `  version                      = "12.0"`,
     `  administrator_login          = "${admin}"`,
     `  administrator_login_password = var.sql_admin_password`,
+    `  public_network_access_enabled = false`,
     `  minimum_tls_version          = "1.2"`,
     tagsBlock(ctx, node),
     `}`,
@@ -890,7 +893,6 @@ function renderVariablesFile(
       `variable "sql_admin_password" {`,
       `  type      = string`,
       `  sensitive = true`,
-      `  default   = "ReplaceMeUsingTFVars!"`,
       `}`,
       ``,
     );
@@ -900,7 +902,6 @@ function renderVariablesFile(
       `variable "vmss_ssh_public_key" {`,
       `  type      = string`,
       `  sensitive = true`,
-      `  default   = "ssh-rsa ReplaceMe"`,
       `}`,
       ``,
     );
@@ -958,6 +959,9 @@ function renderOutputsFile(ctx: GeneratorContext): GeneratedFile {
 }
 
 export function generateTerraform(document: GraphDocument): GeneratorResult {
+  const validated = validateGeneration(document);
+  if (!validated.ok) return validated;
+  document = validated.document;
   const ctx = buildGeneratorContext(document);
   if (!ctx.topo.ok) {
     return { ok: false, reason: "cycle detected", cycle: ctx.topo.cycle };

@@ -8,8 +8,8 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: Arial, Helvetica, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -33,3 +33,13 @@ body {
   visibility: visible !important;
 }
 
+
+:focus-visible { outline: 2px solid #2563eb; outline-offset: 3px; }
+button:disabled { opacity: .45; cursor: not-allowed; }
+dialog::backdrop { background: rgb(0 0 0 / .45); }
+@media (max-width: 1023px) {
+  .editor-panel { position: absolute; inset: 0; z-index: 20; width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation: none !important; transition: none !important; }
+}

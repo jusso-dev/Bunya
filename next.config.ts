@@ -6,6 +6,7 @@ const basePath = isPages ? `/${repo}` : "";
 
 const nextConfig: NextConfig = {
   output: "export",
+  turbopack: { root: process.cwd() },
   images: { unoptimized: true },
   trailingSlash: true,
   basePath: basePath || undefined,

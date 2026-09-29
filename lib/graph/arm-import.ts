@@ -1,3 +1,4 @@
+import { checkImportText, checkObjectDepth } from "./limits";
 import { getServiceDefinition } from "@/lib/catalogue/services";
 import type {
   EdgeKind,
@@ -692,7 +693,9 @@ function layoutImportedNodes(
 export function parseArmTemplate(text: string): ArmImportResult {
   let parsed: unknown;
   try {
+    checkImportText(text);
     parsed = JSON.parse(text);
+    checkObjectDepth(parsed);
   } catch (err) {
     return {
       ok: false,

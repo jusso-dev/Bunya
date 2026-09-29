@@ -21,32 +21,20 @@ describe("generatePowerShell", () => {
     expect(content).not.toContain("Write-Host");
   });
 
-  it("invokes Az cmdlets for every resource in the full-stack fixture", () => {
-    const result = generatePowerShell(fullStackGraph);
+  it("deploys private full-stack resources atomically through ARM", () => {
+    const result = generatePowerShell({
+      ...fullStackGraph,
+      nodes: fullStackGraph.nodes.filter((node) => node.id !== "nsg"),
+      edges: fullStackGraph.edges.filter((edge) => edge.source !== "nsg" && edge.target !== "nsg"),
+    });
     if (!result.ok) throw new Error("expected ok");
     const content = result.files[0].content;
-    for (const cmd of [
-      "New-AzResourceGroup",
-      "New-AzVirtualNetwork",
-      "Add-AzVirtualNetworkSubnetConfig",
-      "New-AzNetworkSecurityGroup",
-      "New-AzAppServicePlan",
-      "New-AzWebApp",
-      "New-AzFunctionApp",
-      "New-AzStaticWebApp",
-      "New-AzStorageAccount",
-      "New-AzSqlServer",
-      "New-AzSqlDatabase",
-      "New-AzCosmosDBAccount",
-      "New-AzKeyVault",
-      "New-AzApplicationInsights",
-      "New-AzOperationalInsightsWorkspace",
-      "New-AzFrontDoorCdnProfile",
-      "New-AzApiManagement",
-      "New-AzContainerRegistry",
-      "New-AzUserAssignedIdentity",
-    ]) {
-      expect(content).toContain(cmd);
-    }
+    expect(content).toContain("New-AzResourceGroupDeployment");
+    expect(content).not.toContain("New-AzWebApp");
+    const template = result.files.find((file) => file.path === "azuredeploy.json");
+    expect(template).toBeDefined();
+    const sites = JSON.parse(template!.content).resources.filter((resource: { type: string }) => resource.type === "Microsoft.Web/sites");
+    expect(sites.length).toBeGreaterThan(0);
+    for (const site of sites) expect(site.properties.publicNetworkAccess).toBe("Disabled");
   });
 });

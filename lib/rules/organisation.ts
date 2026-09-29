@@ -1,3 +1,4 @@
+import { checkImportText, checkObjectDepth } from "../graph/limits";
 import type { GraphDocument, GraphEdge, GraphNode, ServiceType } from "@/lib/graph/schema";
 import { SERVICE_TYPES } from "@/lib/graph/schema";
 import type { Finding, Severity } from "@/lib/rules/schema";
@@ -171,7 +172,9 @@ export function normaliseOrganisationRule(input: unknown, index = 0): Organisati
 export function parseOrganisationRulesText(text: string): { ok: true; rules: OrganisationRule[] } | { ok: false; reason: string } {
   let parsed: unknown;
   try {
+    checkImportText(text);
     parsed = JSON.parse(extractJson(text));
+    checkObjectDepth(parsed);
   } catch (err) {
     return { ok: false, reason: `Rules file is not valid JSON: ${err instanceof Error ? err.message : String(err)}.` };
   }
@@ -183,7 +186,9 @@ export function parseOrganisationRulesText(text: string): { ok: true; rules: Org
         return { ok: false, reason: `Unsupported organisation rules version: ${String(object.version)}.` };
       }
       if (!Array.isArray(object.rules)) return { ok: false, reason: "Rules envelope is missing a rules array." };
-      return { ok: true, rules: object.rules.map(normaliseOrganisationRule).filter((r): r is OrganisationRule => !!r) };
+      const rules = object.rules.map(normaliseOrganisationRule);
+      if (rules.some((rule) => !rule)) return { ok: false, reason: "Rules file contains an invalid rule. No rules were imported." };
+      return { ok: true, rules: rules as OrganisationRule[] };
     }
     const translated = translateAzurePolicy(parsed);
     if (translated.length > 0) return { ok: true, rules: translated };
@@ -191,12 +196,12 @@ export function parseOrganisationRulesText(text: string): { ok: true; rules: Org
 
   if (Array.isArray(parsed)) {
     const rules = parsed.map(normaliseOrganisationRule).filter((r): r is OrganisationRule => !!r);
-    if (rules.length > 0) return { ok: true, rules };
-    const translated = parsed.flatMap(translateAzurePolicy);
-    if (translated.length > 0) return { ok: true, rules: translated };
+    if (rules.length === parsed.length && rules.length > 0) return { ok: true, rules };
+    const policies = parsed.map(translateAzurePolicy);
+    if (policies.length > 0 && policies.every((rules) => rules.length > 0)) return { ok: true, rules: policies.flat() };
   }
 
-  return { ok: false, reason: "JSON did not contain Bunya organisation rules or a translatable Azure Policy." };
+  return { ok: false, reason: "JSON did not contain valid Bunya rules or a supported Azure Policy. Only one known resource type AND one scalar violation with audit/deny effect is supported; compound, set and conditional policies are rejected." };
 }
 
 export function runOrganisationRules(graph: GraphDocument, rules: OrganisationRule[]): Finding[] {
@@ -236,16 +241,27 @@ export function runOrganisationRules(graph: GraphDocument, rules: OrganisationRu
 }
 
 export function translateAzurePolicy(policy: unknown): OrganisationRule[] {
+  if (!policy || typeof policy !== "object" || Array.isArray(policy)) return [];
   const raw = policy as AzurePolicy;
   const policyRule = raw.properties?.policyRule;
   if (typeof policyRule !== "object" || policyRule === null) return [];
   const ifBlock = (policyRule as Record<string, unknown>).if;
   if (typeof ifBlock !== "object" || ifBlock === null) return [];
+  // Only one resource type AND one scalar violation can be represented exactly.
+  // Reject unsupported Boolean trees instead of flattening their semantics.
+  const condition = ifBlock as Record<string, unknown>;
+  const leaves = Array.isArray(condition.allOf) ? condition.allOf : [condition];
+  if (Object.keys(condition).some((key) => ["anyOf", "not"].includes(key))) return [];
+  if (leaves.some((leaf) => !leaf || typeof leaf !== "object" || Array.isArray(leaf) || Object.keys(leaf).some((key) => ["allOf", "anyOf", "not", "in", "notIn"].includes(key)))) return [];
+  const effect = (policyRule as { then?: { effect?: unknown } }).then?.effect;
+  if (effect !== undefined && effect !== "audit" && effect !== "deny") return [];
   const atoms = flattenPolicyConditions(ifBlock);
+  if (atoms.length !== leaves.length || atoms.filter((atom) => atom.field !== "type").length !== 1) return [];
   const typeAtoms = atoms.filter((atom) => atom.field === "type" && atom.operator === "equals");
   const serviceTypes = typeAtoms
     .map((atom) => (typeof atom.value === "string" ? ARM_TO_SERVICE[atom.value.toLowerCase()] : undefined))
     .filter((v): v is ServiceType => !!v);
+  if (typeAtoms.length !== 1 || serviceTypes.length !== 1) return [];
   const candidates = atoms
     .filter((atom) => atom.field !== "type")
     .map((atom, index) => atomToRule(atom, serviceTypes, raw, index))

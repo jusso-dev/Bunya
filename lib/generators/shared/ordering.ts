@@ -7,7 +7,7 @@ export type TopoResult =
 export function topologicalSort(graph: GraphDocument): TopoResult {
   const nodesById = new Map(graph.nodes.map((n) => [n.id, n]));
   const adjacency = new Map<string, string[]>();
-  for (const n of graph.nodes) adjacency.set(n.id, []);
+  for (const n of graph.nodes) adjacency.set(n.id, n.parentId ? [n.parentId] : []);
   for (const e of graph.edges) {
     if (e.kind === "diagnostic") continue;
     adjacency.get(e.source)?.push(e.target);
@@ -34,7 +34,7 @@ export function topologicalSort(graph: GraphDocument): TopoResult {
       if (next.done) {
         colour.set(frame.id, BLACK);
         const finished = nodesById.get(frame.id);
-        if (finished) order.unshift(finished);
+        if (finished) order.push(finished);
         stack.pop();
         path.pop();
         continue;

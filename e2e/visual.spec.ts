@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("canvas renders multiple nodes with visible Lucide icons", async ({ page }) => {
+test("canvas renders multiple nodes with visible Azure icons", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Properties" }).first().click();
   await page.getByRole("button", { name: "Output" }).first().click();
@@ -16,8 +16,9 @@ test("canvas renders multiple nodes with visible Lucide icons", async ({ page })
   const nodes = page.locator(".react-flow__node");
   await expect(nodes).toHaveCount(3);
 
-  const lucideIcons = page.locator(".react-flow__node svg.lucide");
-  await expect(lucideIcons).toHaveCount(3);
+  const icons = page.locator('.react-flow__node img[src*="azure-icons/"]');
+  await expect(icons).toHaveCount(3);
+  expect(await icons.evaluateAll((els) => els.every((el) => (el as HTMLImageElement).naturalWidth > 0))).toBe(true);
 
   // Verify the bulk of the dropped nodes overlap the visible canvas viewport
   const canvasBox = await page.locator('[data-testid="bunya-canvas"]').boundingBox();

@@ -1,3 +1,4 @@
+import { validateGeneration } from "./shared/validate";
 import { GraphDocument, GraphNode, ServiceType } from "@/lib/graph/schema";
 import {
   GeneratorContext,
@@ -5,6 +6,7 @@ import {
   incomingOf,
   outgoingOf,
   resolveAppServicePlan,
+  resolveVirtualNetwork,
 } from "./shared/context";
 import { GeneratedFile, GeneratorResult } from "./types";
 
@@ -13,6 +15,7 @@ type ArmResource = {
   apiVersion: string;
   name: string;
   location?: string;
+  scope?: string;
   sku?: Record<string, unknown>;
   kind?: string;
   identity?: Record<string, unknown>;
@@ -43,12 +46,12 @@ function dependsOn(ctx: GeneratorContext, node: GraphNode, ...refs: string[]): s
   const auto = outgoingOf(ctx, node.id, "depends_on")
     .map((e) => ctx.nodesById.get(e.target))
     .filter((n): n is GraphNode => !!n)
-    .map((n) => armResourceId(n));
+    .map((n) => armResourceId(n, ctx));
   const list = [...auto, ...refs].filter(Boolean);
   return list.length > 0 ? list : undefined;
 }
 
-function armResourceId(node: GraphNode): string {
+function armResourceId(node: GraphNode, ctx: GeneratorContext): string {
   const map: Partial<Record<ServiceType, string>> = {
     resourceGroup: "",
     virtualNetwork: "Microsoft.Network/virtualNetworks",
@@ -79,7 +82,13 @@ function armResourceId(node: GraphNode): string {
   };
   const t = map[node.type];
   if (!t) return "";
-  return `[resourceId('${t}', '${node.resourceName}')]`;
+  const resolved = resourceName(ctx, node.id);
+  if (node.type === "subnet") {
+    const parent = resolveVirtualNetwork(ctx, node);
+    return `[resourceId('${t}', '${parent ? resourceName(ctx, parent.id) : "main-vnet"}', '${resolved}')]`;
+  }
+  if (node.type === "sqlDatabase") return `[resourceId('${t}', '${resolved}-srv', '${resolved}')]`;
+  return `[resourceId('${t}', '${resolved}')]`;
 }
 
 function emitVirtualNetwork(node: GraphNode, ctx: GeneratorContext): ArmResource {
@@ -98,10 +107,8 @@ function emitVirtualNetwork(node: GraphNode, ctx: GeneratorContext): ArmResource
 }
 
 function emitSubnet(node: GraphNode, ctx: GeneratorContext): ArmResource {
-  const vnetEdge = outgoingOf(ctx, node.id, "depends_on").find(
-    (e) => ctx.nodesById.get(e.target)?.type === "virtualNetwork",
-  );
-  const vnetName = vnetEdge ? resourceName(ctx, vnetEdge.target) : "main-vnet";
+  const vnet = resolveVirtualNetwork(ctx, node);
+  const vnetName = vnet ? resourceName(ctx, vnet.id) : "main-vnet";
   return {
     type: "Microsoft.Network/virtualNetworks/subnets",
     apiVersion: "2023-11-01",
@@ -138,7 +145,7 @@ function emitPrivateEndpoint(node: GraphNode, ctx: GeneratorContext): ArmResourc
     ? `[resourceId('Microsoft.Network/virtualNetworks/subnets', 'main-vnet', '${resourceName(ctx, subnetEdge.target)}')]`
     : "[resourceId('Microsoft.Network/virtualNetworks/subnets', 'main-vnet', 'main-subnet')]";
   const targetId = targetEdge
-    ? armResourceId(ctx.nodesById.get(targetEdge.target)!)
+    ? armResourceId(ctx.nodesById.get(targetEdge.target)!, ctx)
     : null;
   const dnsEdges = outgoingOf(ctx, node.id, "network").filter(
     (e) => ctx.nodesById.get(e.target)?.type === "privateDnsZone",
@@ -236,11 +243,12 @@ function emitAppService(node: GraphNode, ctx: GeneratorContext): ArmResource {
     identity: { type: "SystemAssigned" },
     properties: {
       serverFarmId: resourceId("Microsoft.Web/serverfarms", planName),
+      publicNetworkAccess: node.properties.publicNetworkAccess === false ? "Disabled" : "Enabled",
       httpsOnly: node.properties.httpsOnly !== false,
       siteConfig: {
         minTlsVersion: "1.2",
         alwaysOn: node.properties.alwaysOn !== false,
-        linuxFxVersion: "NODE|20-lts",
+        linuxFxVersion: `${node.properties.runtime === "dotnet" ? "DOTNETCORE" : String(node.properties.runtime).toUpperCase()}|${node.properties.runtimeVersion}`,
       },
     },
     tags: tags(ctx, node),
@@ -264,15 +272,18 @@ function emitFunctionApp(node: GraphNode, ctx: GeneratorContext): ArmResource {
     identity: { type: "SystemAssigned" },
     properties: {
       serverFarmId: resourceId("Microsoft.Web/serverfarms", planName),
+      publicNetworkAccess: node.properties.publicNetworkAccess === false ? "Disabled" : "Enabled",
       httpsOnly: node.properties.httpsOnly !== false,
       siteConfig: {
         minTlsVersion: "1.2",
+        linuxFxVersion: `${String(node.properties.runtime).toUpperCase()}|${node.properties.runtimeVersion}`,
         appSettings: [
           {
             name: "AzureWebJobsStorage",
             value: `[concat('DefaultEndpointsProtocol=https;AccountName=${stName};EndpointSuffix=', environment().suffixes.storage, ';AccountKey=', listKeys(resourceId('Microsoft.Storage/storageAccounts','${stName}'),'2023-05-01').keys[0].value)]`,
           },
           { name: "FUNCTIONS_EXTENSION_VERSION", value: "~4" },
+          { name: "FUNCTIONS_WORKER_RUNTIME", value: String(node.properties.runtime) },
         ],
       },
     },
@@ -606,7 +617,7 @@ function emitMonitorAlert(node: GraphNode, ctx: GeneratorContext): ArmResource {
       enabled: node.properties.enabled !== false,
       scopes:
         scopeEdges.length > 0
-          ? scopeEdges.map((edge) => armResourceId(ctx.nodesById.get(edge.target)!).slice(1, -1))
+          ? scopeEdges.map((edge) => armResourceId(ctx.nodesById.get(edge.target)!, ctx).slice(1, -1))
           : ["[resourceGroup().id]"],
       evaluationFrequency: "PT5M",
       windowSize: "PT5M",
@@ -750,14 +761,15 @@ function emitRoleAssignmentNode(node: GraphNode, ctx: GeneratorContext): ArmReso
   return {
     type: "Microsoft.Authorization/roleAssignments",
     apiVersion: "2022-04-01",
-    name: `[guid(${armResourceId(scope).slice(1, -1)}, '${principal.resourceName}', '${roleName}')]`,
+    scope: armResourceId(scope, ctx),
+    name: `[guid(${armResourceId(scope, ctx).slice(1, -1)}, '${principal.resourceName}', '${roleName}')]`,
     properties: {
       roleDefinitionId:
         `[subscriptionResourceId('Microsoft.Authorization/roleDefinitions','${ROLE_DEFINITION_IDS[roleName] ?? ROLE_DEFINITION_IDS.Reader}')]`,
       principalId,
       principalType: "ServicePrincipal",
     },
-    dependsOn: [armResourceId(scope), armResourceId(principal)],
+    dependsOn: [armResourceId(scope, ctx), armResourceId(principal, ctx)],
   };
 }
 
@@ -775,14 +787,15 @@ function emitRoleAssignments(ctx: GeneratorContext): ArmResource[] {
     out.push({
       type: "Microsoft.Authorization/roleAssignments",
       apiVersion: "2022-04-01",
-      name: `[guid(${armResourceId(target).slice(1, -1)}, '${source.resourceName}', '${roleName}')]`,
+      scope: armResourceId(target, ctx),
+      name: `[guid(${armResourceId(target, ctx).slice(1, -1)}, '${source.resourceName}', '${roleName}')]`,
       properties: {
         roleDefinitionId:
           `[subscriptionResourceId('Microsoft.Authorization/roleDefinitions','${ROLE_DEFINITION_IDS[roleName] ?? ROLE_DEFINITION_IDS.Reader}')]`,
         principalId,
         principalType: "ServicePrincipal",
       },
-      dependsOn: [armResourceId(target), armResourceId(source)],
+      dependsOn: [armResourceId(target, ctx), armResourceId(source, ctx)],
     });
   }
   for (const node of ctx.document.nodes.filter((n) => n.type === "roleAssignment")) {
@@ -799,7 +812,7 @@ function emitDiagnosticSettings(ctx: GeneratorContext): ArmResource[] {
     const source = ctx.nodesById.get(edge.source);
     const target = ctx.nodesById.get(edge.target);
     if (!source || !target || target.type !== "logAnalytics") continue;
-    const sId = armResourceId(source).slice(1, -1);
+    const sId = armResourceId(source, ctx).slice(1, -1);
     out.push({
       type: "Microsoft.Insights/diagnosticSettings",
       apiVersion: "2021-05-01-preview",
@@ -846,6 +859,9 @@ const EMITTERS: Partial<Record<ServiceType, (node: GraphNode, ctx: GeneratorCont
 };
 
 export function generateArm(document: GraphDocument): GeneratorResult {
+  const validated = validateGeneration(document);
+  if (!validated.ok) return validated;
+  document = validated.document;
   const ctx = buildGeneratorContext(document);
   if (!ctx.topo.ok) {
     return { ok: false, reason: "cycle detected", cycle: ctx.topo.cycle };
@@ -868,11 +884,11 @@ export function generateArm(document: GraphDocument): GeneratorResult {
     location: { type: "string", defaultValue: document.metadata.region },
   };
   if (hasSql) {
-    templateParameters.sqlAdminPassword = { type: "securestring", defaultValue: "ReplaceMe!" };
+    templateParameters.sqlAdminPassword = { type: "securestring" };
   }
   if (hasVmss) {
     templateParameters.vmAdminUsername = { type: "string", defaultValue: "azureuser" };
-    templateParameters.vmSshPublicKey = { type: "securestring", defaultValue: "ssh-rsa ReplaceMe" };
+    templateParameters.vmSshPublicKey = { type: "securestring" };
   }
 
   const template = {
@@ -894,11 +910,11 @@ export function generateArm(document: GraphDocument): GeneratorResult {
     location: { value: document.metadata.region },
   };
   if (hasSql) {
-    paramFileParams.sqlAdminPassword = { value: "ReplaceMe!" };
+    // Supply sqlAdminPassword securely at deployment time.
   }
   if (hasVmss) {
     paramFileParams.vmAdminUsername = { value: "azureuser" };
-    paramFileParams.vmSshPublicKey = { value: "ssh-rsa ReplaceMe" };
+    // Supply vmSshPublicKey at deployment time.
   }
 
   const parameters = {

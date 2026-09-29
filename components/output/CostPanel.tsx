@@ -49,7 +49,7 @@ export function CostPanel({ document }: { document: GraphDocument }) {
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <label className="text-[11px] uppercase tracking-wide text-zinc-500">Currency</label>
+          <label className="text-[11px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Currency</label>
           <select
             value={currency}
             onChange={(e) => setCurrency(e.target.value as Currency)}
@@ -58,7 +58,7 @@ export function CostPanel({ document }: { document: GraphDocument }) {
             <option value="AUD">AUD</option>
             <option value="USD">USD</option>
           </select>
-          <label className="text-[11px] uppercase tracking-wide text-zinc-500">Sort</label>
+          <label className="text-[11px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Sort</label>
           <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as "monthly" | "service")}
@@ -71,7 +71,7 @@ export function CostPanel({ document }: { document: GraphDocument }) {
       </header>
 
       <div className="flex flex-wrap items-center gap-2 rounded-md border border-zinc-200 bg-white px-3 py-2 text-[12px] dark:border-zinc-700 dark:bg-zinc-900">
-        <label className="text-[11px] uppercase tracking-wide text-zinc-500" htmlFor="fx-rate">
+        <label className="text-[11px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400" htmlFor="fx-rate">
           AUD per USD
         </label>
         <input
@@ -100,8 +100,8 @@ export function CostPanel({ document }: { document: GraphDocument }) {
         >
           Reset
         </button>
-        <span className="ml-1 text-[11px] text-zinc-500">
-          Enter your treasury's current rate. Stored locally; affects AUD figures only.
+        <span className="ml-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+          Enter your treasury&apos;s current rate. Stored locally; affects AUD figures only.
         </span>
       </div>
 
@@ -113,7 +113,7 @@ export function CostPanel({ document }: { document: GraphDocument }) {
 
       <div className="overflow-hidden rounded-md border border-zinc-200 dark:border-zinc-800">
         <table className="w-full text-left text-[12px]">
-          <thead className="bg-zinc-50 text-[10px] uppercase tracking-wide text-zinc-500 dark:bg-zinc-900">
+          <thead className="bg-zinc-50 text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400 dark:bg-zinc-900">
             <tr>
               <th className="px-2 py-1.5">Resource</th>
               <th className="px-2 py-1.5">Service</th>
@@ -134,7 +134,7 @@ export function CostPanel({ document }: { document: GraphDocument }) {
             ))}
             {items.length === 0 ? (
               <tr>
-                <td colSpan={4} className="px-2 py-3 text-center text-zinc-500">
+                <td colSpan={4} className="px-2 py-3 text-center text-zinc-500 dark:text-zinc-400">
                   Add resources to see a cost estimate.
                 </td>
               </tr>

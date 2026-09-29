@@ -1,5 +1,5 @@
 import { graphRule, nodeRule } from "@/lib/rules/builders";
-import type { Autofix, RuleEntry } from "@/lib/rules/schema";
+import type { RuleEntry } from "@/lib/rules/schema";
 import type { GraphDocument } from "@/lib/graph/schema";
 
 const MS_LEARN = "Microsoft Learn";
@@ -54,55 +54,8 @@ export const networkRules: RuleEntry[] = [
     },
   }),
 
-  // BUNYA.NET.002 — PE subnet must have privateEndpointNetworkPolicies: "Disabled"
-  nodeRule({
-    id: "BUNYA.NET.002",
-    source: {
-      name: MS_LEARN,
-      url: "https://learn.microsoft.com/en-us/azure/private-link/disable-private-endpoint-network-policy",
-      license: "CC-BY-4.0",
-    },
-    category: "network",
-    severity: "error",
-    serviceTypes: ["subnet"],
-    message:
-      "Subnet hosting a Private Endpoint must set privateEndpointNetworkPolicies to Disabled.",
-    longExplanation:
-      "Azure applies subnet-level network policies (NSG and UDR) to Private Endpoint NICs only when the subnet's privateEndpointNetworkPolicies property is Disabled. Leaving it Enabled prevents PEs from being created or routed correctly. Disable the policy on subnets that host Private Endpoints to keep deployments and traffic predictable.",
-    tags: ["bunya", "private-link", "subnet", "network-policy"],
-    autofixId: "set-pe-policy-disabled",
-    autofixes: {
-      "set-pe-policy-disabled": ((graph, finding) => {
-        const id = finding.nodeIds?.[0];
-        if (!id) return graph;
-        return {
-          ...graph,
-          nodes: graph.nodes.map((n) =>
-            n.id === id
-              ? {
-                  ...n,
-                  properties: {
-                    ...n.properties,
-                    privateEndpointNetworkPolicies: "Disabled",
-                  },
-                }
-              : n,
-          ),
-        };
-      }) satisfies Autofix,
-    },
-    predicate: (node, graph) => {
-      const hostsPe = graph.edges.some((e) => {
-        if (e.target !== node.id) return false;
-        if (e.kind !== "network") return false;
-        const src = graph.nodes.find((n) => n.id === e.source);
-        return src?.type === "privateEndpoint";
-      });
-      if (!hostsPe) return false;
-      const policy = getProp<string>(node, "privateEndpointNetworkPolicies");
-      return policy !== "Disabled";
-    },
-  }),
+  // BUNYA.NET.002 retired: Enabled applies NSG/UDR controls to private endpoints.
+  // Never auto-disable an operator's network security policy.
 
   // BUNYA.NET.003 — App Service VNet integration subnet vs PE subnet conflict
   nodeRule({

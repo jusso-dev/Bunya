@@ -49,11 +49,11 @@ export const ServiceTypeSchema = z.enum(SERVICE_TYPES);
 export const EdgeKindSchema = z.enum(EDGE_KINDS);
 
 export const GraphNodeSchema = z.object({
-  id: z.string().min(1),
+  id: z.string().min(1).max(256),
   type: ServiceTypeSchema,
   position: z.object({ x: z.number(), y: z.number() }),
-  name: z.string().min(1),
-  resourceName: z.string().min(1),
+  name: z.string().min(1).max(256),
+  resourceName: z.string().min(1).max(256),
   properties: z.record(z.string(), z.unknown()),
   parentId: z.string().nullable().optional(),
   size: z.object({ width: z.number(), height: z.number() }).optional(),
@@ -73,27 +73,46 @@ export const DEFAULT_CONTAINER_SIZE: Record<ContainerServiceType, { width: numbe
 };
 
 export const GraphEdgeSchema = z.object({
-  id: z.string().min(1),
-  source: z.string().min(1),
-  target: z.string().min(1),
+  id: z.string().min(1).max(256),
+  source: z.string().min(1).max(256),
+  target: z.string().min(1).max(256),
   kind: EdgeKindSchema,
 });
 
 export const GraphMetadataSchema = z.object({
-  name: z.string().min(1),
-  description: z.string().optional(),
+  name: z.string().min(1).max(256),
+  description: z.string().max(10000).optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
   region: AzureRegionSchema,
   environment: z.enum(["dev", "test", "prod"]),
-  resourceGroupName: z.string().min(1),
+  resourceGroupName: z.string().min(1).max(256),
 });
 
 export const GraphDocumentSchema = z.object({
   schemaVersion: z.literal(1),
   metadata: GraphMetadataSchema,
-  nodes: z.array(GraphNodeSchema),
-  edges: z.array(GraphEdgeSchema),
+  nodes: z.array(GraphNodeSchema).max(200),
+  edges: z.array(GraphEdgeSchema).max(1000),
+}).superRefine((doc, ctx) => {
+  const nodes = new Map(doc.nodes.map((node) => [node.id, node]));
+  const problem = (message: string) => ctx.addIssue({ code: "custom", message });
+  if (nodes.size !== doc.nodes.length) problem("Node IDs must be unique.");
+  if (new Set(doc.edges.map((edge) => edge.id)).size !== doc.edges.length) problem("Edge IDs must be unique.");
+  for (const node of doc.nodes) {
+    const seen = new Set<string>([node.id]);
+    let parentId = node.parentId;
+    while (parentId) {
+      if (seen.has(parentId)) { problem("Container parent cycle detected."); break; }
+      seen.add(parentId);
+      const parent = nodes.get(parentId);
+      if (!parent || !isContainerType(parent.type)) { problem("Parent must reference an existing container."); break; }
+      parentId = parent.parentId;
+    }
+  }
+  for (const edge of doc.edges) {
+    if (!nodes.has(edge.source) || !nodes.has(edge.target)) problem("Edges must reference existing nodes.");
+  }
 });
 
 export type AzureRegion = z.infer<typeof AzureRegionSchema>;

@@ -31,28 +31,25 @@ if (-not (Get-AzContext -ErrorAction SilentlyContinue)) {
     throw 'Run Connect-AzAccount before invoking this script.'
 }
 
-# App Service app-first-cut
-$appParams = @{
-    ResourceGroupName = $ResourceGroupName
-    Name              = 'app-first-cut'
-    Location          = $Location
-    AppServicePlan    = 'plan-first-cut'
+# Resource Group rg-first-cut
+$rgParams = @{
+    Name     = 'rg-first-cut'
+    Location = 'australiaeast'
+    Tag      = @{ environment = 'dev'; managed_by = 'bunya' }
 }
-New-AzWebApp @appParams | Out-Null
-Set-AzWebApp -ResourceGroupName $ResourceGroupName -Name 'app-first-cut' -HttpsOnly $true -AssignIdentity $true | Out-Null
+New-AzResourceGroup @rgParams -Force | Out-Null
 
-# Key Vault kv-first-cut-11vqlt
-$kvParams = @{
-    ResourceGroupName            = $ResourceGroupName
-    VaultName                    = 'kv-first-cut-11vqlt'
-    Location                     = $Location
-    Sku                          = 'standard'
-    EnablePurgeProtection        = $true
-    SoftDeleteRetentionInDays    = 7
-    EnableRbacAuthorization      = $true
-    PublicNetworkAccess          = 'Disabled'
+# App Service Plan plan-first-cut
+$planParams = @{
+    ResourceGroupName = $ResourceGroupName
+    Name              = 'plan-first-cut'
+    Location          = $Location
+    Tier              = 'Basic'
+    NumberofWorkers   = 1
+    WorkerSize        = 'B1'
+    Linux             = $true
 }
-New-AzKeyVault @kvParams | Out-Null
+New-AzAppServicePlan @planParams -Force | Out-Null
 
 # Storage Account firstcutstg10rsix
 $stgParams = @{
@@ -67,24 +64,27 @@ $stgParams = @{
 }
 New-AzStorageAccount @stgParams | Out-Null
 
-# App Service Plan plan-first-cut
-$planParams = @{
-    ResourceGroupName = $ResourceGroupName
-    Name              = 'plan-first-cut'
-    Location          = $Location
-    Tier              = 'Basic'
-    NumberofWorkers   = 1
-    WorkerSize        = 'B1'
-    Linux             = $true
+# Key Vault kv-first-cut-11vqlt
+$kvParams = @{
+    ResourceGroupName            = $ResourceGroupName
+    VaultName                    = 'kv-first-cut-11vqlt'
+    Location                     = $Location
+    Sku                          = 'standard'
+    EnablePurgeProtection        = $true
+    SoftDeleteRetentionInDays    = 7
+    EnableRbacAuthorization      = $true
+    PublicNetworkAccess          = 'Disabled'
 }
-New-AzAppServicePlan @planParams -Force | Out-Null
+New-AzKeyVault @kvParams | Out-Null
 
-# Resource Group rg-first-cut
-$rgParams = @{
-    Name     = 'rg-first-cut'
-    Location = 'australiaeast'
-    Tag      = @{ environment = 'dev'; managed_by = 'bunya' }
+# App Service app-first-cut
+$appParams = @{
+    ResourceGroupName = $ResourceGroupName
+    Name              = 'app-first-cut'
+    Location          = $Location
+    AppServicePlan    = 'plan-first-cut'
 }
-New-AzResourceGroup @rgParams -Force | Out-Null
+New-AzWebApp @appParams | Out-Null
+Set-AzWebApp -ResourceGroupName $ResourceGroupName -Name 'app-first-cut' -HttpsOnly $true -AssignIdentity $true | Out-Null
 "
 `;

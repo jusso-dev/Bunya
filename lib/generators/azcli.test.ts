@@ -18,33 +18,20 @@ describe("generateAzCli", () => {
     expect(result.files[0].content).toContain("--only-show-errors");
   });
 
-  it("invokes every required az command for the full-stack fixture", () => {
-    const result = generateAzCli(fullStackGraph);
+  it("deploys private full-stack resources atomically through ARM", () => {
+    const result = generateAzCli({
+      ...fullStackGraph,
+      nodes: fullStackGraph.nodes.filter((node) => node.id !== "nsg"),
+      edges: fullStackGraph.edges.filter((edge) => edge.source !== "nsg" && edge.target !== "nsg"),
+    });
     if (!result.ok) throw new Error("expected ok");
     const script = result.files[0].content;
-    for (const cmd of [
-      "az group create",
-      "az network vnet create",
-      "az network vnet subnet create",
-      "az network nsg create",
-      "az network private-endpoint create",
-      "az appservice plan create",
-      "az webapp create",
-      "az functionapp create",
-      "az staticwebapp create",
-      "az storage account create",
-      "az sql server create",
-      "az cosmosdb create",
-      "az keyvault create",
-      "az monitor app-insights component create",
-      "az monitor log-analytics workspace create",
-      "az afd profile create",
-      "az network application-gateway create",
-      "az apim create",
-      "az acr create",
-      "az identity create",
-    ]) {
-      expect(script).toContain(cmd);
-    }
+    expect(script).toContain("az deployment group create");
+    expect(script).not.toContain("az functionapp create");
+    const template = result.files.find((file) => file.path === "azuredeploy.json");
+    expect(template).toBeDefined();
+    const sites = JSON.parse(template!.content).resources.filter((resource: { type: string }) => resource.type === "Microsoft.Web/sites");
+    expect(sites.length).toBeGreaterThan(0);
+    for (const site of sites) expect(site.properties.publicNetworkAccess).toBe("Disabled");
   });
 });

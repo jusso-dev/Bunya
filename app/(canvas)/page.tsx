@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { ServicePalette } from "@/components/catalogue/ServicePalette";
 import { OutputTabs } from "@/components/output/OutputTabs";
 import { CanvasMount } from "@/components/canvas/CanvasMount";
@@ -38,17 +39,29 @@ export default function CanvasPage() {
   const collapsed = useGraphStore((s) => s.collapsed);
   const togglePanel = useGraphStore((s) => s.togglePanel);
 
+  useEffect(() => {
+    const compact = window.matchMedia("(max-width: 1023px)");
+    const collapse = () => {
+      if (compact.matches) for (const panel of ["palette", "properties", "output"] as const) {
+        useGraphStore.getState().setPanelCollapsed(panel, true);
+      }
+    };
+    collapse();
+    compact.addEventListener("change", collapse);
+    return () => compact.removeEventListener("change", collapse);
+  }, []);
+
   return (
-    <div className="flex h-screen w-screen flex-col bg-zinc-100 dark:bg-zinc-900">
+    <div className="flex h-dvh w-full flex-col bg-zinc-100 dark:bg-zinc-900">
       <Toolbar />
-      <div className="flex flex-1 overflow-hidden">
+      <main aria-label="Architecture editor" className="relative flex min-h-0 flex-1 overflow-hidden">
         {collapsed.palette ? (
           <CollapsedRail label="Services" side="left" onClick={() => togglePanel("palette")} />
         ) : (
           <ServicePalette />
         )}
-        <div className="flex flex-1 flex-col">
-          <div className="flex-1">
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div className="min-h-0 flex-1">
             <CanvasMount />
           </div>
           <ValidationPanel />
@@ -63,7 +76,7 @@ export default function CanvasPage() {
         ) : (
           <OutputTabs />
         )}
-      </div>
+      </main>
     </div>
   );
 }

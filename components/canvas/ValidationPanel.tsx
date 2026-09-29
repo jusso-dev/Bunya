@@ -22,7 +22,7 @@ export function ValidationPanel() {
   if (findings.length === 0) {
     return (
       <div className="border-t border-zinc-200 bg-emerald-50 px-3 py-1.5 text-xs text-emerald-800 dark:border-zinc-800 dark:bg-emerald-950/40 dark:text-emerald-200">
-        No validation findings. Looking good.
+        No modeled rule violations. Review unmodeled controls before deployment.
       </div>
     );
   }
@@ -32,6 +32,7 @@ export function ValidationPanel() {
       <summary className="cursor-pointer px-3 py-1.5 text-xs font-semibold text-zinc-800 dark:text-zinc-100">
         Validation findings ({findings.length})
       </summary>
+      <p className="px-3 pb-2 text-xs text-zinc-600 dark:text-zinc-400">Model checks are advisory; they do not certify deployed infrastructure.</p>
       <ul className="flex max-h-48 flex-col gap-1 overflow-y-auto px-3 pb-3">
         {findings.map((f, i) => (
           <li

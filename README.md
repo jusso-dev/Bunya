@@ -407,10 +407,10 @@ the exact graph without server-side storage.
 For a remote deployment, run the stateless Streamable HTTP server:
 
 ```bash
-PORT=3001 BUNYA_APP_URL=https://bunya.example.com/ pnpm mcp:http
+HOST=0.0.0.0 PORT=3001 BUNYA_ALLOWED_HOSTS=bunya.example.com BUNYA_APP_URL=https://bunya.example.com/ pnpm mcp:http
 ```
 
-It serves `POST /mcp` and `GET /health`. Put authentication and TLS at the
+It serves `POST /mcp` and `GET /health`. Default binding is loopback only. Remote binding requires an explicit comma-separated `BUNYA_ALLOWED_HOSTS` list (exact Host headers, including ports when used). Browser origins are rejected unless listed in `BUNYA_ALLOWED_ORIGINS`. Request bodies are limited to 1 MiB. Put authentication and TLS at the
 reverse proxy or platform edge before exposing `/mcp` to other people. The
 server does not apply infrastructure or retain diagrams; it only constructs,
 validates and renders graph/IaC responses.
@@ -579,3 +579,15 @@ Pull requests welcome. The bar:
 ## Licence
 
 MIT. See [`LICENSE`](LICENSE).
+
+
+## Safe import and export behavior
+
+- Imports and inflated share links are limited to 1 MiB, 32 nesting levels, 200 nodes and 1,000 edges. Invalid properties, duplicate IDs, dangling references and parent cycles are rejected before replacing the current diagram.
+- Deployment exporters accept plain literal values, not embedded shell/IaC expressions. Unsupported quotes, control characters and expression syntax produce a visible generation error; the editable graph remains available for JSON export.
+- NSG rules and associations are not yet emitted faithfully. Deployment export is blocked when those controls are requested, rather than silently dropping firewall intent. Diagram, README and cost outputs remain available. A complete ZIP requires all outputs to succeed.
+- SQL administrator passwords and SSH public keys have no generated defaults. Supply them securely at deployment time. Private Function App CLI exports and private web/registry PowerShell exports include companion ARM files so public access is disabled during creation, not in a later update. Keep these files together with the script. These companion deployments accept one resource group; multi-group diagrams are rejected to preserve scope.
+- Validation checks are advisory model checks, not certification or live Azure policy enforcement. Azure Policy import accepts only one recognized resource type AND one scalar violation with audit/deny effect. Unsupported compound and set conditions are rejected.
+- New, import and template replacement can be undone. Browser storage failures show a warning; use Export to retain work when storage is unavailable. Shared URLs contain the complete diagram and should be shared only with intended recipients.
+
+ARM role assignments use explicit resource scope, following [Microsoft's extension-resource guidance](https://learn.microsoft.com/en-us/azure/azure-resource-manager/templates/scope-extension-resources). Private Endpoint policies remain operator-controlled; enabling them applies NSG/route policies according to [Microsoft's network-policy documentation](https://learn.microsoft.com/en-us/azure/private-link/disable-private-endpoint-network-policy).

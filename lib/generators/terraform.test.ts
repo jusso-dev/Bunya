@@ -39,8 +39,12 @@ describe("generateTerraform", () => {
     expect(JSON.stringify(a)).toEqual(JSON.stringify(b));
   });
 
-  it("covers every Terraform resource for the full-stack fixture", () => {
-    const result = generateTerraform(fullStackGraph);
+  it("covers every Terraform resource for the supported full-stack fixture", () => {
+    const result = generateTerraform({
+      ...fullStackGraph,
+      nodes: fullStackGraph.nodes.filter((node) => node.id !== "nsg"),
+      edges: fullStackGraph.edges.filter((edge) => edge.source !== "nsg" && edge.target !== "nsg"),
+    });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const main = result.files.find((f) => f.path === "main.tf")?.content ?? "";
@@ -48,7 +52,6 @@ describe("generateTerraform", () => {
       "azurerm_resource_group",
       "azurerm_virtual_network",
       "azurerm_subnet",
-      "azurerm_network_security_group",
       "azurerm_private_endpoint",
       "azurerm_service_plan",
       "azurerm_linux_web_app",

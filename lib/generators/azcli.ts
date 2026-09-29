@@ -1,3 +1,5 @@
+import { generatePrivateDeployment } from "./shared/private-deployment";
+import { validateGeneration } from "./shared/validate";
 import { GraphDocument, GraphNode, ServiceType } from "@/lib/graph/schema";
 import {
   GeneratorContext,
@@ -95,7 +97,7 @@ function emit(node: GraphNode, ctx: GeneratorContext): string[] {
       const version = (node.properties.runtimeVersion as string) ?? "20-lts";
       return [
         `# App Service ${name}`,
-        `az webapp create ${COMMON} --name "${name}" --plan "${planName}" --runtime "${runtime.toUpperCase()}|${version}" --https-only ${(node.properties.httpsOnly !== false).toString()} --assign-identity '[system]' >/dev/null`,
+        `az webapp create ${COMMON} --name "${name}" --plan "${planName}" --runtime "${runtime.toUpperCase()}|${version}" --https-only ${(node.properties.httpsOnly !== false).toString()} --public-network-access ${node.properties.publicNetworkAccess === false ? "Disabled" : "Enabled"} --assign-identity '[system]' >/dev/null`,
       ];
     }
     case "functionApp": {
@@ -129,7 +131,7 @@ function emit(node: GraphNode, ctx: GeneratorContext): string[] {
       const policyArg = policy === "none" ? "" : ` --network-policy "${policy}"`;
       return [
         `# AKS ${name}`,
-        `az aks create ${COMMON} --name "${name}" --location "${region}" --node-count ${(node.properties.nodeCount as number) ?? 3} --node-vm-size "${(node.properties.nodeVmSize as string) ?? "Standard_D2s_v5"}" --network-plugin "${(node.properties.networkPlugin as string) ?? "azure"}"${policyArg} --enable-managed-identity${privateArg}${subnetArg} >/dev/null`,
+        `az aks create ${COMMON} --name "${name}" --location "${region}" --node-count ${(node.properties.nodeCount as number) ?? 3} --node-vm-size "${(node.properties.nodeVmSize as string) ?? "Standard_D2s_v5"}" --network-plugin "${(node.properties.networkPlugin as string) ?? "azure"}"${policyArg} --enable-managed-identity${(node.properties.authorizedIpRanges as string[]).length ? ` --api-server-authorized-ip-ranges "${(node.properties.authorizedIpRanges as string[]).join(",")}"` : ""}${privateArg}${subnetArg} >/dev/null`,
       ];
     }
     case "virtualMachineScaleSet": {
@@ -151,7 +153,7 @@ function emit(node: GraphNode, ctx: GeneratorContext): string[] {
     case "sqlDatabase":
       return [
         `# SQL Database ${name}`,
-        `az sql server create ${COMMON} --name "${name}-srv" --location "${region}" --admin-user "${(node.properties.adminLogin as string) ?? "bunyaadmin"}" --admin-password "$SQL_ADMIN_PASSWORD" --minimal-tls-version 1.2 >/dev/null`,
+        `az sql server create ${COMMON} --name "${name}-srv" --location "${region}" --admin-user "${(node.properties.adminLogin as string) ?? "bunyaadmin"}" --admin-password "$SQL_ADMIN_PASSWORD" --minimal-tls-version 1.2 --enable-public-network false >/dev/null`,
         `az sql db create ${COMMON} --server "${name}-srv" --name "${name}" --service-objective "${(node.properties.sku as string) ?? "S0"}" >/dev/null`,
       ];
     case "cosmosDb":
@@ -209,7 +211,7 @@ function emit(node: GraphNode, ctx: GeneratorContext): string[] {
     case "containerRegistry":
       return [
         `# Container Registry ${name}`,
-        `az acr create ${COMMON} --name "${name}" --location "${region}" --sku "${(node.properties.sku as string) ?? "Basic"}" --admin-enabled ${(node.properties.adminUserEnabled === true).toString()} >/dev/null`,
+        `az acr create ${COMMON} --name "${name}" --location "${region}" --sku "${(node.properties.sku as string) ?? "Basic"}" --admin-enabled ${(node.properties.adminUserEnabled === true).toString()} --public-network-enabled ${node.properties.publicNetworkAccess !== false} >/dev/null`,
       ];
     case "userAssignedIdentity":
       return [
@@ -226,6 +228,10 @@ function emit(node: GraphNode, ctx: GeneratorContext): string[] {
 }
 
 export function generateAzCli(document: GraphDocument): GeneratorResult {
+  const validated = validateGeneration(document);
+  if (!validated.ok) return validated;
+  document = validated.document;
+  if (document.nodes.some((node) => (node.type === "functionApp") && node.properties.publicNetworkAccess === false)) return generatePrivateDeployment(document, "bash");
   const ctx = buildGeneratorContext(document);
   if (!ctx.topo.ok) {
     return { ok: false, reason: "cycle detected", cycle: ctx.topo.cycle };

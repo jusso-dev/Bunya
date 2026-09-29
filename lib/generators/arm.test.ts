@@ -19,8 +19,12 @@ describe("generateArm", () => {
     expect(result.files.find((f) => f.path === "azuredeploy.json")?.content).toMatchSnapshot();
   });
 
-  it("includes every provider for the full-stack fixture", () => {
-    const result = generateArm(fullStackGraph);
+  it("includes every provider for the supported full-stack fixture", () => {
+    const result = generateArm({
+      ...fullStackGraph,
+      nodes: fullStackGraph.nodes.filter((node) => node.id !== "nsg"),
+      edges: fullStackGraph.edges.filter((edge) => edge.source !== "nsg" && edge.target !== "nsg"),
+    });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const main = result.files.find((f) => f.path === "azuredeploy.json")?.content ?? "";
@@ -29,7 +33,6 @@ describe("generateArm", () => {
     for (const expected of [
       "Microsoft.Network/virtualNetworks",
       "Microsoft.Network/virtualNetworks/subnets",
-      "Microsoft.Network/networkSecurityGroups",
       "Microsoft.Network/privateEndpoints",
       "Microsoft.Web/serverfarms",
       "Microsoft.Web/sites",

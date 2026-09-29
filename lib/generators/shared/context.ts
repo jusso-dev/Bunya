@@ -76,7 +76,10 @@ export function autoComment(ctx: GeneratorContext, id: string, prefix = "#"): st
 
 export function resolveResourceGroup(ctx: GeneratorContext, node: GraphNode): GraphNode | null {
   let cursor: GraphNode | undefined = node;
+  const visited = new Set<string>();
   while (cursor) {
+    if (visited.has(cursor.id)) return null;
+    visited.add(cursor.id);
     if (cursor.parentId) {
       const parent = ctx.nodesById.get(cursor.parentId);
       if (!parent) return null;

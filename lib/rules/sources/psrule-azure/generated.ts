@@ -67,25 +67,13 @@ export const PSRULE_RULES: RuleEntry[] = [
     id: "PSRULE.STORAGE.SECURETRANSFER",
     source: source("Azure.Storage.SecureTransfer"),
     category: "data-protection",
-    severity: "error",
+    severity: "info",
     serviceTypes: ["storageAccount"],
-    message: "Storage Account must require secure transfer (HTTPS only).",
+    message: "Verify the deployed Storage Account requires HTTPS.",
     longExplanation:
-      "The supportsHttpsTrafficOnly flag forces every Blob, File, Queue and Table request to use HTTPS. Without it, clients can downgrade to plain HTTP and leak SAS tokens and payloads. Bunya treats public Blob access (allowPublicAccess=true) as a proxy for this control being disabled.",
-    tags: ["psrule", "https", "encryption-in-transit", "storage"],
-    predicate: (n) => getProp<boolean>(n, "allowPublicAccess") === true,
-    autofixId: "disable-public-access",
-    autofixes: {
-      "disable-public-access": ((graph, finding) => {
-        const id = finding.nodeIds?.[0];
-        if (!id) return graph;
-        return mapNodeProps(
-          graph,
-          (n) => n.id === id,
-          (n) => ({ ...n, properties: { ...n.properties, allowPublicAccess: false } }),
-        );
-      }) satisfies Autofix,
-    },
+      "Secure transfer and anonymous blob access are independent controls. Bunya deployment templates require HTTPS, but diagram validation cannot verify live supportsHttpsTrafficOnly settings. Check the deployed account; disabling anonymous access does not prove HTTPS enforcement.",
+    tags: ["psrule", "https", "encryption-in-transit", "storage", "advisory"],
+    predicate: () => true,
   }),
 
   nodeRule({
@@ -136,15 +124,9 @@ export const PSRULE_RULES: RuleEntry[] = [
     longExplanation:
       "Storage accounts with default-allow networking are reachable from anywhere on the internet. PSRule expects accounts to either disable public network access entirely (Private Endpoint only) or configure firewall rules limiting traffic to trusted VNets and IPs.",
     tags: ["psrule", "firewall", "network", "storage"],
-    predicate: (n, graph) => {
-      if (getProp<boolean>(n, "allowPublicAccess") !== true) return false;
-      const hasPe = graph.edges.some((e) => {
-        if (e.target !== n.id) return false;
-        const src = graph.nodes.find((x) => x.id === e.source);
-        return src?.type === "privateEndpoint";
-      });
-      return !hasPe;
-    },
+    // This model maps allowPublicAccess to public networking in every exporter.
+    // A private endpoint does not close the account's public endpoint.
+    predicate: (n) => getProp<boolean>(n, "allowPublicAccess") === true,
   }),
 
   nodeRule({

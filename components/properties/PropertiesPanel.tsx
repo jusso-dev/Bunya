@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useGraphStore } from "@/lib/graph/store";
 import { getServiceDefinition } from "@/lib/catalogue/services";
 import { describeObjectSchema, FieldDescriptor } from "@/lib/catalogue/introspect";
@@ -17,15 +17,15 @@ export function PropertiesPanel() {
 
   if (!node) {
     return (
-      <section className="flex w-80 flex-col gap-3 border-l border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
+      <section className="editor-panel editor-properties flex w-64 shrink-0 flex-col gap-3 border-l border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
         <div className="flex items-center justify-between">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
             Document
           </h2>
           <button
             type="button"
             onClick={() => useGraphStore.getState().togglePanel("properties")}
-            className="rounded p-1 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+            className="rounded p-1 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
             aria-label="Collapse properties"
             title="Collapse"
           >
@@ -33,7 +33,7 @@ export function PropertiesPanel() {
           </button>
         </div>
         <label className="space-y-1">
-          <span className="text-[11px] font-medium text-zinc-500">Name</span>
+          <span className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">Name</span>
           <input
             value={document.metadata.name}
             onChange={(e) => setMetadata({ name: e.target.value })}
@@ -41,7 +41,7 @@ export function PropertiesPanel() {
           />
         </label>
         <label className="space-y-1">
-          <span className="text-[11px] font-medium text-zinc-500">Environment</span>
+          <span className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">Environment</span>
           <select
             value={document.metadata.environment}
             onChange={(e) =>
@@ -55,7 +55,7 @@ export function PropertiesPanel() {
           </select>
         </label>
         <label className="space-y-1">
-          <span className="text-[11px] font-medium text-zinc-500">Region</span>
+          <span className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">Region</span>
           <select
             value={document.metadata.region}
             onChange={(e) =>
@@ -70,21 +70,21 @@ export function PropertiesPanel() {
           </select>
         </label>
         <label className="space-y-1">
-          <span className="text-[11px] font-medium text-zinc-500">Resource Group name</span>
+          <span className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">Resource Group name</span>
           <input
             value={document.metadata.resourceGroupName}
             onChange={(e) => setMetadata({ resourceGroupName: e.target.value })}
             className="w-full rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 text-sm dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
           />
         </label>
-        <p className="mt-4 text-xs text-zinc-500">
+        <p className="mt-4 text-xs text-zinc-500 dark:text-zinc-400">
           Select a node to edit its properties.
         </p>
       </section>
     );
   }
 
-  return <NodeProperties node={node} />;
+  return <NodeProperties key={node.id} node={node} />;
 }
 
 function NodeProperties({ node }: { node: GraphNode }) {
@@ -97,16 +97,16 @@ function NodeProperties({ node }: { node: GraphNode }) {
   );
 
   return (
-    <section className="flex w-80 flex-col gap-3 overflow-y-auto border-l border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
+    <section className="editor-panel editor-properties flex w-64 shrink-0 flex-col gap-3 overflow-y-auto border-l border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
       <header className="space-y-1">
         <div className="flex items-center justify-between">
-          <p className="text-[11px] uppercase tracking-wide text-zinc-500">
+          <p className="text-[11px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
             {def.label}
           </p>
           <button
             type="button"
             onClick={() => useGraphStore.getState().togglePanel("properties")}
-            className="rounded p-1 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+            className="rounded p-1 text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
             aria-label="Collapse properties"
             title="Collapse"
           >
@@ -114,12 +114,13 @@ function NodeProperties({ node }: { node: GraphNode }) {
           </button>
         </div>
         <input
+          aria-label="Node name"
           value={node.name}
           onChange={(e) => updateNode(node.id, { name: e.target.value })}
           className="w-full rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 text-sm font-semibold dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
         />
         <label className="space-y-1">
-          <span className="text-[11px] font-medium text-zinc-500">Resource name</span>
+          <span className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">Resource name</span>
           <input
             value={node.resourceName}
             onChange={(e) => updateNode(node.id, { resourceName: e.target.value })}
@@ -151,7 +152,7 @@ function Field({
   onChange: (next: unknown) => void;
 }) {
   const label = (
-    <span className="text-[11px] font-medium text-zinc-500">{field.name}</span>
+    <span className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">{field.name}</span>
   );
 
   switch (field.kind) {
@@ -219,27 +220,7 @@ function Field({
         </label>
       );
     case "record":
-      return (
-        <label className="space-y-1">
-          {label}
-          <textarea
-            value={
-              typeof value === "object" && value !== null
-                ? JSON.stringify(value, null, 2)
-                : "{}"
-            }
-            onChange={(e) => {
-              try {
-                onChange(JSON.parse(e.target.value));
-              } catch {
-                // tolerate invalid JSON while user types
-              }
-            }}
-            rows={4}
-            className="w-full rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 font-mono text-xs dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
-          />
-        </label>
-      );
+      return <RecordField name={field.name} value={value} onChange={onChange} />;
     case "string":
     default:
       return (
@@ -253,4 +234,23 @@ function Field({
         </label>
       );
   }
+}
+
+function RecordField({ name, value, onChange }: { name: string; value: unknown; onChange: (value: unknown) => void }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const [error, setError] = useState(false);
+  return <label className="space-y-1">
+    <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">{name}</span>
+    <textarea rows={4} value={draft ?? JSON.stringify(value ?? {}, null, 2)} aria-invalid={error}
+      className="w-full rounded-md border border-zinc-300 bg-zinc-50 px-2 py-1 font-mono text-xs dark:bg-zinc-900"
+      onChange={(event) => {
+        setDraft(event.target.value);
+        try {
+          const parsed: unknown = JSON.parse(event.target.value);
+          if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Expected object");
+          setError(false); onChange(parsed);
+        } catch { setError(true); }
+      }} onBlur={() => { if (!error) setDraft(null); }} />
+    {error && <span role="alert" className="text-xs text-red-700 dark:text-red-300">Enter a valid JSON object. Last valid value is kept.</span>}
+  </label>;
 }

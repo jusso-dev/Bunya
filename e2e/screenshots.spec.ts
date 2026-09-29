@@ -14,7 +14,7 @@ async function collapsePanels(page: Page, hideOutput = false) {
 
 async function loadTemplate(page: Page, label: string) {
   await page.getByRole("button", { name: "Templates" }).click();
-  const dropdown = page.locator(".absolute.right-0").filter({ hasText: "Static web app" });
+  const dropdown = page.getByRole("dialog", { name: "Starter templates" });
   await dropdown.getByText(label, { exact: false }).first().click();
   await page.waitForTimeout(500);
 }

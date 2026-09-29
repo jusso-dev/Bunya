@@ -1,3 +1,5 @@
+import { generatePrivateDeployment } from "./shared/private-deployment";
+import { validateGeneration } from "./shared/validate";
 import { GraphDocument, GraphNode } from "@/lib/graph/schema";
 import {
   GeneratorContext,
@@ -329,6 +331,10 @@ function emitNode(node: GraphNode, ctx: GeneratorContext): string[] {
 }
 
 export function generatePowerShell(document: GraphDocument): GeneratorResult {
+  const validated = validateGeneration(document);
+  if (!validated.ok) return validated;
+  document = validated.document;
+  if (document.nodes.some((node) => (["appService", "functionApp", "containerRegistry"].includes(node.type)) && node.properties.publicNetworkAccess === false)) return generatePrivateDeployment(document, "powershell");
   const ctx = buildGeneratorContext(document);
   if (!ctx.topo.ok) {
     return { ok: false, reason: "cycle detected", cycle: ctx.topo.cycle };

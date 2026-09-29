@@ -7,8 +7,7 @@ test("capture Cost tab screenshot", async ({ page }) => {
   await page.getByRole("button", { name: "Properties" }).first().click();
   await page.getByRole("button", { name: "Templates" }).click();
   await page
-    .locator(".absolute.right-0")
-    .filter({ hasText: "Static web app" })
+    .getByRole("dialog", { name: "Starter templates" })
     .getByText("Three-tier", { exact: false })
     .first()
     .click();

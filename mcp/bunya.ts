@@ -1,3 +1,4 @@
+import { migrate } from "../lib/graph/migrate";
 import { z } from "zod";
 import { canConnect } from "../lib/catalogue/connections";
 import { getServiceDefinition, listServices } from "../lib/catalogue/services";
@@ -232,7 +233,7 @@ export async function diagramViewUrl(document: GraphDocument, appUrl?: string): 
 }
 
 export function validationSummary(document: GraphDocument): Finding[] {
-  return runValidation(document);
+  return runValidation(migrate(document));
 }
 
 const generators: Record<Exclude<ExportTarget, "all">, (document: GraphDocument) => GeneratorResult> = {

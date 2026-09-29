@@ -17,29 +17,46 @@ param location string = 'australiaeast'
 ])
 param environmentTag string = 'dev'
 
-resource app_first_cut 'Microsoft.Web/sites@2023-12-01' = {
-  name: 'app-first-cut'
+// Resource Group must be created at the subscription scope.
+// Bunya emits per-resource-group templates; deploy with:
+//   az deployment sub create --location <region> --template-file main.bicep
+
+resource node_1_plan_first_cut_resource 'Microsoft.Web/serverfarms@2023-12-01' = {
+  name: 'plan-first-cut'
   location: location
-  kind: 'app,linux'
-  identity: {
-    type: 'SystemAssigned'
+  sku: {
+    name: 'B1'
   }
+  kind: 'linux'
   properties: {
-    serverFarmId: plan_first_cut.id
-    httpsOnly: true
-    siteConfig: {
-      minTlsVersion: '1.2'
-      alwaysOn: true
-      linuxFxVersion: 'NODE|20-lts'
-    }
+    reserved: true
   }
   tags: {
-    environment: 'dev'
-    managed_by: 'bunya'
+    'environment': 'dev'
+    'managed_by': 'bunya'
   }
 }
 
-resource kv_first_cut 'Microsoft.KeyVault/vaults@2023-07-01' = {
+resource node_3_firstcutstg_resource 'Microsoft.Storage/storageAccounts@2023-05-01' = {
+  name: 'firstcutstg10rsix'
+  location: location
+  kind: 'StorageV2'
+  sku: {
+    name: 'Standard_LRS'
+  }
+  properties: {
+    minimumTlsVersion: 'TLS1_2'
+    allowBlobPublicAccess: false
+    publicNetworkAccess: 'Disabled'
+    supportsHttpsTrafficOnly: true
+  }
+  tags: {
+    'environment': 'dev'
+    'managed_by': 'bunya'
+  }
+}
+
+resource node_4_kv_first_cut_resource 'Microsoft.KeyVault/vaults@2023-07-01' = {
   name: 'kv-first-cut-11vqlt'
   location: location
   properties: {
@@ -54,57 +71,41 @@ resource kv_first_cut 'Microsoft.KeyVault/vaults@2023-07-01' = {
     publicNetworkAccess: 'Disabled'
   }
   tags: {
-    environment: 'dev'
-    managed_by: 'bunya'
+    'environment': 'dev'
+    'managed_by': 'bunya'
   }
 }
-resource app_first_cut_kv_first_cut_secrets 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  scope: kv_first_cut
-  name: guid(kv_first_cut.id, app_first_cut.id, 'Key Vault Secrets User')
+resource node_2_app_first_cut_resource_node_4_kv_first_cut_resource_secrets 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  scope: node_4_kv_first_cut_resource
+  name: guid(node_4_kv_first_cut_resource.id, node_2_app_first_cut_resource.id, 'Key Vault Secrets User')
   properties: {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')
-    principalId: app_first_cut.identity.principalId
+    principalId: node_2_app_first_cut_resource.identity.principalId
     principalType: 'ServicePrincipal'
   }
 }
 
-resource firstcutstg 'Microsoft.Storage/storageAccounts@2023-05-01' = {
-  name: 'firstcutstg10rsix'
+resource node_2_app_first_cut_resource 'Microsoft.Web/sites@2023-12-01' = {
+  name: 'app-first-cut'
   location: location
-  kind: 'StorageV2'
-  sku: {
-    name: 'Standard_LRS'
+  kind: 'app,linux'
+  identity: {
+    type: 'SystemAssigned'
   }
   properties: {
-    minimumTlsVersion: 'TLS1_2'
-    allowBlobPublicAccess: false
-    publicNetworkAccess: 'Disabled'
-    supportsHttpsTrafficOnly: true
+    serverFarmId: node_1_plan_first_cut_resource.id
+    publicNetworkAccess: 'Enabled'
+    httpsOnly: true
+    siteConfig: {
+      minTlsVersion: '1.2'
+      alwaysOn: true
+      linuxFxVersion: 'NODE|20-lts'
+    }
   }
   tags: {
-    environment: 'dev'
-    managed_by: 'bunya'
+    'environment': 'dev'
+    'managed_by': 'bunya'
   }
 }
-
-resource plan_first_cut 'Microsoft.Web/serverfarms@2023-12-01' = {
-  name: 'plan-first-cut'
-  location: location
-  sku: {
-    name: 'B1'
-  }
-  kind: 'linux'
-  properties: {
-    reserved: true
-  }
-  tags: {
-    environment: 'dev'
-    managed_by: 'bunya'
-  }
-}
-
-// Resource Group must be created at the subscription scope.
-// Bunya emits per-resource-group templates; deploy with:
-//   az deployment sub create --location <region> --template-file main.bicep
 "
 `;

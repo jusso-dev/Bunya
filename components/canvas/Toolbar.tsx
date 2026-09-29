@@ -22,6 +22,7 @@ import {
   suggestedFilename,
 } from "@/lib/graph/portable";
 import { emptyGraph } from "@/lib/graph/schema";
+import { Dialog } from "@/components/Dialog";
 import { OrganisationRulesPanel } from "./OrganisationRulesPanel";
 
 function PanelToggles() {
@@ -38,10 +39,11 @@ function PanelToggles() {
         <button
           key={it.id}
           type="button"
+          aria-pressed={!collapsed[it.id]}
           onClick={() => togglePanel(it.id)}
           className={`rounded-md border px-2 py-1 text-xs font-medium ${
             collapsed[it.id]
-              ? "border-zinc-200 bg-zinc-100 text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-500"
+              ? "border-zinc-200 bg-zinc-100 text-zinc-500 dark:text-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400"
               : "border-zinc-300 bg-white text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
           }`}
           title={collapsed[it.id] ? `Show ${it.label}` : `Hide ${it.label}`}
@@ -57,9 +59,12 @@ export function Toolbar() {
   const document = useGraphStore((s) => s.document);
   const undo = useGraphStore((s) => s.undo);
   const redo = useGraphStore((s) => s.redo);
-  const reset = useGraphStore((s) => s.reset);
+  const canUndo = useGraphStore((s) => s.history.length > 0);
+  const canRedo = useGraphStore((s) => s.future.length > 0);
   const replaceDocument = useGraphStore((s) => s.replaceDocument);
 
+  const [ready, setReady] = useState(false);
+  const [saveFailed, setSaveFailed] = useState(false);
   const [shareMessage, setShareMessage] = useState<string | null>(null);
   const [templateOpen, setTemplateOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -68,29 +73,35 @@ export function Toolbar() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const hash = window.location.hash.slice(1);
-    if (hash.startsWith("bunya1:")) {
-      void deserialiseFromFragment(hash).then((doc) => {
-        if (doc) replaceDocument(doc);
-      });
-    } else {
+    let cancelled = false;
+    const restore = async () => {
+      const hash = window.location.hash.slice(1);
       const stored = loadFromLocalStorage();
-      if (stored) replaceDocument(stored);
-    }
-    const fxRaw = localStorage.getItem("bunya.settings.fxAudPerUsd");
-    const fx = fxRaw === null ? NaN : Number(fxRaw);
-    if (Number.isFinite(fx) && fx > 0) {
-      useGraphStore.getState().setFxAudPerUsd(fx);
-    }
+      const shared = hash.startsWith("bunya1:") ? await deserialiseFromFragment(hash) : null;
+      if (cancelled) return;
+      if (shared) replaceDocument(shared);
+      else if (stored) replaceDocument(stored);
+      if (hash.startsWith("bunya1:") && !shared) setShareMessage("Shared diagram is invalid or too large. Restored your saved diagram.");
+      try {
+        const fx = Number(localStorage.getItem("bunya.settings.fxAudPerUsd"));
+        if (Number.isFinite(fx) && fx > 0) useGraphStore.getState().setFxAudPerUsd(fx);
+      } catch { /* Storage can be unavailable in private or restricted browsers. */ }
+      setReady(true);
+    };
+    void restore();
+    return () => { cancelled = true; };
   }, [replaceDocument]);
 
   useEffect(() => {
-    saveToLocalStorage(document);
-  }, [document]);
+    if (!ready) return;
+    const timer = window.setTimeout(() => setSaveFailed(!saveToLocalStorage(document)), 250);
+    return () => window.clearTimeout(timer);
+  }, [document, ready]);
 
   const onShare = useCallback(async () => {
-    const fragment = await serialiseToFragment(document);
+    let fragment: string;
+    try { fragment = await serialiseToFragment(document); }
+    catch { setShareMessage("Could not create share link. Export your diagram instead."); return; }
     const size = fragmentByteLength(fragment);
     if (size > FRAGMENT_SIZE_WARNING_BYTES) {
       setShareMessage(
@@ -116,7 +127,8 @@ export function Toolbar() {
   };
 
   const onNew = () => {
-    reset(emptyGraph("untitled"));
+    replaceDocument(emptyGraph("untitled"));
+    setShareMessage("New diagram created. Undo restores your previous diagram.");
     if (typeof window !== "undefined") window.history.replaceState(null, "", "#");
   };
 
@@ -135,10 +147,14 @@ export function Toolbar() {
   const importFromFile = useCallback(
     async (file: File) => {
       if (!isPortableFile(file)) {
+        setImportOpen(true);
         setImportMessage(`Skipped ${file.name}: upload a .json or .bunya.json file.`);
         return;
       }
-      const text = await readFileAsText(file);
+      setImportOpen(true);
+      let text: string;
+      try { text = await readFileAsText(file); }
+      catch (error) { setImportMessage(error instanceof Error ? error.message : "Could not read file."); return; }
       const result = parseImportText(text);
       if (!result.ok) {
         setImportMessage(`Import failed: ${result.reason}`);
@@ -184,19 +200,20 @@ export function Toolbar() {
   );
 
   return (
-    <header className="relative flex items-center gap-2 border-b border-zinc-200 bg-white px-4 py-2 dark:border-zinc-800 dark:bg-zinc-950">
+    <header className="relative z-30 flex shrink-0 flex-wrap items-center gap-2 border-b border-zinc-200 bg-white px-4 py-2 dark:border-zinc-800 dark:bg-zinc-950">
       <div className="flex items-center gap-1.5">
-        <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Bunya</span>
-        <span className="text-xs text-zinc-500">|</span>
-        <span className="text-xs text-zinc-500">
+        <h1 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Bunya</h1>
+        <span className="text-xs text-zinc-500 dark:text-zinc-400">|</span>
+        <span className="text-xs text-zinc-500 dark:text-zinc-400">
           {document.metadata.name} - {document.metadata.environment} - {document.metadata.region}
         </span>
       </div>
-      <div className="ml-auto flex items-center gap-2">
+      <div className="ml-auto flex flex-wrap items-center gap-2">
         <PanelToggles />
         <span className="h-5 w-px bg-zinc-200 dark:bg-zinc-800" />
         <button
           type="button"
+          disabled={!canUndo}
           onClick={undo}
           className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
         >
@@ -204,6 +221,7 @@ export function Toolbar() {
         </button>
         <button
           type="button"
+          disabled={!canRedo}
           onClick={redo}
           className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
         >
@@ -218,7 +236,8 @@ export function Toolbar() {
             Templates
           </button>
           {templateOpen ? (
-            <div className="absolute right-0 z-50 mt-1 w-72 rounded-md border border-zinc-200 bg-white p-2 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+            <Dialog label="Starter templates" onClose={() => setTemplateOpen(false)}>
+            <div className="w-72 max-w-full">
               {STARTER_TEMPLATES.map((t) => (
                 <button
                   key={t.id}
@@ -227,10 +246,11 @@ export function Toolbar() {
                   className="block w-full rounded px-2 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
                 >
                   <div className="font-medium">{t.label}</div>
-                  <div className="text-[11px] text-zinc-500">{t.description}</div>
+                  <div className="text-[11px] text-zinc-500 dark:text-zinc-400">{t.description}</div>
                 </button>
               ))}
             </div>
+            </Dialog>
           ) : null}
         </div>
         <div className="relative">
@@ -246,11 +266,13 @@ export function Toolbar() {
             Import
           </button>
           {importOpen ? (
-            <div className="absolute right-0 z-50 mt-1 flex w-96 flex-col gap-2 rounded-md border border-zinc-200 bg-white p-3 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+            <Dialog label="Import diagram" onClose={() => setImportOpen(false)}>
+            <div className="flex w-96 max-w-full flex-col gap-2">
               <div className="text-xs font-semibold text-zinc-800 dark:text-zinc-100">
                 Import JSON
               </div>
               <textarea
+                aria-label="Diagram JSON"
                 value={importText}
                 onChange={(e) => {
                   setImportText(e.target.value);
@@ -261,11 +283,11 @@ export function Toolbar() {
                 placeholder="Paste Azure Export Template ARM JSON or a Bunya export..."
               />
               {importMessage ? (
-                <div className="max-h-24 overflow-auto rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] leading-4 text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+                <div role="alert" className="max-h-24 overflow-auto rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] leading-4 text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
                   {importMessage}
                 </div>
               ) : (
-                <div className="text-[11px] leading-4 text-zinc-500">
+                <div className="text-[11px] leading-4 text-zinc-500 dark:text-zinc-400">
                   Accepts raw JSON or a fenced markdown JSON block.
                 </div>
               )}
@@ -299,6 +321,7 @@ export function Toolbar() {
                 </div>
               </div>
             </div>
+            </Dialog>
           ) : null}
         </div>
         <OrganisationRulesPanel />
@@ -333,13 +356,15 @@ export function Toolbar() {
           aria-label="Import Bunya file"
         />
       </div>
+      {saveFailed && <p role="alert" className="w-full text-sm text-red-700 dark:text-red-300">Changes cannot be saved in this browser. Export your diagram to keep your work.</p>}
       {shareMessage ? (
-        <div className="absolute left-1/2 top-full mt-1 -translate-x-1/2 rounded-md border border-zinc-200 bg-white px-3 py-1 text-xs shadow dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
+        <div role="status" className="absolute left-2 right-2 top-full z-40 mt-1 break-words rounded-md border border-zinc-200 bg-white px-3 py-1 text-xs shadow dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
           {shareMessage}
           <button
             type="button"
+            aria-label="Dismiss notification"
             onClick={() => setShareMessage(null)}
-            className="ml-2 text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
+            className="ml-2 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100"
           >
             x
           </button>

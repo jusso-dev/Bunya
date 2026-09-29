@@ -38,6 +38,16 @@ function graphFixture(nodes: GraphNode[], edges: GraphEdge[] = []): GraphDocumen
 }
 
 describe("organisation rule engine", () => {
+  it("rejects partial rule imports and unsupported Boolean policies", () => {
+    const envelope = buildOrganisationRulesEnvelope([]);
+    expect(parseOrganisationRulesText(JSON.stringify({ ...envelope, rules: [{ invalid: true }] })).ok).toBe(false);
+    const policy = { properties: { policyRule: { if: { anyOf: [
+      { field: "type", equals: "Microsoft.Web/sites" },
+      { field: "Microsoft.Web/sites/publicNetworkAccess", notEquals: "Disabled" },
+    ] }, then: { effect: "deny" } } } };
+    expect(translateAzurePolicy(policy)).toEqual([]);
+    expect(parseOrganisationRulesText(JSON.stringify([policy, {}])).ok).toBe(false);
+  });
   it("flags resources that match a custom property violation", () => {
     const graph = graphFixture([
       testNode("app", "appService", { publicNetworkAccess: true }),

@@ -30,6 +30,7 @@ import {
   GraphDocument,
   GraphNode,
   ServiceType,
+  SERVICE_TYPES,
   isContainerType,
 } from "@/lib/graph/schema";
 import { ServiceNode, ServiceNodeData } from "./ServiceNode";
@@ -68,7 +69,10 @@ function absolutePosition(document: GraphDocument, node: GraphNode): { x: number
   let cursor = node.parentId
     ? document.nodes.find((n) => n.id === node.parentId)
     : undefined;
+  const visited = new Set<string>([node.id]);
   while (cursor) {
+    if (visited.has(cursor.id)) break;
+    visited.add(cursor.id);
     x += cursor.position.x;
     y += cursor.position.y;
     cursor = cursor.parentId
@@ -236,9 +240,10 @@ function CanvasInner() {
       const next = applyNodeChanges(changes, nodes);
       for (const change of changes) {
         if (change.type === "remove") removeNode(change.id);
+        if (change.type === "select" && change.selected) selectNode(change.id);
       }
       const positionChanges = changes.filter(
-        (c): c is NodePositionChange => c.type === "position" && c.dragging === false,
+        (c): c is NodePositionChange => c.type === "position" && c.dragging !== true,
       );
       for (const change of positionChanges) {
         const moved = next.find((n) => n.id === change.id);
@@ -278,7 +283,7 @@ function CanvasInner() {
         if (moved) moveNode(change.id, moved.position);
       }
     },
-    [document, moveNode, nodes, removeNode, reparentNode],
+    [document, moveNode, nodes, removeNode, reparentNode, selectNode],
   );
 
   const onEdgesChange = useCallback(
@@ -337,7 +342,9 @@ function CanvasInner() {
         const file = Array.from(files).find(isPortableFile);
         if (file) {
           void (async () => {
-            const text = await readFileAsText(file);
+            let text: string;
+            try { text = await readFileAsText(file); }
+            catch (error) { setConnectionError(error instanceof Error ? error.message : "Could not read file."); return; }
             const result = parseImportText(text);
             if (result.ok) {
               replaceDocument(result.document);
@@ -351,7 +358,7 @@ function CanvasInner() {
         }
       }
       const type = event.dataTransfer.getData("application/bunya-service") as ServiceType | "";
-      if (!type) return;
+      if (!type || !SERVICE_TYPES.includes(type)) return;
       if (!rfInstance) return;
       const absPosition = screenToFlowPosition({
         x: event.clientX,
@@ -382,10 +389,7 @@ function CanvasInner() {
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
       if (event.defaultPrevented || isEditableTarget(event.target)) return;
-      if (event.key === "Enter") {
-        event.preventDefault();
-        return;
-      }
+
       if (event.key !== "Delete" && event.key !== "Backspace") return;
       if (selectedNodeId) {
         removeNode(selectedNodeId);
@@ -410,6 +414,7 @@ function CanvasInner() {
       onDragOver={onDragOver}
       onDrop={onDrop}
       onKeyDown={handleKeyDown}
+      aria-label="Architecture canvas"
       tabIndex={0}
     >
       <ReactFlow
@@ -432,15 +437,17 @@ function CanvasInner() {
         snapToGrid
         snapGrid={[16, 16]}
         deleteKeyCode={null}
-        disableKeyboardA11y
         connectionRadius={28}
       >
         <Background gap={16} />
         <MiniMap pannable zoomable />
         <Controls />
       </ReactFlow>
+      {document.nodes.length === 0 && <div className="pointer-events-none absolute inset-x-4 top-12 text-center text-sm text-zinc-600">
+        <p className="font-semibold">Start your Azure architecture</p><p>Add a service from the palette or choose a starter template.</p>
+      </div>}
       {connectionError ? (
-        <div className="pointer-events-auto absolute right-4 top-4 max-w-sm rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800 shadow dark:bg-red-950/40 dark:text-red-200">
+        <div role="alert" className="pointer-events-auto absolute right-4 top-4 max-w-sm rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800 shadow dark:bg-red-950/40 dark:text-red-200">
           <div className="flex items-start justify-between gap-2">
             <span>{connectionError}</span>
             <button

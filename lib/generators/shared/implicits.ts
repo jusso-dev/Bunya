@@ -19,9 +19,12 @@ export type ExpandedGraph = {
 };
 
 let counter = 0;
+let reservedIds = new Set<string>();
 function deterministicId(seed: string, kind: string): string {
-  counter += 1;
-  return `auto-${kind}-${seed}-${counter}`;
+  let id: string;
+  do { id = `auto-${kind}-${seed}-${++counter}`; } while (reservedIds.has(id));
+  reservedIds.add(id);
+  return id;
 }
 
 function makeNode(
@@ -51,6 +54,7 @@ function makeEdge(source: string, target: string, kind: EdgeKind): GraphEdge {
 
 export function expandImplicits(document: GraphDocument): ExpandedGraph {
   counter = 0;
+  reservedIds = new Set([...document.nodes, ...document.edges].map((item) => item.id));
   const nodes = [...document.nodes];
   const edges = [...document.edges];
   const additions: ImplicitAddition[] = [];
@@ -70,7 +74,7 @@ export function expandImplicits(document: GraphDocument): ExpandedGraph {
 
   let resourceGroup = findFirstOfType("resourceGroup");
   if (!resourceGroup) {
-    resourceGroup = makeNode("resourceGroup", `rg-${document.metadata.name}`, { x: 0, y: 0 });
+    resourceGroup = makeNode("resourceGroup", `rg-${document.metadata.name.replace(/[^A-Za-z0-9_-]/g, "-")}`, { x: 0, y: 0 });
     nodes.push(resourceGroup);
     autoNodeIds.add(resourceGroup.id);
     additions.push({ kind: "node", node: resourceGroup, reason: "no Resource Group present in graph" });
@@ -90,7 +94,7 @@ export function expandImplicits(document: GraphDocument): ExpandedGraph {
   for (const c of computeNodes) {
     if (!hasOutgoing(c.id, "appServicePlan", "depends_on") && !hasParent(c, "appServicePlan")) {
       if (!plan) {
-        plan = makeNode("appServicePlan", `plan-${document.metadata.name}`, {
+        plan = makeNode("appServicePlan", `plan-${document.metadata.name.replace(/[^A-Za-z0-9_-]/g, "-")}`, {
           x: c.position.x,
           y: c.position.y + 120,
         });
@@ -118,7 +122,7 @@ export function expandImplicits(document: GraphDocument): ExpandedGraph {
   for (const fn of fnNodes) {
     if (!hasOutgoing(fn.id, "storageAccount", "data")) {
       if (!storage) {
-        storage = makeNode("storageAccount", `${document.metadata.name}fn`, {
+        storage = makeNode("storageAccount", `${document.metadata.name.replace(/[^A-Za-z0-9_-]/g, "-")}fn`, {
           x: fn.position.x + 200,
           y: fn.position.y + 120,
         });
@@ -149,7 +153,7 @@ export function expandImplicits(document: GraphDocument): ExpandedGraph {
       if (!hasOutgoing(pe.id, "subnet", "network")) {
         if (!subnet) {
           if (!vnet) {
-            vnet = makeNode("virtualNetwork", `vnet-${document.metadata.name}`, {
+            vnet = makeNode("virtualNetwork", `vnet-${document.metadata.name.replace(/[^A-Za-z0-9_-]/g, "-")}`, {
               x: pe.position.x - 240,
               y: pe.position.y - 80,
             });
@@ -161,7 +165,7 @@ export function expandImplicits(document: GraphDocument): ExpandedGraph {
               reason: "Private Endpoint needs a hosting Virtual Network",
             });
           }
-          subnet = makeNode("subnet", `snet-pe-${document.metadata.name}`, {
+          subnet = makeNode("subnet", `snet-pe-${document.metadata.name.replace(/[^A-Za-z0-9_-]/g, "-")}`, {
             x: pe.position.x - 240,
             y: pe.position.y + 40,
           });
@@ -198,7 +202,7 @@ export function expandImplicits(document: GraphDocument): ExpandedGraph {
   for (const ai of aiNodes) {
     if (!hasOutgoing(ai.id, "logAnalytics", "depends_on")) {
       if (!workspace) {
-        workspace = makeNode("logAnalytics", `log-${document.metadata.name}`, {
+        workspace = makeNode("logAnalytics", `log-${document.metadata.name.replace(/[^A-Za-z0-9_-]/g, "-")}`, {
           x: ai.position.x + 200,
           y: ai.position.y,
         });

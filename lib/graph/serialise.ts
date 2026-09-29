@@ -1,4 +1,5 @@
 import { GraphDocument, GraphDocumentSchema } from "./schema";
+import { MAX_IMPORT_BYTES, checkImportText, checkObjectDepth } from "./limits";
 import { migrate } from "./migrate";
 
 const STORAGE_KEY = "bunya.document.v1";
@@ -40,7 +41,19 @@ async function decompress(bytes: Uint8Array): Promise<string> {
   }
   const blob = new Blob([bytes.slice().buffer]);
   const stream = blob.stream().pipeThrough(new DecompressionStream("gzip"));
-  return await new Response(stream).text();
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > MAX_IMPORT_BYTES) throw new Error("Shared diagram exceeds 1 MiB.");
+      chunks.push(value);
+    }
+  } finally { await reader.cancel(); }
+  return await new Blob(chunks.map((chunk) => chunk.slice().buffer)).text();
 }
 
 export async function serialiseToFragment(document: GraphDocument): Promise<string> {
@@ -50,12 +63,15 @@ export async function serialiseToFragment(document: GraphDocument): Promise<stri
 }
 
 export async function deserialiseFromFragment(fragment: string): Promise<GraphDocument | null> {
-  if (!fragment.startsWith(URL_PREFIX)) return null;
+  if (!fragment.startsWith(URL_PREFIX) || fragment.length > MAX_IMPORT_BYTES) return null;
   const payload = fragment.slice(URL_PREFIX.length);
   try {
     const bytes = base64UrlDecode(payload);
     const text = await decompress(bytes);
-    return migrate(JSON.parse(text));
+    checkImportText(text);
+    const parsed: unknown = JSON.parse(text);
+    checkObjectDepth(parsed);
+    return migrate(parsed);
   } catch {
     return null;
   }
@@ -70,17 +86,22 @@ export function shareUrlFromFragment(fragment: string, base?: string): string {
   return `${base ?? "https://bunya.example"}#${fragment}`;
 }
 
-export function saveToLocalStorage(document: GraphDocument): void {
-  if (typeof localStorage === "undefined") return;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(document));
+export function saveToLocalStorage(document: GraphDocument): boolean {
+  try {
+    if (typeof localStorage === "undefined") return false;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(document));
+    return true;
+  } catch { return false; }
 }
 
 export function loadFromLocalStorage(): GraphDocument | null {
-  if (typeof localStorage === "undefined") return null;
-  const raw = localStorage.getItem(STORAGE_KEY);
-  if (!raw) return null;
   try {
+    if (typeof localStorage === "undefined") return null;
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    checkImportText(raw);
     const parsed = JSON.parse(raw);
+    checkObjectDepth(parsed);
     const migrated = migrate(parsed);
     return GraphDocumentSchema.parse(migrated);
   } catch {
