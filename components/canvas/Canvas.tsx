@@ -349,7 +349,7 @@ function CanvasInner() {
             if (result.ok) {
               replaceDocument(result.document);
               if (typeof window !== "undefined") window.history.replaceState(null, "", "#");
-              setConnectionError(null);
+              setConnectionError(result.warning ?? null);
             } else {
               setConnectionError(`Import failed: ${result.reason}`);
             }

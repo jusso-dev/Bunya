@@ -5,11 +5,55 @@ import {
   envelopeToBlob,
   parsePortable,
   parseImportText,
+  isPortableFile,
   suggestedFilename,
   PORTABLE_EXTENSION,
 } from "./portable";
 
 describe("portable export/import", () => {
+  it("accepts JSON filenames regardless of case", () => {
+    expect(isPortableFile(new File(["{}"], "resource-group.JSON"))).toBe(true);
+  });
+
+  it("imports supported fields while warning about unsupported Azure settings", () => {
+    const result = parseImportText(JSON.stringify({ resources: [
+      { type: "Microsoft.Web/serverfarms", name: "plan", location: "eastus", sku: { name: "P3v3", capacity: 2 } },
+      { type: "Microsoft.Storage/storageAccounts", name: "storage", sku: { name: "Standard_RAGZRS" }, properties: { isHnsEnabled: true } },
+      { type: "Microsoft.KeyVault/vaults", name: "vault", properties: { sku: { name: "premium" }, softDeleteRetentionInDays: 30 } },
+      { name: "missing-type" },
+    ] }));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.document.nodes.find((node) => node.resourceName === "plan")?.properties).toMatchObject({ sku: "B1", capacity: 2 });
+    expect(result.document.nodes.find((node) => node.resourceName === "storage")?.properties).toMatchObject({ sku: "Standard_LRS", hierarchicalNamespace: true });
+    expect(result.document.nodes.find((node) => node.resourceName === "vault")?.properties.softDeleteRetentionDays).toBe(30);
+    expect(result.warning).toContain("unsupported sku");
+    expect(result.warning).toContain("missing type or name");
+    expect(result.warning).toContain("resource locations");
+    expect(result.envelope.document).toEqual(result.document);
+  });
+
+  it("explains graph limits for oversized ARM imports", () => {
+    const resources = Array.from({ length: 200 }, (_, index) => ({ type: "Microsoft.KeyVault/vaults", name: `vault-${index}` }));
+    const result = parseImportText(JSON.stringify({ resources }));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("up to 200 nodes");
+  });
+  it("imports Key Vault SKUs from Azure exports and warns when they cannot be resolved", () => {
+    const result = parseImportText(JSON.stringify({
+      parameters: { vaultSku: { type: "string", defaultValue: "Premium" }, missingSku: { type: "string" } },
+      resources: [
+        { type: "Microsoft.KeyVault/vaults", name: "capitalized", properties: { sku: { name: "Standard" } } },
+        { type: "Microsoft.KeyVault/vaults", name: "parameterized", properties: { sku: { name: "[parameters('vaultSku')]" } } },
+        { type: "Microsoft.KeyVault/vaults", name: "unresolved", properties: { sku: { name: "[parameters('missingSku')]" } } },
+      ],
+    }));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const vaults = result.document.nodes.filter((node) => node.type === "keyVault");
+    expect(vaults.map((node) => node.properties.sku)).toEqual(["standard", "premium", "standard"]);
+    expect(result.warning).toContain("Key Vault unresolved");
+  });
   it("round-trips a document via the wrapped envelope", () => {
     const env = buildEnvelope(firstCutGraph);
     const blob = envelopeToBlob(env);

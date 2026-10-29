@@ -22,6 +22,7 @@ import {
   suggestedFilename,
 } from "@/lib/graph/portable";
 import { emptyGraph } from "@/lib/graph/schema";
+import { MAX_IMPORT_BYTES } from "@/lib/graph/limits";
 import { Dialog } from "@/components/Dialog";
 import { OrganisationRulesPanel } from "./OrganisationRulesPanel";
 
@@ -141,7 +142,7 @@ export function Toolbar() {
     a.download = suggestedFilename(document);
     a.click();
     URL.revokeObjectURL(url);
-    setShareMessage(`Exported ${a.download}.`);
+    setShareMessage(`Exported ${a.download}.${blob.size > MAX_IMPORT_BYTES ? " This file exceeds the 1 MiB import limit and cannot be reimported without reducing its size." : ""}`);
   }, [document]);
 
   const importFromFile = useCallback(
@@ -162,7 +163,7 @@ export function Toolbar() {
       }
       replaceDocument(result.document);
       if (typeof window !== "undefined") window.history.replaceState(null, "", "#");
-      setShareMessage(`Imported ${file.name} (${result.document.nodes.length} nodes).`);
+      setShareMessage(`Imported ${file.name} (${result.document.nodes.length} nodes).${result.warning ? ` ${result.warning}` : ""}`);
       setImportMessage(null);
       setImportOpen(false);
     },
@@ -187,7 +188,7 @@ export function Toolbar() {
     setImportText("");
     setImportMessage(null);
     setImportOpen(false);
-    setShareMessage(`Imported pasted JSON (${result.document.nodes.length} nodes).`);
+    setShareMessage(`Imported pasted JSON (${result.document.nodes.length} nodes).${result.warning ? ` ${result.warning}` : ""}`);
   }, [importText, replaceDocument]);
 
   const onFileChange = useCallback(

@@ -109,6 +109,7 @@ function flattenResources(
   resources: unknown[],
   parameters: Record<string, unknown>,
   variables: Record<string, unknown>,
+  warnings: string[],
   parent?: FlatArmResource,
 ): FlatArmResource[] {
   const out: FlatArmResource[] = [];
@@ -116,7 +117,10 @@ function flattenResources(
     const raw = asRecord(value) as ArmResource;
     const rawType = resolveString(raw.type, parameters, variables);
     const rawName = resolveString(raw.name, parameters, variables);
-    if (!rawType || !rawName) return;
+    if (!rawType || !rawName) {
+      warnings.push("An ARM resource with a missing type or name and its nested resources were skipped.");
+      return;
+    }
     const type = parent && !rawType.includes(".") ? `${parent.type}/${rawType}` : rawType;
     const fullName = parent && !rawName.includes("/") ? `${parent.fullName}/${rawName}` : rawName;
     const flat: FlatArmResource = {
@@ -129,7 +133,7 @@ function flattenResources(
     };
     out.push(flat);
     out.push(
-      ...flattenResources(asArray(raw.resources), parameters, variables, flat),
+      ...flattenResources(asArray(raw.resources), parameters, variables, warnings, flat),
     );
   });
   return out;
@@ -144,7 +148,7 @@ function serviceTypeFor(resource: FlatArmResource): ServiceType | null {
   return serviceTypeOf(resource.type);
 }
 
-function baseProperties(type: ServiceType, resource: FlatArmResource): Record<string, unknown> {
+function baseProperties(type: ServiceType, resource: FlatArmResource, parameters: Record<string, unknown>, variables: Record<string, unknown>, warnings: string[]): Record<string, unknown> {
   const def = getServiceDefinition(type);
   const props = asRecord(resource.raw.properties);
   const sku = asRecord(resource.raw.sku);
@@ -237,15 +241,23 @@ function baseProperties(type: ServiceType, resource: FlatArmResource): Record<st
         kind: asString(resource.raw.kind) ?? defaults.kind,
         allowPublicAccess: props.allowBlobPublicAccess === true,
         minTlsVersion: asString(props.minimumTlsVersion)?.replace("TLS1_", "1.") ?? defaults.minTlsVersion,
+        hierarchicalNamespace: props.isHnsEnabled === true,
       };
-    case "keyVault":
+    case "keyVault": {
+      const rawSku = asRecord(props.sku).name;
+      const skuName = resolveString(rawSku, parameters, variables)?.trim().toLowerCase();
+      if (rawSku !== undefined && skuName !== "standard" && skuName !== "premium") {
+        warnings.push(`Key Vault ${resource.name} has an unrecognized or unresolved SKU; defaulted to standard.`);
+      }
       return {
         ...defaults,
-        sku: asString(asRecord(props.sku).name) ?? defaults.sku,
+        sku: skuName === "standard" || skuName === "premium" ? skuName : defaults.sku,
         purgeProtection: props.enablePurgeProtection !== false,
+        softDeleteRetentionDays: asNumber(props.softDeleteRetentionInDays) ?? defaults.softDeleteRetentionDays,
         rbacAuthorization: props.enableRbacAuthorization !== false,
         publicNetworkAccess: asString(props.publicNetworkAccess) !== "Disabled",
       };
+    }
     case "applicationInsights":
       return { ...defaults, type: asString(props.Application_Type) ?? defaults.type };
     case "logAnalytics":
@@ -297,8 +309,25 @@ function baseProperties(type: ServiceType, resource: FlatArmResource): Record<st
     case "privateEndpoint":
     case "userAssignedIdentity":
     default:
+      warnings.push(`${def.label} ${resource.name}: ARM configuration is not mapped; Bunya defaults were used.`);
       return defaults;
   }
+}
+
+function validatedProperties(type: ServiceType, resource: FlatArmResource, properties: Record<string, unknown>, warnings: string[]): Record<string, unknown> {
+  const definition = getServiceDefinition(type);
+  const result = definition.propertiesSchema.safeParse(properties);
+  if (result.success) return result.data as Record<string, unknown>;
+
+  const invalidKeys = new Set(result.error.issues.map((issue) => issue.path[0]).filter((key): key is string => typeof key === "string"));
+  if (invalidKeys.size === 0 || [...invalidKeys].some((key) => !(key in definition.defaultProperties))) {
+    throw result.error;
+  }
+  const adjusted = { ...properties };
+  for (const key of invalidKeys) adjusted[key] = definition.defaultProperties[key];
+  const validated = definition.propertiesSchema.parse(adjusted) as Record<string, unknown>;
+  warnings.push(`${definition.label} ${resource.name}: unsupported ${[...invalidKeys].join(", ")}; used Bunya defaults for these properties.`);
+  return validated;
 }
 
 function findReferencedNode(
@@ -709,7 +738,8 @@ export function parseArmTemplate(text: string): ArmImportResult {
   }
   const parameters = asRecord(root.parameters);
   const variables = asRecord(root.variables);
-  const flat = flattenResources(resourcesRaw, parameters, variables);
+  const warnings: string[] = [];
+  const flat = flattenResources(resourcesRaw, parameters, variables, warnings);
   const known = flat
     .map((resource, index) => {
       const type = serviceTypeFor(resource);
@@ -721,7 +751,7 @@ export function parseArmTemplate(text: string): ArmImportResult {
         name: def.label,
         resourceName: cleanName(resource.name, `${type}-${index + 1}`),
         position: { x: 0, y: 0 },
-        properties: baseProperties(type, resource),
+        properties: validatedProperties(type, resource, baseProperties(type, resource, parameters, variables, warnings), warnings),
       };
       return { flat: resource, node };
     })
@@ -746,10 +776,15 @@ export function parseArmTemplate(text: string): ArmImportResult {
 
   const edges = inferEdges(known, flat);
   const nodes = layoutImportedNodes(known, edges, resourceGroup);
+  if (nodes.length > 200 || edges.length > 1000) {
+    return { ok: false, reason: `ARM template produces ${nodes.length} nodes and ${edges.length} edges; Bunya supports up to 200 nodes and 1,000 edges.` };
+  }
 
-  const location = known
-    .map((r) => asString(r.flat.raw.location))
-    .find((value): value is string => !!value && AZURE_REGIONS.includes(value as never));
+  const locations = known.map((r) => resolveString(r.flat.raw.location, parameters, variables)?.toLowerCase()).filter((value): value is string => !!value && value !== "global");
+  const location = locations.find((value) => AZURE_REGIONS.includes(value as never));
+  if (locations.some((value) => value !== location)) {
+    warnings.push(`Some resource locations could not be represented; the diagram region is ${location ?? "australiaeast"}.`);
+  }
   const now = new Date().toISOString();
   const document: GraphDocument = {
     schemaVersion: 1,
@@ -769,6 +804,6 @@ export function parseArmTemplate(text: string): ArmImportResult {
   return {
     ok: true,
     document,
-    warning: skipped > 0 ? `${skipped} unsupported ARM resources were skipped.` : undefined,
+    warning: [skipped > 0 ? `${skipped} unsupported ARM resources were skipped.` : "", ...warnings].filter(Boolean).join(" ") || undefined,
   };
 }

@@ -41,7 +41,7 @@ export function suggestedFilename(document: GraphDocument): string {
 }
 
 export type ImportResult =
-  | { ok: true; document: GraphDocument; envelope: PortableEnvelope }
+  | { ok: true; document: GraphDocument; envelope: PortableEnvelope; warning?: string }
   | { ok: false; reason: string };
 
 function normaliseImportText(text: string): string {
@@ -132,12 +132,14 @@ export function parseImportText(text: string): ImportResult {
   try {
     const arm = parseArmTemplate(normalised);
     if (arm.ok) {
+      const document = migrate(arm.document);
       return {
         ok: true,
-        document: migrate(arm.document),
+        document,
+        warning: arm.warning,
         envelope: buildEnvelope(
-          arm.document,
-          arm.warning ? `azure-arm-export (${arm.warning})` : "azure-arm-export",
+          document,
+          "azure-arm-export",
         ),
       };
     }
@@ -164,8 +166,7 @@ export async function readFileAsText(file: File): Promise<string> {
 }
 
 export function isPortableFile(file: File): boolean {
-  if (file.name.endsWith(PORTABLE_EXTENSION)) return true;
-  if (file.name.endsWith(".json")) return true;
+  if (file.name.toLowerCase().endsWith(".json")) return true;
   if (file.type === PORTABLE_MIME) return true;
   return false;
 }

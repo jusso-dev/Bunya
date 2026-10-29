@@ -138,6 +138,11 @@ Bunya currently models 26 Azure service/resource types:
   Alert Rule, Action Group.
 - **Integration:** API Management.
 
+ARM import is an approximation: unsupported resources are skipped, and settings
+outside Bunya's model may use defaults. Import warnings identify skipped resources,
+defaulted settings and locations that cannot be represented. Review the diagram
+and its settings before generating deployment files.
+
 ARM import is designed for the Azure Portal **Export Template** workflow. Paste
 the ARM JSON or upload the file, and Bunya converts supported resources into a
 working graph:
