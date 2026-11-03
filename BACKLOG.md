@@ -17,7 +17,8 @@ and the DTA Hosting Certification Framework apply.
 If you need something else:
 
 - a multi-cloud diagram tool: Lucidchart, Cloudcraft or Hava;
-- an AWS diagram with IaC: draw.io with AWS shapes and AWS Application Composer;
+- an AWS diagram with IaC: draw.io with AWS shapes, or AWS Infrastructure Composer
+  (formerly Application Composer) in the AWS Toolkit for VS Code;
 - cross-cloud security validation: Wiz, Orca or Prisma Cloud.
 
 The architecture (typed catalogue, cited rules, per-target generators) ports

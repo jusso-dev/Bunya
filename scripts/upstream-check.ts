@@ -11,7 +11,11 @@
  * Nothing is changed. Upstream releases need a human to re-curate rules, so
  * the nightly workflow publishes this report as a tracking issue.
  *
- * Usage: pnpm upstream:check [--report report.md] [--days 14]
+ * Usage: pnpm upstream:check [--report report.md] [--days 14] [--previous issue.md]
+ *
+ * `--days` only limits which retirement notices are new. Notices listed in the
+ * previous report (`--previous`, the open tracking issue's body) are carried
+ * forward until someone deletes them from the issue or closes it.
  * Set GITHUB_TOKEN to avoid GitHub API rate limits.
  */
 import { promises as fs } from "node:fs";
@@ -170,6 +174,20 @@ async function checkRetirements(lines: string[], errors: string[], days: number)
   }
 }
 
+const RETIREMENTS_HEADING = "#### Azure retirements for modelled services";
+
+/** Retirement lines from a previous report that are still unacknowledged. */
+async function previousRetirements(file: string | undefined): Promise<string[]> {
+  if (!file) return [];
+  const text = await fs.readFile(file, "utf8").catch(() => "");
+  const start = text.indexOf(RETIREMENTS_HEADING);
+  if (start < 0) return [];
+  const section = text.slice(start + RETIREMENTS_HEADING.length).split(/\n#{1,4} /)[0];
+  return section.split("\n").filter((line) => /^- \[.+\]\(https:\/\/azure\.microsoft\.com\/updates\?id=\d+\)/.test(line));
+}
+
+const updateId = (line: string) => /updates\?id=(\d+)/.exec(line)?.[1] ?? line;
+
 async function checkManual(lines: string[]): Promise<void> {
   for (const pin of MANUAL_PINS) {
     const data = await pinned(pin.folder);
@@ -193,6 +211,11 @@ async function main(): Promise<void> {
   await checkReleases(releases, errors);
   await checkAzureRm(releases, errors);
   await checkRetirements(retirements, errors, days);
+  const seen = new Set(retirements.map(updateId));
+  for (const line of await previousRetirements(arg("previous"))) {
+    if (!seen.has(updateId(line))) retirements.push(line);
+    seen.add(updateId(line));
+  }
   await checkManual(manual);
 
   const section = (title: string, items: string[], empty: string) => [`#### ${title}`, "", ...(items.length > 0 ? items : [`- ${empty}`]), ""];
@@ -200,7 +223,13 @@ async function main(): Promise<void> {
     "### Upstream changes",
     "",
     ...section("Rule sources and providers", releases, "All pinned sources are current."),
-    ...section(`Azure retirements for modelled services (last ${days} days)`, retirements, "None."),
+    ...section(
+      "Azure retirements for modelled services",
+      retirements.length > 0
+        ? [`_New notices from the last ${days} days are added; delete a line once it is handled._`, "", ...retirements]
+        : [],
+      "None.",
+    ),
     ...section("Hand-curated sources due for review", manual, "None."),
     ...(errors.length > 0 ? section("Checks that could not run", errors.map((e) => `⚠️ ${e}`), "") : []),
   ].join("\n");

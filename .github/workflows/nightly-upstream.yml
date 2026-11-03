@@ -79,12 +79,17 @@ jobs:
           fi
           pnpm --silent compliance:sync --repo "$RUNNER_TEMP/azure-policy" --report "$RUNNER_TEMP/compliance.md"
           echo "exit=$?" >> "$GITHUB_OUTPUT"
+          regen=0
           if ! git diff --quiet -- lib/rules/compliance; then
             # Alignment changes flow into the generated coverage docs and the
             # Azure Policy export snapshots.
-            pnpm --silent rules:coverage
-            pnpm exec vitest run -u lib/generators/azure-policy.test.ts > /dev/null
+            pnpm --silent rules:coverage || regen=1
+            pnpm exec vitest run -u lib/generators/azure-policy.test.ts > /dev/null || regen=1
           fi
+          if [ "$regen" != "0" ]; then
+            printf '\n- ❌ Regenerating coverage docs or the Azure Policy export snapshot failed; see the run log.\n' >> "$RUNNER_TEMP/compliance.md"
+          fi
+          echo "regen=$regen" >> "$GITHUB_OUTPUT"
           exit 0
 
       - name: Sync Azure architecture icons
@@ -95,13 +100,18 @@ jobs:
           echo "exit=$?" >> "$GITHUB_OUTPUT"
           exit 0
 
+      # Retirement notices stay in the open report issue until someone removes
+      # them from it (or closes the issue), so they are read back first.
       - name: Check upstream releases and retirements
         id: upstream
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set +e
-          pnpm --silent upstream:check --report "$RUNNER_TEMP/upstream.md" --days 14
+          gh issue list --state open --label "$ISSUE_LABEL" --limit 50 --json title,body \
+            --jq "map(select(.title == \"$ISSUE_TITLE\")) | .[0].body // empty" > "$RUNNER_TEMP/previous-issue.md"
+          pnpm --silent upstream:check --report "$RUNNER_TEMP/upstream.md" --days 14 --previous "$RUNNER_TEMP/previous-issue.md"
           echo "exit=$?" >> "$GITHUB_OUTPUT"
           exit 0
 
@@ -207,6 +217,7 @@ jobs:
           PR_FALLBACK: ${{ steps.pr.outputs.fallback }}
           COMPLIANCE_EXIT: ${{ steps.compliance.outputs.exit }}
           COMPLIANCE_ATTENTION: ${{ steps.compliance.outputs.attention }}
+          COMPLIANCE_REGEN: ${{ steps.compliance.outputs.regen }}
           ICONS_EXIT: ${{ steps.icons.outputs.exit }}
           PAGES_EXIT: ${{ steps.pages.outputs.exit }}
           UPSTREAM_EXIT: ${{ steps.upstream.outputs.exit }}
@@ -215,7 +226,7 @@ jobs:
         run: |
           needs_human=false
           # Missing outputs mean a step did not run, which also needs a look.
-          if [ "$UPSTREAM_ATTENTION" = "true" ] || [ "$COMPLIANCE_ATTENTION" = "true" ] ||
+          if [ "$UPSTREAM_ATTENTION" = "true" ] || [ "$COMPLIANCE_ATTENTION" = "true" ] || [ "$COMPLIANCE_REGEN" = "1" ] ||
              [ "$COMPLIANCE_EXIT" != "0" ] || [ "$ICONS_EXIT" != "0" ] || [ "$PAGES_EXIT" != "0" ] || [ "$UPSTREAM_EXIT" != "0" ]; then
             needs_human=true
           fi
