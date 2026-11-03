@@ -108,11 +108,21 @@ jobs:
       # GitHub Pages serves the committed docs/ build, so icon changes must
       # ship with a rebuilt site.
       - name: Rebuild GitHub Pages site
-        if: steps.icons.outputs.exit == '0'
+        id: pages
         run: |
+          set +e
+          status=0
           if ! git diff --quiet -- public/azure-icons || [ -n "$(git ls-files --others --exclude-standard public/azure-icons)" ]; then
             pnpm build:pages
+            status=$?
+            if [ "$status" != "0" ]; then
+              # Do not publish icons without the matching site build.
+              git checkout -- public/azure-icons lib/catalogue/icon-manifest.json docs
+              git clean -fdq -- public/azure-icons docs
+            fi
           fi
+          echo "exit=$status" >> "$GITHUB_OUTPUT"
+          exit 0
 
       - name: Test synced changes
         id: tests
@@ -130,6 +140,17 @@ jobs:
           tail -n 200 "$RUNNER_TEMP/tests.log"
           echo "::endgroup::"
           exit 0
+
+      - name: Close superseded pull request
+        if: steps.tests.outputs.changed == 'false'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.BUNYA_AUTOMATION_TOKEN || github.token }}
+        run: |
+          existing="$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            gh pr close "$existing" --delete-branch --comment "main already matches upstream; nothing left to sync."
+          fi
 
       - name: Open or update pull request
         id: pr
@@ -187,6 +208,7 @@ jobs:
           COMPLIANCE_EXIT: ${{ steps.compliance.outputs.exit }}
           COMPLIANCE_ATTENTION: ${{ steps.compliance.outputs.attention }}
           ICONS_EXIT: ${{ steps.icons.outputs.exit }}
+          PAGES_EXIT: ${{ steps.pages.outputs.exit }}
           UPSTREAM_EXIT: ${{ steps.upstream.outputs.exit }}
           UPSTREAM_ATTENTION: ${{ steps.upstream.outputs.attention }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -194,7 +216,7 @@ jobs:
           needs_human=false
           # Missing outputs mean a step did not run, which also needs a look.
           if [ "$UPSTREAM_ATTENTION" = "true" ] || [ "$COMPLIANCE_ATTENTION" = "true" ] ||
-             [ "$COMPLIANCE_EXIT" != "0" ] || [ "$ICONS_EXIT" != "0" ] || [ "$UPSTREAM_EXIT" != "0" ]; then
+             [ "$COMPLIANCE_EXIT" != "0" ] || [ "$ICONS_EXIT" != "0" ] || [ "$PAGES_EXIT" != "0" ] || [ "$UPSTREAM_EXIT" != "0" ]; then
             needs_human=true
           fi
           if [ "$CHANGED" = "true" ] && { [ "$TESTS_EXIT" != "0" ] || [ "$PR_FALLBACK" != "false" ]; }; then
@@ -223,6 +245,11 @@ jobs:
               echo
             elif [ "$CHANGED" = "true" ]; then
               echo "Mechanical updates were found but could not be pushed; see the run log."
+              echo
+            fi
+            if [ "$PAGES_EXIT" != "0" ]; then
+              echo "> [!WARNING]"
+              echo "> The GitHub Pages rebuild failed, so icon updates were held back."
               echo
             fi
             if [ "$CHANGED" = "true" ] && [ "$TESTS_EXIT" != "0" ]; then

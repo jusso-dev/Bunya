@@ -498,4 +498,3 @@ describe("parseArmTemplate", () => {
     expect(result.warning).toContain('runtime "RUBY|2.7" is not modelled');
   });
 });
-
