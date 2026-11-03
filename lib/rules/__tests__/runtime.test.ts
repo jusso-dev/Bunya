@@ -9,6 +9,7 @@ import { healthyGraph } from "./fixtures/healthy";
 import { brokenGraph } from "./fixtures/broken";
 import { getServiceDefinition } from "@/lib/catalogue/services";
 import type { GraphDocument, GraphNode, ServiceType } from "@/lib/graph/schema";
+import { runtimeSupportStatus } from "@/lib/rules/graph-rules/compute";
 
 /**
  * Test bundle of rules. We prefer REGISTRY when it has been populated by
@@ -330,5 +331,22 @@ describe("rules-engine runtime", () => {
       { id: "e1", source: "alert", target: "ag", kind: "depends_on" },
     ]);
     expect(findingsForRule(runRules(covered, TEST_ENTRIES), "BUNYA.OBS.010")).toHaveLength(0);
+  });
+
+  it("flags App Service and Function App runtimes past Azure end of support", () => {
+    const graph = graphFixture([
+      testNode("web", "appService", { runtime: "node", runtimeVersion: "18-lts" }),
+      testNode("fn", "functionApp", { runtime: "python", runtimeVersion: "3.9" }),
+    ]);
+    const findings = findingsForRule(runRules(graph, TEST_ENTRIES), "BUNYA.COMP.RUNTIME-EOL");
+    expect(findings.map((f) => f.nodeIds)).toEqual([["web"], ["fn"]]);
+    expect(findings[0].message).toContain("reached end of Azure support on 2025-04-30");
+  });
+
+  it("warns 90 days ahead of runtime end of support", () => {
+    expect(runtimeSupportStatus("node", "22-lts", new Date("2027-02-15T00:00:00Z"))).toEqual({ state: "ending", endDate: "2027-04-30" });
+    expect(runtimeSupportStatus("node", "22-lts", new Date("2026-11-01T00:00:00Z"))).toBeNull();
+    expect(runtimeSupportStatus("dotnet", "v8.0", new Date("2026-11-11T00:00:00Z"))).toEqual({ state: "ended", endDate: "2026-11-10" });
+    expect(runtimeSupportStatus("java", "17", new Date())).toBeNull();
   });
 });

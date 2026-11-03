@@ -13,8 +13,8 @@
 </p>
 
 Bunya turns Azure architecture diagrams into production-shaped Terraform,
-Bicep, ARM, az CLI, PowerShell, Mermaid, and an auto-generated README, in one
-pass. The diagram is the input. The IaC is the output. And before anything is
+Bicep, ARM, az CLI, PowerShell, an audit-only Azure Policy initiative, Mermaid,
+and an auto-generated README, in one pass. The diagram is the input. The IaC is the output. And before anything is
 emitted, the graph is checked against 293 cited rules drawn from PSRule,
 Checkov, Azure Policy, the Microsoft Cloud Security Benchmark, the Australian
 ISM, and the Essential Eight.
@@ -180,6 +180,7 @@ the user can promote them to explicit nodes.
 | PowerShell | `Deploy-Infrastructure.ps1` | `[CmdletBinding(SupportsShouldProcess)]`. Splatting. `Set-StrictMode -Version Latest`. No `Write-Host`. Emits deployable Az cmdlets where practical and explicit review comments for complex alert/RBAC cases. |
 | Mermaid | `architecture.mmd` | `flowchart LR` with per-category classDefs and edge-kind labels. |
 | README | `README.md` | Inlined Mermaid + deployment commands per format. |
+| Azure Policy | `POLICY.md`, `initiative.definitions.json`, `policy.bicep`, `policy-assignment.bicep`, `deploy-policy.sh` | The built-in Azure Policy definitions that check the same settings as the diagram's rules, packaged as one initiative and assigned to the deployed resource group (the script skips groups that do not exist). Audit effects only; allowed locations are the Australian regions the sovereignty rules accept. Subscription-level built-ins (Defender plans, resource-group locations) are listed, not assigned. See [Runtime guardrails](#runtime-guardrails-azure-policy-export). |
 | Cost | `cost-estimate.md` + in-tab table | Indicative monthly estimate per resource with AUD/USD toggle and a **user-editable AUD/USD exchange rate** (persisted to `localStorage`, plug in your treasury's number for accurate AUD). Source: `https://prices.azure.com/api/retail/prices`; refresh via `pnpm prices:refresh`. |
 
 Conditional parameters: when the graph has no SQL Database, no generator
@@ -240,16 +241,48 @@ Recent graph-level coverage includes:
 - Production graphs need Monitor Alert Rules and Action Groups, not only log
   storage.
 
-Findings carry a `source.url` you can click. Many carry an `autofixId` you can
+Findings link to their source (`source.url`). Many carry an `autofixId` you can
 apply with one button. The compliance tables in
 [`project-docs/rules/COVERAGE.md`](project-docs/rules/COVERAGE.md) regenerate every build.
 [`project-docs/rules/GAPS.md`](project-docs/rules/GAPS.md) is honest about what is not
 checked: CIS Benchmarks, PCI DSS, HITRUST CSF, runtime policy, cost prediction,
 multi-region failover correctness.
 
+### CIS alignment (not compliance)
+
+Bunya does not ship CIS Microsoft Azure Foundations Benchmark content; the CIS
+licence terms do not permit redistributing it in Bunya. Instead, rules are tagged with the CIS control a
+matching Azure Policy built-in is grouped under in Microsoft's CIS Azure
+Foundations v3.0.0 regulatory-compliance initiative. 44 rules carry tags such as
+`cis-azure-v3.0.0:4.15`, and the validation panel shows them as
+"Aligned: CIS Azure 3.0.0 §4.15". The mapping lives in
+`lib/rules/compliance/policy-alignments.ts`; `pnpm compliance:sync` copies only
+control IDs from [Azure/azure-policy](https://github.com/Azure/azure-policy)
+(MIT). Alignment means the same setting is checked. It does not make a
+workload CIS compliant ([#5](https://github.com/jusso-dev/Bunya/issues/5)).
+Bunya does not check PCI DSS or HITRUST CSF.
+
 <p align="center">
   <img src="project-docs/screenshots/05-validation-findings.png" alt="Validation findings panel with a real auto-fix" width="1100"/>
 </p>
+
+## Runtime guardrails (Azure Policy export)
+
+Bunya is design-time only: it never connects to your tenant, so it does not
+detect drift ([#8](https://github.com/jusso-dev/Bunya/issues/8)). The
+**Azure Policy** output tab bridges that gap. It exports the Azure Policy
+built-ins that check the same settings as the rules relevant to your diagram,
+as a single initiative assigned to the deployed resource group:
+
+```bash
+az deployment sub create --location australiaeast --template-file azure-policy/policy.bicep
+# or
+bash azure-policy/deploy-policy.sh
+```
+
+Every effect is `Audit` or `AuditIfNotExists`; review the compliance results
+in Azure Policy before switching anything to `Deny`. Graph-shape rules (edges,
+topology, naming) have no built-in policy equivalent and stay design-time.
 
 ## Organisation rule engine
 
@@ -382,7 +415,7 @@ It provides four tools:
 - `bunya_list_services` — supported Azure services, defaults and permitted connections.
 - `bunya_create_diagram` — creates a graph, returns Mermaid, rule findings and a Bunya view URL.
 - `bunya_validate_diagram` — runs the cited Azure and compliance rules against a graph.
-- `bunya_export_iac` — returns Terraform, Bicep, ARM JSON, az CLI, PowerShell, Mermaid or README files.
+- `bunya_export_iac` — returns Terraform, Bicep, ARM JSON, az CLI, PowerShell, Azure Policy, Mermaid or README files.
 
 ### Local MCP connection
 
@@ -436,14 +469,40 @@ Scripts:
 
 ```bash
 pnpm typecheck       # tsc --noEmit, strict
-pnpm test            # vitest run (101 unit tests, snapshot coverage of every generator)
+pnpm test            # vitest run (unit tests, snapshot coverage of every generator)
 pnpm e2e             # playwright tests against the dev server
 pnpm build           # next build (Turbopack)
 pnpm rules:import    # rebuild rule registry + COVERAGE.md + GAPS.md
 pnpm rules:verify    # assert every rule has source.url, no duplicates, >=100 total
 pnpm rules:coverage  # regenerate coverage docs without re-ingesting
 pnpm prices:refresh  # fetch Azure Retail Prices API and stage a snapshot diff
+pnpm compliance:sync --repo <azure-policy checkout>  # refresh policy metadata + CIS control IDs
+pnpm icons:sync      # refresh official Azure icons from the current Microsoft pack
+pnpm upstream:check  # report rule-source releases, AzureRM majors and Azure retirements
 ```
+
+### Nightly upstream sync
+
+`.github/workflows/nightly-upstream.yml` runs every night (03:23 AEST) and on
+demand:
+
+- **Icons**: downloads the current Azure architecture icon pack and refreshes
+  `public/azure-icons/` from `lib/catalogue/icon-manifest.json`, byte for byte.
+- **Azure Policy metadata**: re-reads built-in policies and the CIS initiative,
+  then flags mapped policies that were renamed, deprecated or removed, and
+  newer CIS initiative versions.
+- **Upstream report**: PSRule, Checkov and Azure Naming Tool releases newer
+  than the pins, new AzureRM provider majors, Azure retirement notices for
+  modelled services, and hand-curated sources due for review.
+
+Mechanical updates are pushed to `automation/nightly-upstream` as one pull
+request. Anything that needs a human is tracked in a single
+**Nightly upstream report** issue, which closes itself when nothing is
+outstanding. To let the workflow open pull requests that also trigger CI, add
+a `BUNYA_AUTOMATION_TOKEN` secret (fine-grained PAT with contents, pull
+requests and issues read/write). Otherwise enable "Allow GitHub Actions to
+create and approve pull requests"; if neither is set, the branch is still
+pushed and linked from the issue.
 
 ## Architecture
 
@@ -525,6 +584,11 @@ Don't:
 - Use Microsoft product icons to represent Bunya or any other product or
   service.
 
+Every service type uses its own icon from Microsoft's Azure architecture icon
+pack (currently V24), recorded with a SHA-256 hash in
+`lib/catalogue/icon-manifest.json`. `pnpm icons:sync` and the nightly workflow
+copy icons unmodified from the official pack.
+
 ## Known gaps
 
 Bunya is honest about scope. The full live list is at
@@ -548,11 +612,21 @@ Bunya is honest about scope. The full live list is at
 - VMSS health probes and Azure Monitor Agent are modelled as properties today;
   Load Balancer probes, Application Health extension and Data Collection Rules
   are not first-class graph nodes yet.
-- CIS Microsoft Azure Foundations Benchmark - commercial, not redistributable.
-- PCI DSS - commercial standard, out of project licence scope.
-- HITRUST CSF - commercial, out of scope for Australian-government workloads.
-- runtime policy enforcement (drift detection at runtime)
-- AWS support, GCP support (intentionally out of scope - Azure only)
+- CIS Microsoft Azure Foundations Benchmark - not ingested because it is
+  not redistributable under its licence terms; rules carry CIS control IDs through
+  Azure Policy alignment instead ([#5](https://github.com/jusso-dev/Bunya/issues/5)).
+- PCI DSS - permanently out of scope; Bunya cannot and should not certify card
+  workloads, so use a QSA ([#6](https://github.com/jusso-dev/Bunya/issues/6)).
+- HITRUST CSF - won't fix; a commercial US-healthcare framework outside the
+  Australian-government audience ([#7](https://github.com/jusso-dev/Bunya/issues/7)).
+- Runtime policy enforcement (drift detection at runtime) - out of scope
+  because it needs tenant credentials and a backend; export the Azure Policy
+  initiative instead ([#8](https://github.com/jusso-dev/Bunya/issues/8)).
+- AWS support, GCP support - permanently out of scope; the catalogue, rules and
+  generators are built on Azure's resource model ([#10](https://github.com/jusso-dev/Bunya/issues/10)).
+- Rule sources are pinned (PSRule v1.42.0, Checkov v3.2.0, Azure Naming Tool
+  v3.4.0) and the Terraform generator targets AzureRM 4.x. The nightly upstream
+  report tracks newer releases until rules are re-curated.
 
 ## The bunya pine
 

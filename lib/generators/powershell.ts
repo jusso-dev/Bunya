@@ -140,7 +140,7 @@ function emitNode(node: GraphNode, ctx: GeneratorContext): string[] {
         `    PlanName              = '${planName}'`,
         `    StorageAccountName    = '${stName}'`,
         `    Runtime               = '${(node.properties.runtime as string) ?? "node"}'`,
-        `    RuntimeVersion        = '${(node.properties.runtimeVersion as string) ?? "20"}'`,
+        `    RuntimeVersion        = '${(node.properties.runtimeVersion as string) ?? "22"}'`,
         `    FunctionsVersion      = '4'`,
         `    IdentityType          = 'SystemAssigned'`,
         `}`,

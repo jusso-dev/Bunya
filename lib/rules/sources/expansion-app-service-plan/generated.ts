@@ -67,10 +67,10 @@ export const EXPANSION_APP_SERVICE_PLAN_RULES: RuleEntry[] = [
   nodeRule({
     id: "AZPOL.APPSERVICEPLAN.AUTOSCALE",
     source: {
-      name: "Azure Policy built-ins",
+      name: "Azure Monitor autoscale",
       license: "CC-BY-4.0",
-      url: "https://learn.microsoft.com/en-us/azure/governance/policy/samples/built-in-policies",
-      ruleId: "App Service Plans should have autoscale enabled",
+      url: "https://learn.microsoft.com/en-us/azure/azure-monitor/autoscale/autoscale-get-started",
+      ruleId: "Autoscale for App Service plans",
     },
     category: "reliability",
     severity: "info",
@@ -78,8 +78,8 @@ export const EXPANSION_APP_SERVICE_PLAN_RULES: RuleEntry[] = [
     message:
       "[advisory] Premium App Service Plan should allow autoscale beyond a single worker in production.",
     longExplanation:
-      "The built-in Azure Policy 'App Service Plans should have autoscale enabled' checks for an autoscale setting attached to the plan that can scale beyond a single instance. Bunya does not model the Microsoft.Insights/autoscaleSettings resource on the App Service plan, so this rule is surfaced as guidance rather than auto-flagged. Configure an autoscale rule in your IaC alongside the plan.",
-    tags: ["bunya", "azure-policy", "app-service-plan", "autoscale", "advisory", "expansion"],
+      "Azure Monitor autoscale settings let a Premium App Service plan scale beyond a single worker when load rises. There is no built-in Azure Policy for this setting, so it cannot be exported as a policy assignment. Bunya does not model the Microsoft.Insights/autoscaleSettings resource on the App Service plan, so this rule is surfaced as guidance rather than auto-flagged. Configure an autoscale rule in your IaC alongside the plan.",
+    tags: ["bunya", "azure-monitor", "app-service-plan", "autoscale", "advisory", "expansion"],
     predicate: () => false,
   }),
 

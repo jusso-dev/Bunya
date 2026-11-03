@@ -1,0 +1,285 @@
+name: Nightly upstream sync
+
+# Keeps Bunya in step with the Microsoft sources it depends on:
+#   - Azure architecture icons (pnpm icons:sync)
+#   - Azure Policy built-in metadata and CIS control alignment (pnpm compliance:sync)
+#   - rule-source releases, AzureRM majors and Azure retirements (pnpm upstream:check)
+#
+# Mechanical updates (icons, policy metadata, and the GitHub Pages build when
+# icons change) are force-pushed to the automation/nightly-upstream branch and
+# offered as a single pull request. Anything that needs a human (failed checks,
+# upstream releases that need rules re-curated, retirements, or a pull request
+# that could not be opened) is tracked in one "Nightly upstream report" issue.
+#
+# Pull requests opened with the default GITHUB_TOKEN do not trigger CI, and
+# creating them requires "Allow GitHub Actions to create and approve pull
+# requests" in the repository settings. Set a BUNYA_AUTOMATION_TOKEN secret
+# (fine-grained PAT: contents, pull requests and issues read/write) to have CI
+# run on the automated pull request. Without either, the branch is still pushed
+# and linked from the report issue.
+
+on:
+  schedule:
+    - cron: "23 17 * * *" # 03:23 AEST / 04:23 AEDT
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-upstream
+  cancel-in-progress: false
+
+env:
+  BRANCH: automation/nightly-upstream
+  ISSUE_TITLE: Nightly upstream report
+  ISSUE_LABEL: upstream-drift
+
+jobs:
+  sync:
+    name: Sync icons, policy metadata and upstream report
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      # Credentials are not persisted, so dependency scripts and repository
+      # code run during the sync cannot read the write token. Only the publish
+      # step uses it.
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 10.33.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Sync Azure Policy metadata
+        id: compliance
+        run: |
+          set +e
+          if ! git clone --quiet --depth 1 --filter=blob:none --sparse https://github.com/Azure/azure-policy.git "$RUNNER_TEMP/azure-policy" ||
+             ! git -C "$RUNNER_TEMP/azure-policy" sparse-checkout set built-in-policies/policyDefinitions "built-in-policies/policySetDefinitions/Regulatory Compliance"; then
+            printf '### Azure Policy compliance metadata\n\n- ❌ Could not fetch Azure/azure-policy.\n' > "$RUNNER_TEMP/compliance.md"
+            echo "exit=1" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          pnpm --silent compliance:sync --repo "$RUNNER_TEMP/azure-policy" --report "$RUNNER_TEMP/compliance.md"
+          echo "exit=$?" >> "$GITHUB_OUTPUT"
+          regen=0
+          if ! git diff --quiet -- lib/rules/compliance; then
+            # Alignment changes flow into the generated coverage docs and the
+            # Azure Policy export snapshots.
+            pnpm --silent rules:coverage || regen=1
+            pnpm exec vitest run -u lib/generators/azure-policy.test.ts > /dev/null || regen=1
+          fi
+          if [ "$regen" != "0" ]; then
+            printf '\n- ❌ Regenerating coverage docs or the Azure Policy export snapshot failed; see the run log.\n' >> "$RUNNER_TEMP/compliance.md"
+          fi
+          echo "regen=$regen" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Sync Azure architecture icons
+        id: icons
+        run: |
+          set +e
+          pnpm --silent icons:sync --report "$RUNNER_TEMP/icons.md"
+          echo "exit=$?" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      # Retirement notices stay in the open report issue until someone removes
+      # them from it (or closes the issue), so they are read back first.
+      - name: Check upstream releases and retirements
+        id: upstream
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          gh issue list --state open --label "$ISSUE_LABEL" --limit 50 --json title,body \
+            --jq "map(select(.title == \"$ISSUE_TITLE\")) | .[0].body // empty" > "$RUNNER_TEMP/previous-issue.md"
+          pnpm --silent upstream:check --report "$RUNNER_TEMP/upstream.md" --days 14 --previous "$RUNNER_TEMP/previous-issue.md"
+          echo "exit=$?" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      # GitHub Pages serves the committed docs/ build, so icon changes must
+      # ship with a rebuilt site.
+      - name: Rebuild GitHub Pages site
+        id: pages
+        run: |
+          set +e
+          status=0
+          if ! git diff --quiet -- public/azure-icons || [ -n "$(git ls-files --others --exclude-standard public/azure-icons)" ]; then
+            pnpm build:pages
+            status=$?
+            if [ "$status" != "0" ]; then
+              # Do not publish icons without the matching site build.
+              git checkout -- public/azure-icons lib/catalogue/icon-manifest.json docs
+              git clean -fdq -- public/azure-icons docs
+            fi
+          fi
+          echo "exit=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Test synced changes
+        id: tests
+        run: |
+          set +e
+          if git diff --quiet && [ -z "$(git ls-files --others --exclude-standard)" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          pnpm typecheck > "$RUNNER_TEMP/tests.log" 2>&1 && pnpm test >> "$RUNNER_TEMP/tests.log" 2>&1
+          status=$?
+          echo "exit=$status" >> "$GITHUB_OUTPUT"
+          echo "::group::Typecheck and unit test output"
+          tail -n 200 "$RUNNER_TEMP/tests.log"
+          echo "::endgroup::"
+          exit 0
+
+      - name: Close superseded pull request
+        if: steps.tests.outputs.changed == 'false'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.BUNYA_AUTOMATION_TOKEN || github.token }}
+        run: |
+          existing="$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            gh pr close "$existing" --delete-branch --comment "main already matches upstream; nothing left to sync."
+          fi
+
+      - name: Open or update pull request
+        id: pr
+        if: steps.tests.outputs.changed == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.BUNYA_AUTOMATION_TOKEN || github.token }}
+          TESTS_EXIT: ${{ steps.tests.outputs.exit }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          COMPARE_URL: ${{ github.server_url }}/${{ github.repository }}/compare/main...automation/nightly-upstream
+        run: |
+          echo "fallback=true" >> "$GITHUB_OUTPUT"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C "$BRANCH"
+          git add -A
+          git commit --quiet -m "chore: nightly upstream sync"
+          # The branch is owned by this workflow and rebuilt from main each run.
+          git push --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${BRANCH}"
+          echo "url=$COMPARE_URL" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "Automated by the [nightly upstream sync]($RUN_URL)."
+            echo
+            if [ "$TESTS_EXIT" = "0" ]; then
+              echo "Typecheck and unit tests passed on the synced changes."
+            else
+              echo "> [!WARNING]"
+              echo "> Typecheck or unit tests failed on the synced changes. A rule mapping or snapshot needs a human; see the \"Test synced changes\" step in the run log."
+            fi
+            echo
+            cat "$RUNNER_TEMP/compliance.md" "$RUNNER_TEMP/icons.md" 2>/dev/null || true
+            echo
+            echo "Icons must stay unmodified copies of Microsoft's pack; review artwork changes before merging."
+          } > "$RUNNER_TEMP/pr.md"
+
+          existing="$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            gh pr edit "$existing" --body-file "$RUNNER_TEMP/pr.md"
+            url="$(gh pr view "$existing" --json url --jq .url)"
+          else
+            url="$(gh pr create --base main --head "$BRANCH" --title "chore: nightly upstream sync" --body-file "$RUNNER_TEMP/pr.md")"
+          fi
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "fallback=false" >> "$GITHUB_OUTPUT"
+
+      - name: Publish report issue
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHANGED: ${{ steps.tests.outputs.changed }}
+          TESTS_EXIT: ${{ steps.tests.outputs.exit }}
+          PR_URL: ${{ steps.pr.outputs.url }}
+          PR_FALLBACK: ${{ steps.pr.outputs.fallback }}
+          COMPLIANCE_EXIT: ${{ steps.compliance.outputs.exit }}
+          COMPLIANCE_ATTENTION: ${{ steps.compliance.outputs.attention }}
+          COMPLIANCE_REGEN: ${{ steps.compliance.outputs.regen }}
+          ICONS_EXIT: ${{ steps.icons.outputs.exit }}
+          PAGES_EXIT: ${{ steps.pages.outputs.exit }}
+          UPSTREAM_EXIT: ${{ steps.upstream.outputs.exit }}
+          UPSTREAM_ATTENTION: ${{ steps.upstream.outputs.attention }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          needs_human=false
+          # Missing outputs mean a step did not run, which also needs a look.
+          if [ "$UPSTREAM_ATTENTION" = "true" ] || [ "$COMPLIANCE_ATTENTION" = "true" ] || [ "$COMPLIANCE_REGEN" = "1" ] ||
+             [ "$COMPLIANCE_EXIT" != "0" ] || [ "$ICONS_EXIT" != "0" ] || [ "$PAGES_EXIT" != "0" ] || [ "$UPSTREAM_EXIT" != "0" ]; then
+            needs_human=true
+          fi
+          if [ "$CHANGED" = "true" ] && { [ "$TESTS_EXIT" != "0" ] || [ "$PR_FALLBACK" != "false" ]; }; then
+            needs_human=true
+          fi
+
+          # Reuse one issue for the life of the repository, open or closed.
+          existing="$(gh issue list --state all --label "$ISSUE_LABEL" --limit 50 --json number,title,state \
+            --jq "map(select(.title == \"$ISSUE_TITLE\")) | .[0] // empty | \"\(.number) \(.state)\"")"
+          number="${existing%% *}"
+          state="${existing##* }"
+
+          if [ "$needs_human" = "false" ]; then
+            if [ -n "$number" ] && [ "$state" = "OPEN" ]; then
+              gh issue close "$number" --comment "Nothing upstream needs attention as of the [latest run]($RUN_URL)."
+            fi
+            exit 0
+          fi
+
+          {
+            # No run link or date here: the body only changes when the report does.
+            echo "Maintained by the nightly upstream sync workflow (\`.github/workflows/nightly-upstream.yml\`)."
+            echo
+            if [ -n "$PR_URL" ]; then
+              if [ "$PR_FALLBACK" = "false" ]; then echo "Mechanical updates: $PR_URL"; else echo "Mechanical updates were pushed but no pull request could be opened: $PR_URL"; fi
+              echo
+            elif [ "$CHANGED" = "true" ]; then
+              echo "Mechanical updates were found but could not be pushed; see the run log."
+              echo
+            fi
+            if [ "$PAGES_EXIT" != "0" ]; then
+              echo "> [!WARNING]"
+              echo "> The GitHub Pages rebuild failed, so icon updates were held back."
+              echo
+            fi
+            if [ "$CHANGED" = "true" ] && [ "$TESTS_EXIT" != "0" ]; then
+              echo "> [!WARNING]"
+              echo "> Typecheck or unit tests failed on the synced changes."
+              echo
+            fi
+            cat "$RUNNER_TEMP/upstream.md" 2>/dev/null || echo "Upstream check did not produce a report."
+            echo
+            cat "$RUNNER_TEMP/compliance.md" "$RUNNER_TEMP/icons.md" 2>/dev/null || true
+          } > "$RUNNER_TEMP/issue.md"
+
+          gh label create "$ISSUE_LABEL" --color FBCA04 --description "Upstream source, icon or retirement changes" 2>/dev/null || true
+          if [ -z "$number" ]; then
+            gh issue create --title "$ISSUE_TITLE" --label "$ISSUE_LABEL" --body-file "$RUNNER_TEMP/issue.md"
+            exit 0
+          fi
+          if [ "$state" != "OPEN" ]; then gh issue reopen "$number"; fi
+          # Only edit when the report changed, so watchers are not notified nightly.
+          if [ "$(gh issue view "$number" --json body --jq .body)" != "$(cat "$RUNNER_TEMP/issue.md")" ]; then
+            gh issue edit "$number" --body-file "$RUNNER_TEMP/issue.md"
+          fi

@@ -148,6 +148,40 @@ function serviceTypeFor(resource: FlatArmResource): ServiceType | null {
   return serviceTypeOf(resource.type);
 }
 
+const LINUX_FX_RUNTIMES: Record<string, string> = {
+  NODE: "node",
+  PYTHON: "python",
+  DOTNETCORE: "dotnet",
+  DOTNET: "dotnet",
+  "DOTNET-ISOLATED": "dotnet",
+  JAVA: "java",
+  POWERSHELL: "powershell",
+};
+
+// `siteConfig.linuxFxVersion` is "<RUNTIME>|<VERSION>", e.g. "NODE|18-lts".
+// Keeping the exported runtime lets lifecycle rules see what is deployed.
+function linuxRuntime(
+  siteConfig: Record<string, unknown>,
+  resourceName: string,
+  parameters: Record<string, unknown>,
+  variables: Record<string, unknown>,
+  warnings: string[],
+): Record<string, string> {
+  const fx = resolveString(siteConfig.linuxFxVersion, parameters, variables);
+  if (!fx) return {};
+  const match = /^([A-Za-z-]+)\|(.+)$/.exec(fx.trim());
+  const runtime = match ? LINUX_FX_RUNTIMES[match[1].toUpperCase()] : undefined;
+  if (!match || !runtime) {
+    warnings.push(`${resourceName}: runtime "${fx}" is not modelled; Bunya defaults were used.`);
+    return {};
+  }
+  if (match[1].toUpperCase() === "DOTNET-ISOLATED") {
+    // Bunya models .NET as one runtime; the isolated worker setting is not kept.
+    warnings.push(`${resourceName}: the .NET isolated worker model is not modelled; review FUNCTIONS_WORKER_RUNTIME after export.`);
+  }
+  return { runtime, runtimeVersion: match[2].trim() };
+}
+
 function baseProperties(type: ServiceType, resource: FlatArmResource, parameters: Record<string, unknown>, variables: Record<string, unknown>, warnings: string[]): Record<string, unknown> {
   const def = getServiceDefinition(type);
   const props = asRecord(resource.raw.properties);
@@ -179,6 +213,7 @@ function baseProperties(type: ServiceType, resource: FlatArmResource, parameters
     case "appService":
       return {
         ...defaults,
+        ...linuxRuntime(asRecord(props.siteConfig), resource.name, parameters, variables, warnings),
         httpsOnly: props.httpsOnly !== false,
         alwaysOn: asRecord(props.siteConfig).alwaysOn !== false,
         publicNetworkAccess: asString(props.publicNetworkAccess) !== "Disabled",
@@ -186,6 +221,7 @@ function baseProperties(type: ServiceType, resource: FlatArmResource, parameters
     case "functionApp":
       return {
         ...defaults,
+        ...linuxRuntime(asRecord(props.siteConfig), resource.name, parameters, variables, warnings),
         httpsOnly: props.httpsOnly !== false,
         publicNetworkAccess: asString(props.publicNetworkAccess) !== "Disabled",
       };

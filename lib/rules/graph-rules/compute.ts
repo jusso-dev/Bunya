@@ -55,7 +55,70 @@ const VMSS_MONITOR_SOURCE = {
   license: "CC-BY-4.0",
 } as const;
 
+const RUNTIME_SUPPORT_SOURCE = {
+  name: "Azure Functions and App Service language runtime support policy",
+  url: "https://learn.microsoft.com/en-us/azure/azure-functions/language-support-policy",
+  license: "CC-BY-4.0",
+} as const;
+
+// End of Azure platform support per runtime version. Keep in step with the
+// retirement notices `pnpm upstream:check` reports from Azure Updates.
+const RUNTIME_END_OF_SUPPORT: Record<string, Record<string, string>> = {
+  node: { "18": "2025-04-30", "20": "2026-04-30", "22": "2027-04-30", "24": "2028-04-30" },
+  python: { "3.8": "2024-10-31", "3.9": "2025-10-31", "3.10": "2026-10-31", "3.11": "2027-10-31", "3.12": "2028-10-31" },
+  dotnet: { "6": "2024-11-12", "7": "2024-05-14", "8": "2026-11-10", "9": "2026-11-10" },
+  powershell: { "7.2": "2024-11-08", "7.4": "2026-11-10" },
+};
+
+const RUNTIME_WARNING_DAYS = 90;
+
+function runtimeKey(runtime: string, version: string): string | null {
+  const digits = /(\d+)(?:\.(\d+))?/.exec(version);
+  if (!digits) return null;
+  return runtime === "python" || runtime === "powershell" ? `${digits[1]}.${digits[2] ?? "0"}` : digits[1];
+}
+
+/** "ended" or "ending" with the end date, or null when supported or unknown. */
+export function runtimeSupportStatus(
+  runtime: string,
+  version: string,
+  now = new Date(),
+): { state: "ended" | "ending"; endDate: string } | null {
+  const key = runtimeKey(runtime, version);
+  const endDate = key ? RUNTIME_END_OF_SUPPORT[runtime]?.[key] : undefined;
+  if (!endDate) return null;
+  const days = (Date.parse(`${endDate}T00:00:00Z`) - now.getTime()) / 86_400_000;
+  if (days <= 0) return { state: "ended", endDate };
+  return days <= RUNTIME_WARNING_DAYS ? { state: "ending", endDate } : null;
+}
+
 export const computeRules: RuleEntry[] = [
+  graphRule({
+    id: "BUNYA.COMP.RUNTIME-EOL",
+    source: RUNTIME_SUPPORT_SOURCE,
+    category: "compliance",
+    severity: "warning",
+    appliesToServices: ["appService", "functionApp"],
+    message: "Runtime version is past, or close to, the end of Azure platform support.",
+    longExplanation:
+      "Azure stops patching a language runtime on App Service and Azure Functions when it reaches end of support, and apps on that version stop receiving security fixes. Pick a currently supported runtime version before deploying. Bunya warns 90 days before the end date so upgrades can be scheduled.",
+    tags: ["bunya", "runtime", "patching", "essential-eight", "lifecycle"],
+    predicate: (graph) =>
+      graph.nodes.flatMap((node) => {
+        if (node.type !== "appService" && node.type !== "functionApp") return [];
+        const { runtime, runtimeVersion } = node.properties as { runtime?: string; runtimeVersion?: string };
+        if (!runtime || !runtimeVersion) return [];
+        const status = runtimeSupportStatus(runtime, runtimeVersion);
+        if (!status) return [];
+        return [{
+          nodeIds: [node.id],
+          message:
+            status.state === "ended"
+              ? `${node.name} uses ${runtime} ${runtimeVersion}, which reached end of Azure support on ${status.endDate}.`
+              : `${node.name} uses ${runtime} ${runtimeVersion}, which reaches end of Azure support on ${status.endDate}.`,
+        }];
+      }),
+  }),
   nodeRule({
     id: "BUNYA.COMP.010",
     source: AKS_TEMPLATE_SOURCE,

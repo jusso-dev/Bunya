@@ -25,6 +25,6 @@ az storage account create --only-show-errors --resource-group "rg-first-cut" --n
 az keyvault create --only-show-errors --resource-group "rg-first-cut" --name "kv-first-cut-11vqlt" --location "australiaeast" --sku "standard" --enable-rbac-authorization true --enable-purge-protection true --retention-days 7 --public-network-access Disabled >/dev/null
 
 # App Service app-first-cut
-az webapp create --only-show-errors --resource-group "rg-first-cut" --name "app-first-cut" --plan "plan-first-cut" --runtime "NODE|20-lts" --https-only true --public-network-access Enabled --assign-identity '[system]' >/dev/null
+az webapp create --only-show-errors --resource-group "rg-first-cut" --name "app-first-cut" --plan "plan-first-cut" --runtime "NODE|22-lts" --https-only true --public-network-access Enabled --assign-identity '[system]' >/dev/null
 "
 `;

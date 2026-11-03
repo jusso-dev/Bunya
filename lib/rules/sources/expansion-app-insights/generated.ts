@@ -18,7 +18,7 @@ export const EXPANSION_APP_INSIGHTS_RULES: RuleEntry[] = [
       version: "2026-04-01",
       url: "https://learn.microsoft.com/en-us/azure/governance/policy/samples/built-in-policies",
       ruleId:
-        "Application Insights components should block non-Microsoft Entra ID based ingestion",
+        "Application Insights components should block non-Azure Active Directory based ingestion.",
     },
     category: "compliance",
     severity: "warning",
@@ -26,7 +26,7 @@ export const EXPANSION_APP_INSIGHTS_RULES: RuleEntry[] = [
     message:
       "[advisory] Application Insights should block non-Microsoft Entra ID (local) ingestion.",
     longExplanation:
-      "Application Insights components support local authentication via instrumentation keys, which bypasses Microsoft Entra ID controls and complicates revocation when keys leak. The Azure Policy built-in 'Application Insights components should block non-Microsoft Entra ID based ingestion' enforces DisableLocalAuth=true so ingestion is gated by Entra-issued tokens. Bunya does not model the DisableLocalAuth property today, so this rule is advisory only.",
+      "Application Insights components support local authentication via instrumentation keys, which bypasses Microsoft Entra ID controls and complicates revocation when keys leak. The Azure Policy built-in 'Application Insights components should block non-Azure Active Directory based ingestion.' enforces DisableLocalAuth=true so ingestion is gated by Entra-issued tokens. Bunya does not model the DisableLocalAuth property today, so this rule is advisory only.",
     tags: ["bunya", "azure-policy", "app-insights", "identity", "compliance"],
     predicate: () => false,
   }),

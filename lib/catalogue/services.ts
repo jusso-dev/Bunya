@@ -105,7 +105,7 @@ export const appServicePlanSchema = z.object({
 
 export const appServiceSchema = z.object({
   runtime: z.enum(["node", "python", "dotnet", "java"]).default("node"),
-  runtimeVersion: z.string().default("20-lts"),
+  runtimeVersion: z.string().default("22-lts"),
   httpsOnly: z.boolean().default(true),
   alwaysOn: z.boolean().default(true),
   vnetIntegration: z.boolean().default(false),
@@ -114,7 +114,7 @@ export const appServiceSchema = z.object({
 
 export const functionAppSchema = z.object({
   runtime: z.enum(["node", "python", "dotnet", "java", "powershell"]).default("node"),
-  runtimeVersion: z.string().default("20"),
+  runtimeVersion: z.string().default("22"),
   consumptionPlan: z.boolean().default(true),
   httpsOnly: z.boolean().default(true),
   publicNetworkAccess: z.boolean().default(true),

@@ -18,6 +18,9 @@
     "rules:coverage": "tsx scripts/generate-coverage.ts",
     "rules:verify": "tsx scripts/import-rules/verify.ts",
     "prices:refresh": "tsx scripts/prices-refresh.ts",
+    "compliance:sync": "tsx scripts/compliance-sync.ts",
+    "icons:sync": "tsx scripts/icons-sync.ts",
+    "upstream:check": "tsx scripts/upstream-check.ts",
     "e2e": "playwright test"
   },
   "dependencies": {

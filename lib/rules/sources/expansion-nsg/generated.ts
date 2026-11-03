@@ -206,15 +206,15 @@ export const EXPANSION_NSG_RULES: RuleEntry[] = [
       license: "MIT",
       version: "2026-04-01",
       url: "https://learn.microsoft.com/en-us/azure/governance/policy/samples/built-in-policies",
-      ruleId: "Network Security Groups should have NSG Flow Logs enabled",
+      ruleId: "Audit flow logs configuration for every virtual network",
     },
     category: "observability",
     severity: "info",
     serviceTypes: ["networkSecurityGroup"],
     message:
-      "[advisory] NSG should have Flow Logs enabled (manual review — property not modelled).",
+      "[advisory] Traffic filtered by this NSG should be captured by virtual network flow logs (manual review — property not modelled).",
     longExplanation:
-      "The Azure Policy built-in *Network Security Groups should have NSG Flow Logs enabled* requires every NSG to emit flow logs to a Network Watcher and storage account so traffic can be audited and replayed for incident response. Bunya does not currently model the Flow Logs resource, so this rule is surfaced as advisory: confirm in your IaC or policy assignment that flowLogs is enabled with traffic analytics where appropriate.",
+      "Flow logs let traffic through an NSG be audited and replayed during incident response. Microsoft has retired the creation of new NSG flow logs and recommends virtual network flow logs instead; the Azure Policy built-in *Audit flow logs configuration for every virtual network* checks that each virtual network has one. Bunya does not currently model the flow log resource, so this rule is advisory: confirm in your IaC or policy assignment that virtual network flow logs are enabled, with traffic analytics where appropriate.",
     tags: ["bunya", "azure-policy", "nsg", "flow-logs", "observability", "advisory"],
     predicate: () => false,
   }),

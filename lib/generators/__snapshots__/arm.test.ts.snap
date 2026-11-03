@@ -91,7 +91,7 @@ exports[`generateArm > snapshots first-cut ARM output 1`] = `
         "siteConfig": {
           "minTlsVersion": "1.2",
           "alwaysOn": true,
-          "linuxFxVersion": "NODE|20-lts"
+          "linuxFxVersion": "NODE|22-lts"
         }
       },
       "tags": {

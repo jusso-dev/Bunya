@@ -38,7 +38,10 @@ classification that drives how the rule appears in the pipeline:
 - Licence: MIT
 - Classification: INGEST
 - Description: Microsoft's catalogue of built-in Azure Policy definitions
-  used to align our rules with Azure-native enforcement.
+  used to align our rules with Azure-native enforcement. `pnpm compliance:sync`
+  also reads policy versions, parameters and regulatory-compliance control IDs
+  into `lib/rules/compliance/policy-metadata.generated.ts`, which drives CIS
+  alignment tags and the Azure Policy export.
 
 ### Azure Naming Tool
 - URL: https://github.com/mspnp/AzureNamingTool
@@ -148,21 +151,30 @@ classification that drives how the rule appears in the pipeline:
 
 ### CIS Microsoft Azure Foundations Benchmark
 - URL: https://www.cisecurity.org/benchmark/azure
-- Licence: Commercial — not redistributable
-- Classification: OUT-OF-SCOPE
+- Licence: CIS licence terms; not redistributable in Bunya
+- Classification: OUT-OF-SCOPE (aligned indirectly, see #5)
 - Description: CIS Benchmark for Azure. Licence terms prevent us from
-  shipping rule text directly; we map equivalent rules from other sources.
+  shipping rule text, rule titles or benchmark prose, and none is ingested.
+  Decision ([#5](https://github.com/jusso-dev/Bunya/issues/5)): rules are
+  tagged `cis-azure-v3.0.0:<control>` when they check the same setting as an
+  Azure Policy built-in that Microsoft's CIS Azure Foundations v3.0.0
+  initiative groups under that control. Only control IDs are copied, by
+  `pnpm compliance:sync`, from the MIT-licensed Azure Policy repository below.
+  The UI says "aligned", never "compliant".
 
 ### PCI DSS
 - URL: https://www.pcisecuritystandards.org/
 - Licence: Commercial standard
-- Classification: OUT-OF-SCOPE
-- Description: Payment Card Industry Data Security Standard. Out of project
-  licence scope; not ingested.
+- Classification: OUT-OF-SCOPE (permanent)
+- Description: Payment Card Industry Data Security Standard. Decision
+  ([#6](https://github.com/jusso-dev/Bunya/issues/6)): Bunya does not check
+  PCI DSS and adds no PCI tags, even though Azure Policy publishes a PCI DSS
+  initiative. Use a QSA, not a diagram tool.
 
 ### HITRUST CSF
 - URL: https://hitrustalliance.net/
 - Licence: Commercial; out of Australian government scope
-- Classification: OUT-OF-SCOPE
-- Description: HITRUST Common Security Framework. Commercial and not in
-  scope for Australian-government workloads Bunya targets.
+- Classification: OUT-OF-SCOPE (won't fix)
+- Description: HITRUST Common Security Framework. Decision
+  ([#7](https://github.com/jusso-dev/Bunya/issues/7)): commercial,
+  US-healthcare-centric and outside the Australian-government audience.

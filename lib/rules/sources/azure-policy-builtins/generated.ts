@@ -92,11 +92,11 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
     predicate: (n) => getProp<boolean>(n, "httpsOnly") === false,
   }),
 
-  // 5. AZPOL.WEB.LATEST-TLS — Latest TLS version should be used in your Web App
+  // 5. AZPOL.WEB.LATEST-TLS — App Service apps should use the latest TLS version
   nodeRule({
     id: "AZPOL.WEB.LATEST-TLS",
     source: policySrc(
-      "Latest TLS version should be used in your Web App",
+      "App Service apps should use the latest TLS version",
     ),
     category: "data-protection",
     severity: "warning",
@@ -104,7 +104,7 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
     message:
       "[advisory] App Service should use the latest TLS version (1.2 or newer).",
     longExplanation:
-      "Azure Policy built-in *Latest TLS version should be used in your Web App* requires the site config `minTlsVersion` to be 1.2 or newer. Bunya does not yet model that site config setting.",
+      "Azure Policy built-in *App Service apps should use the latest TLS version* requires the site config `minTlsVersion` to be 1.2 or newer. Bunya does not yet model that site config setting.",
     tags: ["azure-policy", "app-service", "tls", "advisory"],
     predicate: () => false,
   }),
@@ -139,11 +139,11 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
     predicate: (n) => getProp<boolean>(n, "httpsOnly") === false,
   }),
 
-  // 8. AZPOL.FN.LATEST-TLS — Latest TLS version should be used in your Function App
+  // 8. AZPOL.FN.LATEST-TLS — Function apps should use the latest TLS version
   nodeRule({
     id: "AZPOL.FN.LATEST-TLS",
     source: policySrc(
-      "Latest TLS version should be used in your Function App",
+      "Function apps should use the latest TLS version",
     ),
     category: "data-protection",
     severity: "warning",
@@ -151,7 +151,7 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
     message:
       "[advisory] Function App should use the latest TLS version (1.2 or newer).",
     longExplanation:
-      "Azure Policy built-in *Latest TLS version should be used in your Function App* requires the site config `minTlsVersion` to be 1.2 or newer. Bunya does not yet model that site config setting.",
+      "Azure Policy built-in *Function apps should use the latest TLS version* requires the site config `minTlsVersion` to be 1.2 or newer. Bunya does not yet model that site config setting.",
     tags: ["azure-policy", "function-app", "tls", "advisory"],
     predicate: () => false,
   }),
@@ -211,7 +211,7 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
   nodeRule({
     id: "AZPOL.COS.PUBLIC-ACCESS",
     source: policySrc(
-      "Azure Cosmos DB accounts should have public network access disabled",
+      "Azure Cosmos DB should disable public network access",
     ),
     category: "network",
     severity: "warning",
@@ -219,7 +219,7 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
     message:
       "[advisory] Cosmos DB account should disable public network access.",
     longExplanation:
-      "Azure Policy built-in *Azure Cosmos DB accounts should have public network access disabled* requires `publicNetworkAccess = Disabled`. Bunya does not yet model this property on Cosmos accounts.",
+      "Azure Policy built-in *Azure Cosmos DB should disable public network access* requires `publicNetworkAccess = Disabled`. Bunya does not yet model this property on Cosmos accounts.",
     tags: ["azure-policy", "cosmos", "public-access", "advisory"],
     predicate: () => false,
   }),
@@ -227,27 +227,27 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
   // 13. AZPOL.KV.FIREWALL — Azure Key Vault should have firewall enabled
   nodeRule({
     id: "AZPOL.KV.FIREWALL",
-    source: policySrc("Azure Key Vault should have firewall enabled"),
+    source: policySrc("Azure Key Vault should have firewall enabled or public network access disabled"),
     category: "network",
     severity: "error",
     serviceTypes: ["keyVault"],
     message: "Key Vault must disable public network access (firewall on).",
     longExplanation:
-      "Azure Policy built-in *Azure Key Vault should have firewall enabled* requires `publicNetworkAccess = Disabled` (or a tight `networkAcls` block). Bunya models this as the `publicNetworkAccess` boolean.",
+      "Azure Policy built-in *Azure Key Vault should have firewall enabled or public network access disabled* requires `publicNetworkAccess = Disabled` (or a tight `networkAcls` block). Bunya models this as the `publicNetworkAccess` boolean.",
     tags: ["azure-policy", "key-vault", "firewall"],
     predicate: (n) => getProp<boolean>(n, "publicNetworkAccess") === true,
   }),
 
-  // 14. AZPOL.KV.PURGE-PROTECT — Key vaults should have purge protection enabled
+  // 14. AZPOL.KV.PURGE-PROTECT — Key vaults should have deletion protection enabled
   nodeRule({
     id: "AZPOL.KV.PURGE-PROTECT",
-    source: policySrc("Key vaults should have purge protection enabled"),
+    source: policySrc("Key vaults should have deletion protection enabled"),
     category: "data-protection",
     severity: "error",
     serviceTypes: ["keyVault"],
     message: "Key Vault must have purge protection enabled.",
     longExplanation:
-      "Azure Policy built-in *Key vaults should have purge protection enabled* requires `enablePurgeProtection = true`. Without purge protection, soft-deleted material can be permanently destroyed within the retention window.",
+      "Azure Policy built-in *Key vaults should have deletion protection enabled* requires `enablePurgeProtection = true`. Without purge protection, soft-deleted material can be permanently destroyed within the retention window.",
     tags: ["azure-policy", "key-vault", "purge-protection"],
     predicate: (n) => getProp<boolean>(n, "purgeProtection") === false,
   }),
@@ -262,7 +262,7 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
     message:
       "Key Vault must have soft-delete retention set to at least 7 days.",
     longExplanation:
-      "Azure Policy built-in *Key vaults should have soft delete enabled* requires soft-delete to be enabled and a retention period configured. Bunya models the retention as `softDeleteRetentionDays`; a value below 7 days fails this control.",
+      "Azure Policy built-in *Key vaults should have soft delete enabled* requires soft-delete to be enabled. Soft-delete is always on for new vaults, so Bunya checks the retention it models as `softDeleteRetentionDays`; a value below 7 days fails this rule. The built-in policy does not check retention.",
     tags: ["azure-policy", "key-vault", "soft-delete"],
     predicate: (n) => {
       const days = getProp<number>(n, "softDeleteRetentionDays");
@@ -297,13 +297,13 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
   // 17. AZPOL.DIAG.LOG-ANALYTICS — Resource logs should be enabled (graph-wide check)
   graphRule({
     id: "AZPOL.DIAG.LOG-ANALYTICS",
-    source: policySrc("Resource logs should be enabled"),
+    source: policySrc("Resource logs should be enabled for Audit on supported resources"),
     category: "compliance",
     severity: "warning",
     message:
       "AppService, SQL and Key Vault resources should ship diagnostic logs to a Log Analytics workspace.",
     longExplanation:
-      "Azure Policy built-in *Resource logs should be enabled* requires diagnostic settings to be configured for in-scope resources. Bunya checks that App Services, SQL databases and Key Vaults have at least one `diagnostic` edge to a Log Analytics workspace.",
+      "Azure Policy built-in *Resource logs should be enabled for Audit on supported resources* requires diagnostic settings to be configured for in-scope resources. Bunya checks that App Services, SQL databases and Key Vaults have at least one `diagnostic` edge to a Log Analytics workspace.",
     tags: ["azure-policy", "diagnostics", "log-analytics"],
     appliesToServices: ["appService", "sqlDatabase", "keyVault"],
     predicate: (graph) => {
@@ -338,7 +338,7 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
     message:
       "Container Registry must disable public network access (use Private Link).",
     longExplanation:
-      "Azure Policy built-in *Container registries should use private link* requires `publicNetworkAccess = Disabled` and a Private Endpoint. Bunya enforces the public-access part here; Private Endpoint topology is checked elsewhere.",
+      "Azure Policy built-in *Container registries should use private link* audits registries without an approved Private Endpoint connection. Bunya checks the related setting it can model, `publicNetworkAccess = Disabled`, which the built-in *Public network access should be disabled for Container registries* also audits; Private Endpoint topology is checked by the graph rules.",
     tags: ["azure-policy", "acr", "private-link"],
     predicate: (n) => getProp<boolean>(n, "publicNetworkAccess") === true,
   }),
@@ -347,7 +347,7 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
   nodeRule({
     id: "AZPOL.APIM.MIN-API-VERSION",
     source: policySrc(
-      "API Management minimum API version should be 2019-12-01 or newer",
+      "[Deprecated]: API Management minimum API version should be set to 2019-12-01 or higher",
     ),
     category: "compliance",
     severity: "warning",
@@ -355,7 +355,7 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
     message:
       "[advisory] API Management should require management API version 2019-12-01 or newer.",
     longExplanation:
-      "Azure Policy built-in *API Management minimum API version should be 2019-12-01 or newer* requires the `apiVersionConstraint.minApiVersion` to be at least 2019-12-01 so older, less-secure ARM operations are rejected. Bunya does not yet model this constraint.",
+      "Azure Policy built-in *API Management minimum API version should be set to 2019-12-01 or higher* required `apiVersionConstraint.minApiVersion` to be at least 2019-12-01 so older, less-secure ARM operations were rejected. Microsoft has since deprecated the built-in because Azure Resource Manager no longer accepts the retired API versions. Keep the constraint in hand-written APIM templates; Bunya does not yet model it.",
     tags: ["azure-policy", "apim", "compliance", "advisory"],
     predicate: () => false,
   }),

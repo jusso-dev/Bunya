@@ -6,6 +6,40 @@ project follows [Conventional Commits](https://www.conventionalcommits.org/).
 
 ## [Unreleased]
 
+### Compliance alignment, Azure Policy export and nightly upstream sync
+
+- Tagged 44 rules with CIS Microsoft Azure Foundations v3.0.0 control IDs
+  (`cis-azure-v3.0.0:<control>`) through Microsoft's Azure Policy
+  regulatory-compliance initiative. No CIS text is shipped, and the validation
+  panel shows "Aligned", never "compliant" (#5).
+- Added an **Azure Policy** output tab and MCP export target: an audit-only
+  initiative of the built-in policies matching the diagram's rules, with Bicep
+  and az CLI assignment to the deployed resource groups (#8). The generated
+  README links to it.
+- Recorded permanent scope decisions for PCI DSS (#6), HITRUST CSF (#7),
+  runtime drift detection (#8) and AWS/GCP (#10) in `BACKLOG.md`, `SOURCES.md`,
+  `GAPS.md` and the README.
+- Replaced hand-drawn or borrowed icons for AKS, VMSS, Private DNS Zone, Monitor
+  Alert Rule, Action Group and Role Assignment with official Azure icons, and
+  recorded every icon in `lib/catalogue/icon-manifest.json`.
+- Added `pnpm compliance:sync`, `pnpm icons:sync` and `pnpm upstream:check`, and
+  a nightly workflow that opens one pull request for mechanical updates and keeps
+  one report issue for changes that need review.
+- Added a CI workflow for lint, typecheck, unit tests, rules verification,
+  build and Playwright e2e.
+- Added `BUNYA.COMP.RUNTIME-EOL`, which warns when an App Service or Function App
+  runtime is past, or within 90 days of, the end of Azure support. New App
+  Service and Function App nodes now default to Node 22 (Node 20 support ended
+  on 30 April 2026).
+- Fixed Azure Policy citations that named renamed, deprecated or non-existent
+  built-ins, and updated the NSG flow-log rule for the move to virtual network
+  flow logs.
+- Validation findings now link to their source.
+- ARM import keeps the Linux runtime and version from `siteConfig.linuxFxVersion`
+  instead of replacing it with Bunya defaults.
+- Added `THIRD_PARTY_NOTICES.md` for the Azure Policy metadata and Azure icons.
+- Fixed coverage framework counting that matched any `waf` or `e8` substring.
+
 ### First cut
 
 - Scaffolded Next.js 16 (App Router, Turbopack, Tailwind v4) project.

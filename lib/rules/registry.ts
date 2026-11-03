@@ -13,8 +13,9 @@ import { EXPANSION_APP_INSIGHTS_RULES } from "./sources/expansion-app-insights/g
 import { EXPANSION_APP_SERVICE_PLAN_RULES } from "./sources/expansion-app-service-plan/generated";
 import { EXPANSION_NSG_RULES } from "./sources/expansion-nsg/generated";
 import { EXPANSION_UAI_RULES } from "./sources/expansion-uai/generated";
+import { withAlignmentTags } from "./compliance";
 
-export const REGISTRY: RuleEntry[] = [
+export const REGISTRY: RuleEntry[] = withAlignmentTags([
   ...GRAPH_RULES,
   ...PSRULE_RULES,
   ...CHECKOV_RULES,
@@ -29,7 +30,7 @@ export const REGISTRY: RuleEntry[] = [
   ...EXPANSION_APP_SERVICE_PLAN_RULES,
   ...EXPANSION_NSG_RULES,
   ...EXPANSION_UAI_RULES,
-];
+]);
 
 export function getRule(id: string): RuleEntry | undefined {
   return REGISTRY.find((entry) => entry.rule.id === id);

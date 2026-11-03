@@ -18,6 +18,7 @@ import { generateBicep } from "../lib/generators/bicep";
 import { generateMermaid } from "../lib/generators/mermaid";
 import { generatePowerShell } from "../lib/generators/powershell";
 import { generateReadme } from "../lib/generators/readme";
+import { generateAzurePolicy } from "../lib/generators/azure-policy";
 import { generateTerraform } from "../lib/generators/terraform";
 import type { GeneratedFile, GeneratorResult } from "../lib/generators/types";
 import { runValidation, type Finding } from "../lib/validation/runner";
@@ -62,6 +63,7 @@ export const ExportTargetSchema = z.enum([
   "arm",
   "azcli",
   "powershell",
+  "azurePolicy",
   "mermaid",
   "readme",
   "all",
@@ -242,6 +244,7 @@ const generators: Record<Exclude<ExportTarget, "all">, (document: GraphDocument)
   arm: generateArm,
   azcli: generateAzCli,
   powershell: generatePowerShell,
+  azurePolicy: generateAzurePolicy,
   mermaid: generateMermaid,
   readme: generateReadme,
 };

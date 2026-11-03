@@ -17,6 +17,12 @@ import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { allArmTypes, serviceTypeOf } from "@/lib/rules/mapping";
+import {
+  COMPLIANCE_FRAMEWORKS,
+  POLICY_METADATA_SOURCE,
+  ruleAlignments,
+  withAlignmentTags,
+} from "@/lib/rules/compliance";
 import type { Rule, RuleEntry } from "@/lib/rules/schema";
 import { loadRegistry } from "./import-rules/loadRegistry";
 
@@ -31,9 +37,10 @@ const SOURCES_MD_PATH = path.join(DOCS_DIR, "SOURCES.md");
 
 const FRAMEWORK_PATTERNS: { framework: string; patterns: RegExp[] }[] = [
   { framework: "Australian ISM", patterns: [/\bism\b/i, /australian government information security/i] },
-  { framework: "Essential Eight", patterns: [/essential[- ]eight/i, /e8/i] },
+  { framework: "Essential Eight", patterns: [/essential[- ]eight/i, /\be8\b/i] },
   { framework: "Microsoft Cloud Security Benchmark", patterns: [/mcsb/i, /cloud security benchmark/i] },
-  { framework: "Well-Architected Framework", patterns: [/waf/i, /well[- ]architected/i] },
+  // Not /waf/: that also matches Web Application Firewall rules.
+  { framework: "Well-Architected Framework", patterns: [/well[- ]architected/i] },
   { framework: "Azure Policy built-ins", patterns: [/azure[- ]policy/i, /policy[- ]builtin/i] },
   { framework: "PSRule for Azure", patterns: [/psrule/i] },
   { framework: "Checkov", patterns: [/checkov/i] },
@@ -42,16 +49,13 @@ const FRAMEWORK_PATTERNS: { framework: string; patterns: RegExp[] }[] = [
   { framework: "DTA Hosting Certification Framework", patterns: [/hosting certification/i, /\bhcf\b/i] },
 ];
 
-const OUT_OF_SCOPE_FRAMEWORKS = [
-  "CIS Microsoft Azure Foundations Benchmark",
-  "PCI DSS",
-  "HITRUST CSF",
-];
+const ISSUES = "https://github.com/jusso-dev/Bunya/issues";
 
 const OUT_OF_SCOPE_TOPICS = [
-  "runtime policy enforcement (drift detection at runtime)",
-  "configuration drift between IaC and live Azure tenant",
-  "cost prediction / forecasting",
+  `runtime policy enforcement (drift detection at runtime) — needs tenant credentials, polling and a backend; Bunya stays design-time and exports an audit-only Azure Policy initiative instead ([#8](${ISSUES}/8))`,
+  `configuration drift between IaC and live Azure tenant — same reason as runtime enforcement; Azure Policy, Defender for Cloud and CSPM tools own this ([#8](${ISSUES}/8))`,
+  `AWS and GCP support — the catalogue, edge semantics, rules and generators are built on Azure's resource model ([#10](${ISSUES}/10))`,
+  "cost prediction / forecasting — Bunya shows indicative retail estimates only",
   "multi-region failover orchestration",
   "DDoS pricing tier optimisation",
 ];
@@ -296,15 +300,42 @@ function renderCoverage(
     ``,
     table(["Framework", "Rules"], frameworkRows),
     ``,
+    ...renderAlignment(rules),
   ];
   return sections.join("\n");
+}
+
+function renderAlignment(rules: RuleEntry[]): string[] {
+  const sections: string[] = [];
+  for (const framework of COMPLIANCE_FRAMEWORKS) {
+    const byControl = new Map<string, Set<string>>();
+    for (const entry of rules) {
+      for (const a of ruleAlignments(entry.rule.id)) {
+        if (a.framework.id !== framework.id) continue;
+        const set = byControl.get(a.controlId) ?? new Set<string>();
+        set.add(entry.rule.id);
+        byControl.set(a.controlId, set);
+      }
+    }
+    const rows = [...byControl.entries()]
+      .sort(([a], [b]) => a.localeCompare(b, "en", { numeric: true }))
+      .map(([control, ids]) => [control, String(ids.size), [...ids].sort().map((id) => `\`${id}\``).join(", ")]);
+    sections.push(
+      `## ${framework.name} v${framework.version} alignment`,
+      ``,
+      `Control IDs come from Microsoft's Azure Policy regulatory-compliance initiative \`${framework.initiativeId}\` (v${framework.initiativeVersion}, [Azure/azure-policy](${POLICY_METADATA_SOURCE.repository}) commit \`${POLICY_METADATA_SOURCE.commit.slice(0, 12)}\`). A rule is aligned with a control when it checks the same setting as a built-in policy Microsoft groups under that control. Alignment is not compliance, and no benchmark text is included.`,
+      ``,
+      table(["Control", "Rules", "Rule IDs"], rows),
+      ``,
+    );
+  }
+  return sections;
 }
 
 function renderGaps(
   rules: RuleEntry[],
   serviceCounts: Counts,
   categoryCounts: Counts,
-  frameworkCounts: Counts,
   pendingSources: string[],
 ): string {
   const thinServices = [...serviceCounts.entries()]
@@ -315,21 +346,17 @@ function renderGaps(
     .filter(([, count]) => count < CATEGORY_THIN_THRESHOLD)
     .sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]));
 
-  // The hardcoded list IS the OUT_OF_SCOPE_FRAMEWORKS catalogue, with one
-  // concise rationale per entry. Filtering against frameworkCounts is
-  // defensive — we never want CIS/PCI/HITRUST to appear in the matched
-  // set, but if a rule somehow tags itself with one of these names we still
-  // want it surfaced as a gap rather than counted as coverage.
-  const FRAMEWORK_RATIONALE: Record<string, string> = {
-    "CIS Microsoft Azure Foundations Benchmark":
-      "commercial, not redistributable",
-    "PCI DSS": "commercial standard; out of project licence scope",
-    "HITRUST CSF":
-      "commercial; not in scope for Australian-government workloads",
-  };
-  const missingFrameworks = OUT_OF_SCOPE_FRAMEWORKS.filter(
-    (fw) => !frameworkCounts.has(fw),
-  );
+  // Scope decisions for frameworks Bunya does not ingest. CIS is listed even
+  // though rules carry CIS control IDs: alignment is not ingestion.
+  const cisAligned = rules.filter((entry) =>
+    ruleAlignments(entry.rule.id).some((a) => a.framework.id === "cis-azure"),
+  ).length;
+  const cis = COMPLIANCE_FRAMEWORKS.find((f) => f.id === "cis-azure");
+  const frameworkDecisions = [
+    `- CIS Microsoft Azure Foundations Benchmark — CIS licence terms do not permit redistribution in Bunya. Benchmark text is never ingested. ${cisAligned} rules are tagged \`cis-azure-v${cis?.version ?? "?"}:<control>\` through Microsoft's Azure Policy regulatory-compliance mapping, shown as "aligned", never "compliant" ([#5](${ISSUES}/5))`,
+    `- PCI DSS — permanently out of scope. Bunya does not check PCI DSS and adds no PCI tags; use a QSA, not a diagram tool ([#6](${ISSUES}/6))`,
+    `- HITRUST CSF — won't fix. Commercial, US-healthcare-centric and outside the Australian-government audience ([#7](${ISSUES}/7))`,
+  ];
 
   const sections: string[] = [
     `# Rules Coverage Gaps`,
@@ -344,11 +371,9 @@ function renderGaps(
       ? `- _no thinly-covered services_`
       : thinServices.map(([svc, count]) => `- **${svc}** — ${count} rule${count === 1 ? "" : "s"}`).join("\n"),
     ``,
-    `## Compliance frameworks not yet ingested`,
+    `## Compliance frameworks not ingested`,
     ``,
-    ...missingFrameworks.map(
-      (fw) => `- ${fw} — ${FRAMEWORK_RATIONALE[fw] ?? "out-of-scope"}`,
-    ),
+    ...frameworkDecisions,
     ``,
     `## Categories with thin coverage`,
     ``,
@@ -376,12 +401,12 @@ export async function generateCoverage(rules?: RuleEntry[]): Promise<void> {
   let sourceCount: number;
 
   if (rules) {
-    allRules = rules;
+    allRules = withAlignmentTags(rules);
     const sourceNames = new Set(allRules.map((r) => r.rule.source.name));
     sourceCount = sourceNames.size;
   } else {
     const loaded = await loadRegistry({ tolerant: true });
-    allRules = loaded.rules;
+    allRules = withAlignmentTags(loaded.rules);
     sourceCount = loaded.sources.length;
     if (loaded.errors.length > 0) {
       for (const { folder, error } of loaded.errors) {
@@ -412,7 +437,6 @@ export async function generateCoverage(rules?: RuleEntry[]): Promise<void> {
     allRules,
     serviceCounts,
     categoryCounts,
-    frameworkCounts,
     pendingSources,
   );
   await fs.writeFile(GAPS_PATH, gaps, "utf8");

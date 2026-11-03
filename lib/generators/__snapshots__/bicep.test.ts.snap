@@ -99,7 +99,7 @@ resource node_2_app_first_cut_resource 'Microsoft.Web/sites@2023-12-01' = {
     siteConfig: {
       minTlsVersion: '1.2'
       alwaysOn: true
-      linuxFxVersion: 'NODE|20-lts'
+      linuxFxVersion: 'NODE|22-lts'
     }
   }
   tags: {

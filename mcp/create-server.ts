@@ -111,7 +111,7 @@ When a user describes an Azure architecture, translate it into a small, explicit
     "bunya_export_iac",
     {
       title: "Export Bunya infrastructure as code",
-      description: "Exports a Bunya graph to Terraform, Bicep, ARM JSON, az CLI, PowerShell, Mermaid, README, or all formats. The returned files are ready for the MCP client to save.",
+      description: "Exports a Bunya graph to Terraform, Bicep, ARM JSON, az CLI, PowerShell, an audit-only Azure Policy initiative, Mermaid, README, or all formats. The returned files are ready for the MCP client to save.",
       inputSchema: { document: z.unknown(), target: ExportTargetSchema },
     },
     async ({ document, target }) => {
