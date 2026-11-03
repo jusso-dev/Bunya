@@ -92,11 +92,11 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
     predicate: (n) => getProp<boolean>(n, "httpsOnly") === false,
   }),
 
-  // 5. AZPOL.WEB.LATEST-TLS — Latest TLS version should be used in your Web App
+  // 5. AZPOL.WEB.LATEST-TLS — App Service apps should use the latest TLS version
   nodeRule({
     id: "AZPOL.WEB.LATEST-TLS",
     source: policySrc(
-      "Latest TLS version should be used in your Web App",
+      "App Service apps should use the latest TLS version",
     ),
     category: "data-protection",
     severity: "warning",
@@ -104,7 +104,7 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
     message:
       "[advisory] App Service should use the latest TLS version (1.2 or newer).",
     longExplanation:
-      "Azure Policy built-in *Latest TLS version should be used in your Web App* requires the site config `minTlsVersion` to be 1.2 or newer. Bunya does not yet model that site config setting.",
+      "Azure Policy built-in *App Service apps should use the latest TLS version* requires the site config `minTlsVersion` to be 1.2 or newer. Bunya does not yet model that site config setting.",
     tags: ["azure-policy", "app-service", "tls", "advisory"],
     predicate: () => false,
   }),
@@ -139,11 +139,11 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
     predicate: (n) => getProp<boolean>(n, "httpsOnly") === false,
   }),
 
-  // 8. AZPOL.FN.LATEST-TLS — Latest TLS version should be used in your Function App
+  // 8. AZPOL.FN.LATEST-TLS — Function apps should use the latest TLS version
   nodeRule({
     id: "AZPOL.FN.LATEST-TLS",
     source: policySrc(
-      "Latest TLS version should be used in your Function App",
+      "Function apps should use the latest TLS version",
     ),
     category: "data-protection",
     severity: "warning",
@@ -151,7 +151,7 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
     message:
       "[advisory] Function App should use the latest TLS version (1.2 or newer).",
     longExplanation:
-      "Azure Policy built-in *Latest TLS version should be used in your Function App* requires the site config `minTlsVersion` to be 1.2 or newer. Bunya does not yet model that site config setting.",
+      "Azure Policy built-in *Function apps should use the latest TLS version* requires the site config `minTlsVersion` to be 1.2 or newer. Bunya does not yet model that site config setting.",
     tags: ["azure-policy", "function-app", "tls", "advisory"],
     predicate: () => false,
   }),
@@ -211,7 +211,7 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
   nodeRule({
     id: "AZPOL.COS.PUBLIC-ACCESS",
     source: policySrc(
-      "Azure Cosmos DB accounts should have public network access disabled",
+      "Azure Cosmos DB should disable public network access",
     ),
     category: "network",
     severity: "warning",
@@ -219,7 +219,7 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
     message:
       "[advisory] Cosmos DB account should disable public network access.",
     longExplanation:
-      "Azure Policy built-in *Azure Cosmos DB accounts should have public network access disabled* requires `publicNetworkAccess = Disabled`. Bunya does not yet model this property on Cosmos accounts.",
+      "Azure Policy built-in *Azure Cosmos DB should disable public network access* requires `publicNetworkAccess = Disabled`. Bunya does not yet model this property on Cosmos accounts.",
     tags: ["azure-policy", "cosmos", "public-access", "advisory"],
     predicate: () => false,
   }),
@@ -227,7 +227,7 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
   // 13. AZPOL.KV.FIREWALL — Azure Key Vault should have firewall enabled
   nodeRule({
     id: "AZPOL.KV.FIREWALL",
-    source: policySrc("Azure Key Vault should have firewall enabled"),
+    source: policySrc("Azure Key Vault should have firewall enabled or public network access disabled"),
     category: "network",
     severity: "error",
     serviceTypes: ["keyVault"],
@@ -238,16 +238,16 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
     predicate: (n) => getProp<boolean>(n, "publicNetworkAccess") === true,
   }),
 
-  // 14. AZPOL.KV.PURGE-PROTECT — Key vaults should have purge protection enabled
+  // 14. AZPOL.KV.PURGE-PROTECT — Key vaults should have deletion protection enabled
   nodeRule({
     id: "AZPOL.KV.PURGE-PROTECT",
-    source: policySrc("Key vaults should have purge protection enabled"),
+    source: policySrc("Key vaults should have deletion protection enabled"),
     category: "data-protection",
     severity: "error",
     serviceTypes: ["keyVault"],
     message: "Key Vault must have purge protection enabled.",
     longExplanation:
-      "Azure Policy built-in *Key vaults should have purge protection enabled* requires `enablePurgeProtection = true`. Without purge protection, soft-deleted material can be permanently destroyed within the retention window.",
+      "Azure Policy built-in *Key vaults should have deletion protection enabled* requires `enablePurgeProtection = true`. Without purge protection, soft-deleted material can be permanently destroyed within the retention window.",
     tags: ["azure-policy", "key-vault", "purge-protection"],
     predicate: (n) => getProp<boolean>(n, "purgeProtection") === false,
   }),
@@ -297,7 +297,7 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
   // 17. AZPOL.DIAG.LOG-ANALYTICS — Resource logs should be enabled (graph-wide check)
   graphRule({
     id: "AZPOL.DIAG.LOG-ANALYTICS",
-    source: policySrc("Resource logs should be enabled"),
+    source: policySrc("Resource logs should be enabled for Audit on supported resources"),
     category: "compliance",
     severity: "warning",
     message:
@@ -347,7 +347,7 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
   nodeRule({
     id: "AZPOL.APIM.MIN-API-VERSION",
     source: policySrc(
-      "API Management minimum API version should be 2019-12-01 or newer",
+      "[Deprecated]: API Management minimum API version should be set to 2019-12-01 or higher",
     ),
     category: "compliance",
     severity: "warning",
@@ -355,7 +355,7 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
     message:
       "[advisory] API Management should require management API version 2019-12-01 or newer.",
     longExplanation:
-      "Azure Policy built-in *API Management minimum API version should be 2019-12-01 or newer* requires the `apiVersionConstraint.minApiVersion` to be at least 2019-12-01 so older, less-secure ARM operations are rejected. Bunya does not yet model this constraint.",
+      "Azure Policy built-in *API Management minimum API version should be set to 2019-12-01 or higher* required `apiVersionConstraint.minApiVersion` to be at least 2019-12-01 so older, less-secure ARM operations were rejected. Microsoft has since deprecated the built-in because Azure Resource Manager no longer accepts the retired API versions. Keep the constraint in hand-written APIM templates; Bunya does not yet model it.",
     tags: ["azure-policy", "apim", "compliance", "advisory"],
     predicate: () => false,
   }),

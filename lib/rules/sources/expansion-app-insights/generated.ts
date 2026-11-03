@@ -18,7 +18,7 @@ export const EXPANSION_APP_INSIGHTS_RULES: RuleEntry[] = [
       version: "2026-04-01",
       url: "https://learn.microsoft.com/en-us/azure/governance/policy/samples/built-in-policies",
       ruleId:
-        "Application Insights components should block non-Microsoft Entra ID based ingestion",
+        "Application Insights components should block non-Azure Active Directory based ingestion.",
     },
     category: "compliance",
     severity: "warning",

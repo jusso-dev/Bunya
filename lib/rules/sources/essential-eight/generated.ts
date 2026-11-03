@@ -34,7 +34,7 @@ export const ESSENTIAL_EIGHT_RULES: RuleEntry[] = [
     message:
       "Pin runtimeVersion to a specific supported release — Essential Eight: Patch Applications.",
     longExplanation:
-      "The Patch Applications strategy requires that vulnerabilities in applications and runtimes are remediated within defined timeframes. An empty or floating value such as `latest` defers the choice of runtime to the platform at deploy time, which makes it impossible to evidence which patch level is actually running. Pinning `runtimeVersion` to a specific supported release (for example `20-lts` for Node) gives the patching process something concrete to track.",
+      "The Patch Applications strategy requires that vulnerabilities in applications and runtimes are remediated within defined timeframes. An empty or floating value such as `latest` defers the choice of runtime to the platform at deploy time, which makes it impossible to evidence which patch level is actually running. Pinning `runtimeVersion` to a specific supported release (for example `22-lts` for Node) gives the patching process something concrete to track.",
     tags: ["essential-eight", "patch-apps", "acsc", "patching"],
     predicate: (n) => {
       const v = (n.properties as { runtimeVersion?: string }).runtimeVersion;

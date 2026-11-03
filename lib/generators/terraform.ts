@@ -166,7 +166,7 @@ function emitAppService(node: GraphNode, ctx: GeneratorContext): string {
   const httpsOnly = node.properties.httpsOnly !== false;
   const alwaysOn = node.properties.alwaysOn !== false;
   const runtime = (node.properties.runtime as string) ?? "node";
-  const runtimeVersion = (node.properties.runtimeVersion as string) ?? "20-lts";
+  const runtimeVersion = (node.properties.runtimeVersion as string) ?? "22-lts";
   const publicNetworkAccess = node.properties.publicNetworkAccess !== false;
   const plan = resolveAppServicePlan(ctx, node);
   const planRef = plan
@@ -236,7 +236,7 @@ function emitFunctionApp(node: GraphNode, ctx: GeneratorContext): string {
   const ident = ctx.identifiers.get(node.id);
   const httpsOnly = node.properties.httpsOnly !== false;
   const runtime = (node.properties.runtime as string) ?? "node";
-  const runtimeVersion = (node.properties.runtimeVersion as string) ?? "20";
+  const runtimeVersion = (node.properties.runtimeVersion as string) ?? "22";
   const plan = resolveAppServicePlan(ctx, node);
   const planRef = plan
     ? `azurerm_service_plan.${ctx.identifiers.get(plan.id)}.id`

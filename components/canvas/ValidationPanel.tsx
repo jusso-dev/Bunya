@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { useGraphStore } from "@/lib/graph/store";
 import { runValidation, applyAutofix } from "@/lib/validation/runner";
+import { alignmentLabel, ruleAlignments } from "@/lib/rules/compliance";
 
 const SEVERITY_STYLE: Record<string, string> = {
   error: "border-red-200 bg-red-50 text-red-900 dark:bg-red-950/40 dark:text-red-200",
@@ -45,6 +46,19 @@ export function ValidationPanel() {
             </div>
             <span>{f.message}</span>
             <span className="text-[11px] opacity-80">{f.explanation}</span>
+            {ruleAlignments(f.ruleId).length > 0 ? (
+              <span className="flex flex-wrap gap-1 text-[10px]">
+                {ruleAlignments(f.ruleId).map((a) => (
+                  <span
+                    key={`${a.framework.id}-${a.controlId}`}
+                    title={`Aligned through the Azure Policy built-in "${a.policyDisplayName}". Alignment does not mean the workload is compliant.`}
+                    className="rounded border border-current/30 px-1 py-px"
+                  >
+                    Aligned: {alignmentLabel(a)}
+                  </span>
+                ))}
+              </span>
+            ) : null}
             <div className="mt-1 flex flex-wrap gap-2 text-[11px]">
               {f.nodeIds?.map((id) => (
                 <button
@@ -66,6 +80,16 @@ export function ValidationPanel() {
                   edge
                 </button>
               ))}
+              {f.source.url ? (
+                <a
+                  href={f.source.url}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="rounded border border-current/40 px-1.5 py-0.5 underline-offset-2 hover:underline"
+                >
+                  {f.source.name}
+                </a>
+              ) : null}
               {f.autofixId ? (
                 <button
                   type="button"

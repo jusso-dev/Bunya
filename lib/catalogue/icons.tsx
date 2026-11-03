@@ -71,7 +71,7 @@ export const SERVICE_ICONS: Record<ServiceType, ServiceIconAsset> = {
     title: "Network Security Group",
   },
   privateEndpoint: { src: "/azure-icons/privateEndpoint.svg", title: "Private Endpoint" },
-  privateDnsZone: { src: "/azure-icons/virtualNetwork.svg", title: "Private DNS Zone" },
+  privateDnsZone: { src: "/azure-icons/privateDnsZone.svg", title: "Private DNS Zone" },
   appServicePlan: { src: "/azure-icons/appServicePlan.svg", title: "App Service Plan" },
   appService: { src: "/azure-icons/appService.svg", title: "App Service" },
   functionApp: { src: "/azure-icons/functionApp.svg", title: "Function App" },
@@ -93,8 +93,8 @@ export const SERVICE_ICONS: Record<ServiceType, ServiceIconAsset> = {
     src: "/azure-icons/logAnalytics.svg",
     title: "Log Analytics Workspace",
   },
-  monitorAlert: { src: "/azure-icons/logAnalytics.svg", title: "Monitor Alert Rule" },
-  actionGroup: { src: "/azure-icons/applicationInsights.svg", title: "Action Group" },
+  monitorAlert: { src: "/azure-icons/monitorAlert.svg", title: "Monitor Alert Rule" },
+  actionGroup: { src: "/azure-icons/actionGroup.svg", title: "Action Group" },
   frontDoor: { src: "/azure-icons/frontDoor.svg", title: "Front Door" },
   applicationGateway: {
     src: "/azure-icons/applicationGateway.svg",
@@ -110,7 +110,7 @@ export const SERVICE_ICONS: Record<ServiceType, ServiceIconAsset> = {
     title: "User-Assigned Managed Identity",
   },
   roleAssignment: {
-    src: "/azure-icons/userAssignedIdentity.svg",
+    src: "/azure-icons/roleAssignment.svg",
     title: "Role Assignment",
   },
 };

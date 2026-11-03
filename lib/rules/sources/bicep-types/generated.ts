@@ -132,7 +132,7 @@ export const BICEP_TYPE_RULES: RuleEntry[] = [
     serviceTypes: ["appService"],
     message: "App Service runtimeVersion is required so siteConfig.linuxFxVersion can be derived.",
     longExplanation:
-      "The bicep-types schema for Microsoft.Web/sites@2023-12-01 declares siteConfig.linuxFxVersion as a string; the canonical form is '<RUNTIME>|<VERSION>' (e.g. NODE|20-lts, PYTHON|3.12, DOTNETCORE|8.0). Bunya derives that string from the runtimeVersion property, so an empty value would emit an invalid linuxFxVersion.",
+      "The bicep-types schema for Microsoft.Web/sites@2023-12-01 declares siteConfig.linuxFxVersion as a string; the canonical form is '<RUNTIME>|<VERSION>' (e.g. NODE|22-lts, PYTHON|3.12, DOTNETCORE|8.0). Bunya derives that string from the runtimeVersion property, so an empty value would emit an invalid linuxFxVersion.",
     tags: ["bicep-types", "appservice", "runtime"],
     predicate: (n) => {
       const v = getProp<string>(n, "runtimeVersion");

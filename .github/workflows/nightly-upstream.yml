@@ -1,0 +1,187 @@
+name: Nightly upstream sync
+
+# Keeps Bunya in step with the Microsoft sources it depends on:
+#   - Azure architecture icons (pnpm icons:sync)
+#   - Azure Policy built-in metadata and CIS control alignment (pnpm compliance:sync)
+#   - rule-source releases, AzureRM majors and Azure retirements (pnpm upstream:check)
+#
+# Mechanical updates (icons, policy metadata) land as a single pull request on
+# the automation/nightly-upstream branch. Changes that need a human to
+# re-curate rules are tracked in one "Nightly upstream report" issue.
+#
+# Pull requests opened with the default GITHUB_TOKEN do not trigger CI, and
+# creating them requires "Allow GitHub Actions to create and approve pull
+# requests" in the repository settings. Set a BUNYA_AUTOMATION_TOKEN secret
+# (fine-grained PAT: contents, pull requests and issues read/write) to have CI
+# run on the automated pull request. Without either, the branch is still pushed
+# and linked from the report issue.
+
+on:
+  schedule:
+    - cron: "23 17 * * *" # 03:23 AEST
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: nightly-upstream
+  cancel-in-progress: false
+
+env:
+  BRANCH: automation/nightly-upstream
+  ISSUE_TITLE: Nightly upstream report
+  ISSUE_LABEL: upstream-drift
+
+jobs:
+  sync:
+    name: Sync icons, policy metadata and upstream report
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          token: ${{ secrets.BUNYA_AUTOMATION_TOKEN || github.token }}
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 10.33.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Fetch Azure Policy built-ins
+        run: |
+          git clone --quiet --depth 1 --filter=blob:none --sparse https://github.com/Azure/azure-policy.git "$RUNNER_TEMP/azure-policy"
+          git -C "$RUNNER_TEMP/azure-policy" sparse-checkout set built-in-policies/policyDefinitions "built-in-policies/policySetDefinitions/Regulatory Compliance"
+
+      - name: Sync Azure Policy metadata
+        id: compliance
+        run: |
+          set +e
+          pnpm --silent compliance:sync --repo "$RUNNER_TEMP/azure-policy" --report "$RUNNER_TEMP/compliance.md"
+          echo "exit=$?" >> "$GITHUB_OUTPUT"
+          if ! git diff --quiet -- lib/rules/compliance; then
+            # Alignment changes flow into the generated coverage docs and the
+            # Azure Policy export snapshots.
+            pnpm --silent rules:coverage
+            pnpm exec vitest run -u lib/generators/azure-policy.test.ts > /dev/null
+          fi
+
+      - name: Sync Azure architecture icons
+        id: icons
+        run: |
+          set +e
+          pnpm --silent icons:sync --report "$RUNNER_TEMP/icons.md"
+          echo "exit=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Check upstream releases and retirements
+        id: upstream
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          pnpm --silent upstream:check --report "$RUNNER_TEMP/upstream.md" --days 14
+          echo "exit=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Test synced changes
+        id: tests
+        run: |
+          set +e
+          if git diff --quiet && [ -z "$(git ls-files --others --exclude-standard)" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          pnpm typecheck > "$RUNNER_TEMP/tests.log" 2>&1 && pnpm test >> "$RUNNER_TEMP/tests.log" 2>&1
+          echo "exit=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Open or update pull request
+        id: pr
+        if: steps.tests.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.BUNYA_AUTOMATION_TOKEN || github.token }}
+          TESTS_EXIT: ${{ steps.tests.outputs.exit }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C "$BRANCH"
+          git add -A
+          git commit --quiet -m "chore: nightly upstream sync"
+          git push --force origin "$BRANCH"
+
+          {
+            echo "Automated by the [nightly upstream sync]($RUN_URL)."
+            echo
+            if [ "$TESTS_EXIT" = "0" ]; then
+              echo "Typecheck and unit tests passed on the synced changes."
+            else
+              echo "> [!WARNING]"
+              echo "> Typecheck or unit tests failed on the synced changes. A rule mapping or snapshot needs a human; see the run log."
+            fi
+            echo
+            cat "$RUNNER_TEMP/compliance.md" "$RUNNER_TEMP/icons.md" 2>/dev/null
+            echo
+            echo "Review icon changes against Microsoft's icon terms before merging: icons must stay unmodified."
+          } > "$RUNNER_TEMP/pr.md"
+
+          existing="$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number')"
+          if [ -n "$existing" ]; then
+            gh pr edit "$existing" --body-file "$RUNNER_TEMP/pr.md"
+            echo "url=$(gh pr view "$existing" --json url --jq .url)" >> "$GITHUB_OUTPUT"
+          elif url="$(gh pr create --base main --head "$BRANCH" --title "chore: nightly upstream sync" --body-file "$RUNNER_TEMP/pr.md" 2>&1)"; then
+            echo "url=$url" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Could not open a pull request: $url"
+            echo "url=${{ github.server_url }}/${{ github.repository }}/compare/main...$BRANCH" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish report issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ATTENTION: ${{ steps.upstream.outputs.attention }}
+          PR_URL: ${{ steps.pr.outputs.url }}
+          COMPLIANCE_EXIT: ${{ steps.compliance.outputs.exit }}
+          ICONS_EXIT: ${{ steps.icons.outputs.exit }}
+          UPSTREAM_EXIT: ${{ steps.upstream.outputs.exit }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          needs_human=false
+          if [ "$ATTENTION" = "true" ] || [ "$COMPLIANCE_EXIT" != "0" ] || [ "$ICONS_EXIT" != "0" ] || [ "$UPSTREAM_EXIT" != "0" ]; then
+            needs_human=true
+          fi
+          existing="$(gh issue list --state open --label "$ISSUE_LABEL" --search "in:title \"$ISSUE_TITLE\"" --json number --jq '.[0].number')"
+
+          if [ "$needs_human" = "false" ]; then
+            if [ -n "$existing" ]; then
+              gh issue close "$existing" --comment "Nothing upstream needs attention as of the [latest run]($RUN_URL)."
+            fi
+            exit 0
+          fi
+
+          {
+            echo "Updated by the [nightly upstream sync]($RUN_URL) on $(date -u +%Y-%m-%d)."
+            echo
+            if [ -n "$PR_URL" ]; then echo "Mechanical updates: $PR_URL"; echo; fi
+            cat "$RUNNER_TEMP/upstream.md" 2>/dev/null || echo "Upstream check did not produce a report."
+            echo
+            cat "$RUNNER_TEMP/compliance.md" "$RUNNER_TEMP/icons.md" 2>/dev/null
+          } > "$RUNNER_TEMP/issue.md"
+
+          gh label create "$ISSUE_LABEL" --color FBCA04 --description "Upstream source, icon or retirement changes" 2>/dev/null || true
+          if [ -n "$existing" ]; then
+            gh issue edit "$existing" --body-file "$RUNNER_TEMP/issue.md"
+          else
+            gh issue create --title "$ISSUE_TITLE" --label "$ISSUE_LABEL" --body-file "$RUNNER_TEMP/issue.md"
+          fi

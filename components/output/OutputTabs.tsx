@@ -11,10 +11,11 @@ import { generatePowerShell } from "@/lib/generators/powershell";
 import { generateMermaid } from "@/lib/generators/mermaid";
 import { generateReadme } from "@/lib/generators/readme";
 import { generateCostEstimate } from "@/lib/generators/cost";
+import { generateAzurePolicy } from "@/lib/generators/azure-policy";
 import { GeneratedFile, GeneratorResult } from "@/lib/generators/types";
 import { CostPanel } from "./CostPanel";
 
-type TabId = "terraform" | "bicep" | "arm" | "azcli" | "powershell" | "mermaid" | "readme" | "cost";
+type TabId = "terraform" | "bicep" | "arm" | "azcli" | "powershell" | "policy" | "mermaid" | "readme" | "cost";
 
 type Tab = {
   id: TabId;
@@ -29,6 +30,7 @@ const TABS: Tab[] = [
   { id: "arm", label: "ARM", folder: "arm", run: generateArm },
   { id: "azcli", label: "az CLI", folder: "azcli", run: generateAzCli },
   { id: "powershell", label: "PowerShell", folder: "powershell", run: generatePowerShell },
+  { id: "policy", label: "Azure Policy", folder: "azure-policy", run: generateAzurePolicy },
   { id: "mermaid", label: "Mermaid", folder: "mermaid", run: generateMermaid },
   { id: "readme", label: "README", folder: ".", run: generateReadme },
   { id: "cost", label: "Cost", folder: "cost", run: generateCostEstimate },

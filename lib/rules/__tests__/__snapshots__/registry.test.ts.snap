@@ -3,7 +3,7 @@
 exports[`REGISTRY > produces a stable summary snapshot 1`] = `
 {
   "byCategory": {
-    "compliance": 46,
+    "compliance": 47,
     "cost": 6,
     "data-protection": 45,
     "identity": 25,
@@ -16,7 +16,7 @@ exports[`REGISTRY > produces a stable summary snapshot 1`] = `
   "bySeverity": {
     "error": 99,
     "info": 73,
-    "warning": 120,
+    "warning": 121,
   },
   "bySource": {
     "ACSC Information Security Manual": 4,
@@ -33,11 +33,13 @@ exports[`REGISTRY > produces a stable summary snapshot 1`] = `
     "Azure Container Registry SKUs": 1,
     "Azure Cosmos DB free tier": 1,
     "Azure Front Door service guide (Well-Architected Framework)": 1,
+    "Azure Functions and App Service language runtime support policy": 1,
     "Azure Functions storage considerations": 1,
     "Azure Monitor alerts overview": 1,
+    "Azure Monitor autoscale": 1,
     "Azure Monitor best practices for Kubernetes": 1,
     "Azure Naming Tool": 22,
-    "Azure Policy built-ins": 24,
+    "Azure Policy built-ins": 23,
     "Azure Private Link FAQ": 9,
     "Azure Reliability — Availability zones overview": 1,
     "Azure Storage redundancy options": 1,
@@ -76,6 +78,6 @@ exports[`REGISTRY > produces a stable summary snapshot 1`] = `
     "What is Azure Front Door?": 1,
     "Workspace-based Application Insights resources": 1,
   },
-  "total": 292,
+  "total": 293,
 }
 `;

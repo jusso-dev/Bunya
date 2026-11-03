@@ -94,7 +94,7 @@ function emit(node: GraphNode, ctx: GeneratorContext): string[] {
       const plan = resolveAppServicePlan(ctx, node);
       const planName = plan ? ctx.resourceNames.get(plan.id)! : "main-plan";
       const runtime = (node.properties.runtime as string) ?? "node";
-      const version = (node.properties.runtimeVersion as string) ?? "20-lts";
+      const version = (node.properties.runtimeVersion as string) ?? "22-lts";
       return [
         `# App Service ${name}`,
         `az webapp create ${COMMON} --name "${name}" --plan "${planName}" --runtime "${runtime.toUpperCase()}|${version}" --https-only ${(node.properties.httpsOnly !== false).toString()} --public-network-access ${node.properties.publicNetworkAccess === false ? "Disabled" : "Enabled"} --assign-identity '[system]' >/dev/null`,
@@ -108,7 +108,7 @@ function emit(node: GraphNode, ctx: GeneratorContext): string[] {
       const planName = plan ? ctx.resourceNames.get(plan.id)! : "main-plan";
       const stName = stEdge ? ctx.resourceNames.get(stEdge.target)! : "mainstorage";
       const runtime = (node.properties.runtime as string) ?? "node";
-      const version = (node.properties.runtimeVersion as string) ?? "20";
+      const version = (node.properties.runtimeVersion as string) ?? "22";
       return [
         `# Function App ${name}`,
         `az functionapp create ${COMMON} --name "${name}" --plan "${planName}" --storage-account "${stName}" --runtime "${runtime}" --runtime-version "${version}" --functions-version 4 --assign-identity '[system]' >/dev/null`,

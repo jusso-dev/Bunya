@@ -1,0 +1,114 @@
+{
+  "$comment": "Maintained by `pnpm icons:sync`. Each service type maps to an icon in Microsoft's Azure architecture icon pack.",
+  "pack": {
+    "version": 24,
+    "url": "https://arch-center.azureedge.net/icons/Azure_Public_Service_Icons_V24.zip",
+    "page": "https://learn.microsoft.com/en-us/azure/architecture/icons/"
+  },
+  "icons": {
+    "resourceGroup": {
+      "file": "general/10007-icon-service-Resource-Groups.svg",
+      "sha256": "4d2b2eacb37735849d2e556074ac8564f92fada70672b40985c77ea666e82977"
+    },
+    "virtualNetwork": {
+      "file": "networking/10061-icon-service-Virtual-Networks.svg",
+      "sha256": "64a5e75ecef2f9f69067faa2eb131266cb8f2858706f8ab74bfea5ad0d98b14d"
+    },
+    "subnet": {
+      "file": "networking/02742-icon-service-Subnet.svg",
+      "sha256": "f36f20495639268f84b6ab101949b630fc89923ed7e1b4c6242dbcca933e0e15"
+    },
+    "networkSecurityGroup": {
+      "file": "networking/10067-icon-service-Network-Security-Groups.svg",
+      "sha256": "cf4023ddaa11961904e1e4601864ccd20b9f60686cb38ad7f8ff8385d855c4de"
+    },
+    "privateEndpoint": {
+      "file": "other/02579-icon-service-Private-Endpoints.svg",
+      "sha256": "96de0bb7f0aeb1220d0fd6d337578d5e93dca017d6ea7d42d887aa329b2fd90d"
+    },
+    "privateDnsZone": {
+      "file": "networking/10064-icon-service-DNS-Zones.svg",
+      "sha256": "e6aaa1380e974af7d0aba1bb8380ecfab3f95182a595a28692aa3f963bcf9fac"
+    },
+    "appServicePlan": {
+      "file": "app services/00046-icon-service-App-Service-Plans.svg",
+      "sha256": "76763e2d29dc7315305c578af6f7ca19310670805749ca3b332a1e8cfe45ddd3"
+    },
+    "appService": {
+      "file": "app services/10035-icon-service-App-Services.svg",
+      "sha256": "529d83fc80637a96b6d27f6cfac7536e1c5f9b1b67f58aef4e2e3d6f47fd4925"
+    },
+    "functionApp": {
+      "file": "compute/10029-icon-service-Function-Apps.svg",
+      "sha256": "1a6c9c108d5f63f7b78bc6fbc464059acd2eaa8c1d111e9bcd28a8b2cdf470b9"
+    },
+    "staticWebApp": {
+      "file": "web/01007-icon-service-Static-Apps.svg",
+      "sha256": "c3075406ba25213b52f9fdbee5dfeb3cc31217be17a867ed6dca32020ec03646"
+    },
+    "aksCluster": {
+      "file": "containers/10023-icon-service-Kubernetes-Services.svg",
+      "sha256": "81954a481503057498d543a51863b2eb4673284e109662cdc421051d11dba25c"
+    },
+    "virtualMachineScaleSet": {
+      "file": "compute/10034-icon-service-VM-Scale-Sets.svg",
+      "sha256": "a53772c07fe89cdbb876ce77e22dba0863c1459173b77a1eec73fbdd2048637f"
+    },
+    "storageAccount": {
+      "file": "storage/10086-icon-service-Storage-Accounts.svg",
+      "sha256": "7190d3bb14ce30ce74bd0af873915830fe821e8c5f6ef6f3149e6f7cfb2aa4f7"
+    },
+    "sqlDatabase": {
+      "file": "databases/10130-icon-service-SQL-Database.svg",
+      "sha256": "a26124a2b188ccf910520c935c726f7364e0f5935d7a4319ebcab9c80a40e475"
+    },
+    "cosmosDb": {
+      "file": "databases/10121-icon-service-Azure-Cosmos-DB.svg",
+      "sha256": "b6f1f2afac15762d1de44366d34984c5a3e6e58f94d9e81407ac01565212e8e3"
+    },
+    "keyVault": {
+      "file": "security/10245-icon-service-Key-Vaults.svg",
+      "sha256": "712b426f54f0fc50d0816dc79df709daa7ac5f93ccaf4e9b3527f627f6e9ad97"
+    },
+    "applicationInsights": {
+      "file": "monitor/00012-icon-service-Application-Insights.svg",
+      "sha256": "36c73dea8b1598fbfff84890a2b409600f1339eec8c1bf1a896439e9da8f9dca"
+    },
+    "logAnalytics": {
+      "file": "monitor/00009-icon-service-Log-Analytics-Workspaces.svg",
+      "sha256": "7a244a8d7260e84be5c904185db7b04994fe6ed345e2b224163bc5f7e3d97ce0"
+    },
+    "monitorAlert": {
+      "file": "management + governance/00002-icon-service-Alerts.svg",
+      "sha256": "7aef6aec8edcee33270555d2ed7cbaa65737266beced0649de3f484623512bc9"
+    },
+    "actionGroup": {
+      "file": "monitor/00001-icon-service-Monitor.svg",
+      "sha256": "1396f59a7d8fd7505a423842b987c9b343a092263d1ab5c7b0d94d58d8b17448"
+    },
+    "frontDoor": {
+      "file": "networking/10073-icon-service-Front-Door-and-CDN-Profiles.svg",
+      "sha256": "b2e9c9a8b091a0694532257354dea94bb8c65b33876826e44dbc9b2aae01cf17"
+    },
+    "applicationGateway": {
+      "file": "networking/10076-icon-service-Application-Gateways.svg",
+      "sha256": "531e668e47cf61872b2811ec67dcc103cee2ecc1d272f07132d6196d68ba6c19"
+    },
+    "apiManagement": {
+      "file": "integration/10042-icon-service-API-Management-Services.svg",
+      "sha256": "cf794288575f2f7b080c50aa8319d42b02a2f2ae5351e4712c574353fc801f9a"
+    },
+    "containerRegistry": {
+      "file": "containers/10105-icon-service-Container-Registries.svg",
+      "sha256": "c134b0a442f203a7eeeb6f99a1f02ed34e51373d7fca59f96c9f125874c9d7d4"
+    },
+    "userAssignedIdentity": {
+      "file": "identity/10227-icon-service-Managed-Identities.svg",
+      "sha256": "fa2e0fb863e81d7923b5708bed196e19310867a194d23bea96dddc42e302693c"
+    },
+    "roleAssignment": {
+      "file": "identity/10340-icon-service-Entra-Identity-Roles-and-Administrators.svg",
+      "sha256": "5e88e52170776cc04df1ad5ffe86f0c76db85c29535a09433654368590bccb3c"
+    }
+  }
+}
