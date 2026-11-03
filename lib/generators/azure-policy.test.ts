@@ -16,12 +16,12 @@ describe("generateAzurePolicy", () => {
     expect(Object.keys(out)).toEqual([
       "POLICY.md",
       "initiative.definitions.json",
-      "main.bicep",
-      "assignment.bicep",
+      "policy.bicep",
+      "policy-assignment.bicep",
       "deploy-policy.sh",
     ]);
     expect(out["initiative.definitions.json"]).toMatchSnapshot();
-    expect(out["main.bicep"]).toMatchSnapshot();
+    expect(out["policy.bicep"]).toMatchSnapshot();
     expect(out["deploy-policy.sh"]).toMatchSnapshot();
   });
 
@@ -49,15 +49,27 @@ describe("generateAzurePolicy", () => {
     expect(references.map((r) => r.policyDefinitionId.split("/").pop())).toEqual([
       "e56962a6-4747-49cd-b67b-bf8b01975c4c",
     ]);
-    expect(references[0].parameters.listOfAllowedLocations).toEqual({ value: ["australiaeast"] });
+    expect(references[0].parameters.listOfAllowedLocations).toEqual({
+      value: ["australiacentral", "australiacentral2", "australiaeast", "australiasoutheast"],
+    });
   });
 
   it("assigns the initiative to every resource group in the diagram", () => {
     const out = files(generateAzurePolicy(fullStackGraph));
-    expect(out["main.bicep"]).toContain("targetScope = 'subscription'");
-    expect(out["main.bicep"]).toContain("loadJsonContent('initiative.definitions.json')");
+    expect(out["policy.bicep"]).toContain("targetScope = 'subscription'");
+    expect(out["policy.bicep"]).toContain("loadJsonContent('initiative.definitions.json')");
+    expect(out["policy.bicep"]).toContain("module assignments 'policy-assignment.bicep'");
     expect(out["deploy-policy.sh"]).toContain("set -euo pipefail");
     expect(out["POLICY.md"]).toContain("does not make the workload compliant");
+  });
+
+  it("assigns only the resource group every exporter creates, and lets the script skip missing ones", () => {
+    const second = { ...fullStackGraph.nodes.find((n) => n.type === "resourceGroup")!, id: "rg2", name: "Second", resourceName: "rg-second" };
+    const out = files(generateAzurePolicy({ ...fullStackGraph, nodes: [...fullStackGraph.nodes, second] }));
+    expect(out["policy.bicep"]).toContain("  'rg-full-stack'\n  // Only Terraform creates");
+    expect(out["policy.bicep"]).toContain("  // 'rg-second'");
+    expect(out["deploy-policy.sh"]).toContain('for rg in "rg-full-stack" "rg-second"; do');
+    expect(out["deploy-policy.sh"]).toContain('az group exists --name "$rg"');
   });
 
   it("lists subscription-level policies instead of assigning them to resource groups", () => {

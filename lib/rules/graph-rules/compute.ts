@@ -64,8 +64,8 @@ const RUNTIME_SUPPORT_SOURCE = {
 // End of Azure platform support per runtime version. Keep in step with the
 // retirement notices `pnpm upstream:check` reports from Azure Updates.
 const RUNTIME_END_OF_SUPPORT: Record<string, Record<string, string>> = {
-  node: { "18": "2025-04-30", "20": "2026-04-30", "22": "2027-04-30" },
-  python: { "3.8": "2024-10-31", "3.9": "2025-10-31", "3.10": "2026-10-31" },
+  node: { "18": "2025-04-30", "20": "2026-04-30", "22": "2027-04-30", "24": "2028-04-30" },
+  python: { "3.8": "2024-10-31", "3.9": "2025-10-31", "3.10": "2026-10-31", "3.11": "2027-10-31", "3.12": "2028-10-31" },
   dotnet: { "6": "2024-11-12", "7": "2024-05-14", "8": "2026-11-10", "9": "2026-11-10" },
   powershell: { "7.2": "2024-11-08", "7.4": "2026-11-10" },
 };

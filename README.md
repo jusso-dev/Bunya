@@ -180,7 +180,7 @@ the user can promote them to explicit nodes.
 | PowerShell | `Deploy-Infrastructure.ps1` | `[CmdletBinding(SupportsShouldProcess)]`. Splatting. `Set-StrictMode -Version Latest`. No `Write-Host`. Emits deployable Az cmdlets where practical and explicit review comments for complex alert/RBAC cases. |
 | Mermaid | `architecture.mmd` | `flowchart LR` with per-category classDefs and edge-kind labels. |
 | README | `README.md` | Inlined Mermaid + deployment commands per format. |
-| Azure Policy | `POLICY.md`, `initiative.definitions.json`, `main.bicep`, `assignment.bicep`, `deploy-policy.sh` | The built-in Azure Policy definitions that check the same controls as the diagram's rules, packaged as one initiative and assigned to each resource group. Audit effects only; allowed locations come from the diagram's regions. Subscription-level built-ins (Defender plans, resource-group locations) are listed, not assigned. See [Runtime guardrails](#runtime-guardrails-azure-policy-export). |
+| Azure Policy | `POLICY.md`, `initiative.definitions.json`, `policy.bicep`, `policy-assignment.bicep`, `deploy-policy.sh` | The built-in Azure Policy definitions that check the same settings as the diagram's rules, packaged as one initiative and assigned to the deployed resource group (the script skips groups that do not exist). Audit effects only; allowed locations are the Australian regions the sovereignty rules accept. Subscription-level built-ins (Defender plans, resource-group locations) are listed, not assigned. See [Runtime guardrails](#runtime-guardrails-azure-policy-export). |
 | Cost | `cost-estimate.md` + in-tab table | Indicative monthly estimate per resource with AUD/USD toggle and a **user-editable AUD/USD exchange rate** (persisted to `localStorage`, plug in your treasury's number for accurate AUD). Source: `https://prices.azure.com/api/retail/prices`; refresh via `pnpm prices:refresh`. |
 
 Conditional parameters: when the graph has no SQL Database, no generator
@@ -250,10 +250,10 @@ multi-region failover correctness.
 
 ### CIS alignment (not compliance)
 
-Bunya does not ship CIS Microsoft Azure Foundations Benchmark content, which
-is not redistributable. Instead, rules are tagged with the CIS control a
+Bunya does not ship CIS Microsoft Azure Foundations Benchmark content; the CIS
+licence terms do not permit redistributing it in Bunya. Instead, rules are tagged with the CIS control a
 matching Azure Policy built-in is grouped under in Microsoft's CIS Azure
-Foundations v3.0.0 regulatory-compliance initiative. 50 rules carry tags such as
+Foundations v3.0.0 regulatory-compliance initiative. 44 rules carry tags such as
 `cis-azure-v3.0.0:4.15`, and the validation panel shows them as
 "Aligned: CIS Azure 3.0.0 §4.15". The mapping lives in
 `lib/rules/compliance/policy-alignments.ts`; `pnpm compliance:sync` copies only
@@ -271,13 +271,13 @@ Bunya does not check PCI DSS or HITRUST CSF.
 Bunya is design-time only: it never connects to your tenant, so it does not
 detect drift ([#8](https://github.com/jusso-dev/Bunya/issues/8)). The
 **Azure Policy** output tab bridges that gap. It exports the Azure Policy
-built-ins that check the same controls as the rules relevant to your diagram,
-as a single initiative assigned to each resource group:
+built-ins that check the same settings as the rules relevant to your diagram,
+as a single initiative assigned to the deployed resource group:
 
 ```bash
-az deployment sub create --location australiaeast --template-file azure-policy/main.bicep
+az deployment sub create --location australiaeast --template-file azure-policy/policy.bicep
 # or
-./azure-policy/deploy-policy.sh
+bash azure-policy/deploy-policy.sh
 ```
 
 Every effect is `Audit` or `AuditIfNotExists`; review the compliance results
@@ -613,7 +613,7 @@ Bunya is honest about scope. The full live list is at
   Load Balancer probes, Application Health extension and Data Collection Rules
   are not first-class graph nodes yet.
 - CIS Microsoft Azure Foundations Benchmark - not ingested because it is
-  commercial and not redistributable; rules carry CIS control IDs through
+  not redistributable under its licence terms; rules carry CIS control IDs through
   Azure Policy alignment instead ([#5](https://github.com/jusso-dev/Bunya/issues/5)).
 - PCI DSS - permanently out of scope; Bunya cannot and should not certify card
   workloads, so use a QSA ([#6](https://github.com/jusso-dev/Bunya/issues/6)).

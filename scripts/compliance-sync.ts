@@ -225,7 +225,9 @@ function checkCitations(index: Map<string, IndexedPolicy>, report: Report): void
     const cited = byName.get(rule.source.ruleId);
     if (!cited) {
       report.problems.push(`\`${rule.id}\` cites Azure Policy "${rule.source.ruleId}", which no longer exists under that display name.`);
-    } else if ((cited.metadata as Json | undefined)?.deprecated === true) {
+    } else if ((cited.metadata as Json | undefined)?.deprecated === true && !rule.source.ruleId.startsWith("[Deprecated]")) {
+      // Citations that already name the "[Deprecated]: ..." display name have
+      // been reviewed; only report newly deprecated ones.
       report.notices.push(`\`${rule.id}\` cites Azure Policy "${rule.source.ruleId}", which is deprecated upstream.`);
     }
   }
@@ -295,6 +297,9 @@ async function main(): Promise<void> {
   ].join("\n");
   console.log(body);
   if (reportPath) await fs.writeFile(reportPath, body, "utf8");
+  if (process.env.GITHUB_OUTPUT) {
+    await fs.appendFile(process.env.GITHUB_OUTPUT, `attention=${report.problems.length + report.notices.length > 0}\n`);
+  }
   process.exit(report.problems.length > 0 ? 1 : 0);
 }
 

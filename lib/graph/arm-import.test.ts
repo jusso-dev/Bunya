@@ -479,4 +479,23 @@ describe("parseArmTemplate", () => {
       ]),
     );
   });
+
+  it("keeps the exported Linux runtime of web and function apps", () => {
+    const result = parseArmTemplate(JSON.stringify({
+      $schema: "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+      contentVersion: "1.0.0.0",
+      resources: [
+        { type: "Microsoft.Web/sites", apiVersion: "2023-12-01", name: "web-old", location: "australiaeast", kind: "app,linux", properties: { siteConfig: { linuxFxVersion: "NODE|18-lts" } } },
+        { type: "Microsoft.Web/sites", apiVersion: "2023-12-01", name: "fn-py", location: "australiaeast", kind: "functionapp,linux", properties: { siteConfig: { linuxFxVersion: "Python|3.11" } } },
+        { type: "Microsoft.Web/sites", apiVersion: "2023-12-01", name: "web-ruby", location: "australiaeast", kind: "app,linux", properties: { siteConfig: { linuxFxVersion: "RUBY|2.7" } } },
+      ],
+    }));
+    if (!result.ok) throw new Error(result.reason);
+    const byName = Object.fromEntries(result.document.nodes.map((n) => [n.resourceName, n.properties]));
+    expect(byName["web-old"]).toMatchObject({ runtime: "node", runtimeVersion: "18-lts" });
+    expect(byName["fn-py"]).toMatchObject({ runtime: "python", runtimeVersion: "3.11" });
+    expect(byName["web-ruby"]).toMatchObject({ runtime: "node", runtimeVersion: "22-lts" });
+    expect(result.warning).toContain('runtime "RUBY|2.7" is not modelled');
+  });
 });
+

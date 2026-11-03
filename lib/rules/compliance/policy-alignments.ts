@@ -34,9 +34,10 @@ export type PolicyAlignment = {
   scope?: "resourceGroup" | "subscription";
   /**
    * Parameter values for non-effect parameters without an upstream default.
-   * `"$graphLocations"` is replaced by the regions used in the diagram.
+   * `"$australianRegions"` is replaced by the Australian Azure regions the
+   * sovereignty rules allow.
    */
-  parameters?: Record<string, PolicyParameterValue | "$graphLocations">;
+  parameters?: Record<string, PolicyParameterValue | "$australianRegions">;
 };
 
 export const POLICY_ALIGNMENTS: PolicyAlignment[] = [
@@ -66,14 +67,12 @@ export const POLICY_ALIGNMENTS: PolicyAlignment[] = [
     ruleIds: ["PSRULE.STORAGE.BLOBPUBLICACCESS"],
   },
   {
-    policyDefinitionId: "34c877ad-507e-4c82-993e-3452a6e0ad3c",
-    serviceTypes: ["storageAccount"],
-    ruleIds: ["PSRULE.STORAGE.FIREWALL", "CHECKOV.AZURE.4", "CHECKOV.AZURE.35"],
-  },
-  {
     policyDefinitionId: "b2982f36-99f2-4db5-8eff-283140c09693",
     serviceTypes: ["storageAccount"],
-    ruleIds: ["AZPOL.STG.PUBLIC-ACCESS"],
+    // Bunya's allowPublicAccess flag is emitted as publicNetworkAccess; the
+    // generators do not emit networkAcls.defaultAction, so the "restrict
+    // network access" built-in (CIS 4.7) is deliberately not mapped.
+    ruleIds: ["AZPOL.STG.PUBLIC-ACCESS", "PSRULE.STORAGE.FIREWALL", "CHECKOV.AZURE.4", "CHECKOV.AZURE.35"],
   },
   {
     policyDefinitionId: "c9d007d0-c057-4772-b18c-01e546713bcd",
@@ -160,11 +159,6 @@ export const POLICY_ALIGNMENTS: PolicyAlignment[] = [
     ruleIds: ["AZPOL.SQL.AAD-AUTH"],
   },
   {
-    policyDefinitionId: "1f314764-cb73-4fc9-b863-8eca98ac36e9",
-    serviceTypes: ["sqlDatabase"],
-    ruleIds: ["PSRULE.SQL.AAD"],
-  },
-  {
     policyDefinitionId: "1b8ca024-1d5c-4dec-8995-b1a932b41780",
     serviceTypes: ["sqlDatabase"],
     ruleIds: ["AZPOL.SQL.PUBLIC-ACCESS", "CHECKOV.AZURE.23", "ISM.1418.sub"],
@@ -177,7 +171,7 @@ export const POLICY_ALIGNMENTS: PolicyAlignment[] = [
   {
     policyDefinitionId: "a6fb4358-5bf4-4ad7-ba82-2cd2f41ce5e9",
     serviceTypes: ["sqlDatabase"],
-    ruleIds: ["PSRULE.SQL.AUDITING", "CHECKOV.AZURE.9"],
+    ruleIds: ["CHECKOV.AZURE.9"],
   },
   {
     policyDefinitionId: "89099bee-89e0-4b26-a5f4-165451757743",
@@ -199,7 +193,7 @@ export const POLICY_ALIGNMENTS: PolicyAlignment[] = [
   {
     policyDefinitionId: "797b37f7-06b8-444c-b1ad-fc62867f335a",
     serviceTypes: ["cosmosDb"],
-    ruleIds: ["AZPOL.COS.PUBLIC-ACCESS", "PSRULE.COSMOS.PUBLICACCESS", "CHECKOV.AZURE.140"],
+    ruleIds: ["AZPOL.COS.PUBLIC-ACCESS", "CHECKOV.AZURE.140"],
   },
   {
     policyDefinitionId: "58440f8a-10c5-4151-bdce-dfbaad4a20b7",
@@ -217,11 +211,6 @@ export const POLICY_ALIGNMENTS: PolicyAlignment[] = [
       "CHECKOV.AZURE.110",
       "AZPOL.KV.PURGE-PROTECT",
     ],
-  },
-  {
-    policyDefinitionId: "1e66c121-a66a-4b1f-9b83-0fd99bf0fc2d",
-    serviceTypes: ["keyVault"],
-    ruleIds: ["AZPOL.KV.SOFT-DELETE", "PSRULE.KEYVAULT.SOFTDELETE"],
   },
   {
     policyDefinitionId: "55615ac9-af46-4a59-874e-391cc3dfb490",
@@ -253,17 +242,7 @@ export const POLICY_ALIGNMENTS: PolicyAlignment[] = [
   {
     policyDefinitionId: "0fdf0491-d080-4575-b627-ad0e843cba0f",
     serviceTypes: ["containerRegistry"],
-    ruleIds: ["CHECKOV.AZURE.139"],
-  },
-  {
-    policyDefinitionId: "e8eef0a8-67cf-4eb4-9386-14b0e78733d4",
-    serviceTypes: ["containerRegistry"],
-    ruleIds: ["AZPOL.ACR.PRIVATE-LINK"],
-  },
-  {
-    policyDefinitionId: "d0793b48-0edc-4296-a390-4c75d1bdfd71",
-    serviceTypes: ["containerRegistry"],
-    ruleIds: ["PSRULE.ACR.FIREWALL"],
+    ruleIds: ["CHECKOV.AZURE.139", "AZPOL.ACR.PRIVATE-LINK"],
   },
 
   // Network
@@ -300,13 +279,13 @@ export const POLICY_ALIGNMENTS: PolicyAlignment[] = [
     policyDefinitionId: "e56962a6-4747-49cd-b67b-bf8b01975c4c",
     serviceTypes: ["resourceGroup"],
     ruleIds: ["PSRULE.RESOURCE.ALLOWEDREGIONS", "BUNYA.SOV.001"],
-    parameters: { listOfAllowedLocations: "$graphLocations" },
+    parameters: { listOfAllowedLocations: "$australianRegions" },
   },
   {
     policyDefinitionId: "e765b5de-1225-4ba3-bd56-1ac6695af988",
     serviceTypes: ["resourceGroup"],
     ruleIds: ["PSRULE.RESOURCE.ALLOWEDREGIONS"],
-    parameters: { listOfAllowedLocations: "$graphLocations" },
+    parameters: { listOfAllowedLocations: "$australianRegions" },
     scope: "subscription",
   },
 

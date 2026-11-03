@@ -47,6 +47,11 @@ describe("Bunya MCP diagram core", () => {
       .toContain("main.bicep");
     expect(exports.find((result) => result.target === "arm")?.files.map((file) => file.path))
       .toContain("azuredeploy.json");
+    expect(exports.find((result) => result.target === "azurePolicy")?.files.map((file) => file.path))
+      .toContain("initiative.definitions.json");
+    // Clients may save every file into one folder, so paths must not collide.
+    const paths = exports.flatMap((result) => result.files.map((file) => file.path));
+    expect(new Set(paths).size).toBe(paths.length);
   });
 
   it("makes a Bunya view URL carrying the graph fragment", async () => {

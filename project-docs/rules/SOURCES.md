@@ -151,7 +151,7 @@ classification that drives how the rule appears in the pipeline:
 
 ### CIS Microsoft Azure Foundations Benchmark
 - URL: https://www.cisecurity.org/benchmark/azure
-- Licence: Commercial — not redistributable
+- Licence: CIS licence terms; not redistributable in Bunya
 - Classification: OUT-OF-SCOPE (aligned indirectly, see #5)
 - Description: CIS Benchmark for Azure. Licence terms prevent us from
   shipping rule text, rule titles or benchmark prose, and none is ingested.

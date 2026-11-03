@@ -50,8 +50,7 @@ materially funds the work.
 Bunya does not check PCI DSS and adds no PCI tags. Use a QSA, not a diagram
 tool. The standard is owned by the PCI Security Standards Council, applies to
 card-handling workloads outside Bunya's core audience, and a PCI tab would
-suggest a completeness Bunya cannot provide. Roughly 70% of Azure PCI guidance
-overlaps the Microsoft Cloud Security Benchmark rules Bunya already ships.
+suggest a completeness Bunya cannot provide.
 
 ## Decided
 

@@ -353,7 +353,7 @@ function renderGaps(
   ).length;
   const cis = COMPLIANCE_FRAMEWORKS.find((f) => f.id === "cis-azure");
   const frameworkDecisions = [
-    `- CIS Microsoft Azure Foundations Benchmark — commercial, not redistributable. Benchmark text is never ingested. ${cisAligned} rules are tagged \`cis-azure-v${cis?.version ?? "?"}:<control>\` through Microsoft's Azure Policy regulatory-compliance mapping, shown as "aligned", never "compliant" ([#5](${ISSUES}/5))`,
+    `- CIS Microsoft Azure Foundations Benchmark — CIS licence terms do not permit redistribution in Bunya. Benchmark text is never ingested. ${cisAligned} rules are tagged \`cis-azure-v${cis?.version ?? "?"}:<control>\` through Microsoft's Azure Policy regulatory-compliance mapping, shown as "aligned", never "compliant" ([#5](${ISSUES}/5))`,
     `- PCI DSS — permanently out of scope. Bunya does not check PCI DSS and adds no PCI tags; use a QSA, not a diagram tool ([#6](${ISSUES}/6))`,
     `- HITRUST CSF — won't fix. Commercial, US-healthcare-centric and outside the Australian-government audience ([#7](${ISSUES}/7))`,
   ];

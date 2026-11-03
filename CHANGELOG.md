@@ -8,13 +8,14 @@ project follows [Conventional Commits](https://www.conventionalcommits.org/).
 
 ### Compliance alignment, Azure Policy export and nightly upstream sync
 
-- Tagged 50 rules with CIS Microsoft Azure Foundations v3.0.0 control IDs
+- Tagged 44 rules with CIS Microsoft Azure Foundations v3.0.0 control IDs
   (`cis-azure-v3.0.0:<control>`) through Microsoft's Azure Policy
   regulatory-compliance initiative. No CIS text is shipped, and the validation
   panel shows "Aligned", never "compliant" (#5).
 - Added an **Azure Policy** output tab and MCP export target: an audit-only
   initiative of the built-in policies matching the diagram's rules, with Bicep
-  and az CLI assignment to each resource group (#8).
+  and az CLI assignment to the deployed resource groups (#8). The generated
+  README links to it.
 - Recorded permanent scope decisions for PCI DSS (#6), HITRUST CSF (#7),
   runtime drift detection (#8) and AWS/GCP (#10) in `BACKLOG.md`, `SOURCES.md`,
   `GAPS.md` and the README.
@@ -34,6 +35,9 @@ project follows [Conventional Commits](https://www.conventionalcommits.org/).
   built-ins, and updated the NSG flow-log rule for the move to virtual network
   flow logs.
 - Validation findings now link to their source.
+- ARM import keeps the Linux runtime and version from `siteConfig.linuxFxVersion`
+  instead of replacing it with Bunya defaults.
+- Added `THIRD_PARTY_NOTICES.md` for the Azure Policy metadata and Azure icons.
 - Fixed coverage framework counting that matched any `waf` or `e8` substring.
 
 ### First cut

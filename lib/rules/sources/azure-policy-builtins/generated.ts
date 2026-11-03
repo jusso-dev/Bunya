@@ -233,7 +233,7 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
     serviceTypes: ["keyVault"],
     message: "Key Vault must disable public network access (firewall on).",
     longExplanation:
-      "Azure Policy built-in *Azure Key Vault should have firewall enabled* requires `publicNetworkAccess = Disabled` (or a tight `networkAcls` block). Bunya models this as the `publicNetworkAccess` boolean.",
+      "Azure Policy built-in *Azure Key Vault should have firewall enabled or public network access disabled* requires `publicNetworkAccess = Disabled` (or a tight `networkAcls` block). Bunya models this as the `publicNetworkAccess` boolean.",
     tags: ["azure-policy", "key-vault", "firewall"],
     predicate: (n) => getProp<boolean>(n, "publicNetworkAccess") === true,
   }),
@@ -262,7 +262,7 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
     message:
       "Key Vault must have soft-delete retention set to at least 7 days.",
     longExplanation:
-      "Azure Policy built-in *Key vaults should have soft delete enabled* requires soft-delete to be enabled and a retention period configured. Bunya models the retention as `softDeleteRetentionDays`; a value below 7 days fails this control.",
+      "Azure Policy built-in *Key vaults should have soft delete enabled* requires soft-delete to be enabled. Soft-delete is always on for new vaults, so Bunya checks the retention it models as `softDeleteRetentionDays`; a value below 7 days fails this rule. The built-in policy does not check retention.",
     tags: ["azure-policy", "key-vault", "soft-delete"],
     predicate: (n) => {
       const days = getProp<number>(n, "softDeleteRetentionDays");
@@ -303,7 +303,7 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
     message:
       "AppService, SQL and Key Vault resources should ship diagnostic logs to a Log Analytics workspace.",
     longExplanation:
-      "Azure Policy built-in *Resource logs should be enabled* requires diagnostic settings to be configured for in-scope resources. Bunya checks that App Services, SQL databases and Key Vaults have at least one `diagnostic` edge to a Log Analytics workspace.",
+      "Azure Policy built-in *Resource logs should be enabled for Audit on supported resources* requires diagnostic settings to be configured for in-scope resources. Bunya checks that App Services, SQL databases and Key Vaults have at least one `diagnostic` edge to a Log Analytics workspace.",
     tags: ["azure-policy", "diagnostics", "log-analytics"],
     appliesToServices: ["appService", "sqlDatabase", "keyVault"],
     predicate: (graph) => {
@@ -338,7 +338,7 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
     message:
       "Container Registry must disable public network access (use Private Link).",
     longExplanation:
-      "Azure Policy built-in *Container registries should use private link* requires `publicNetworkAccess = Disabled` and a Private Endpoint. Bunya enforces the public-access part here; Private Endpoint topology is checked elsewhere.",
+      "Azure Policy built-in *Container registries should use private link* audits registries without an approved Private Endpoint connection. Bunya checks the related setting it can model, `publicNetworkAccess = Disabled`, which the built-in *Public network access should be disabled for Container registries* also audits; Private Endpoint topology is checked by the graph rules.",
     tags: ["azure-policy", "acr", "private-link"],
     predicate: (n) => getProp<boolean>(n, "publicNetworkAccess") === true,
   }),

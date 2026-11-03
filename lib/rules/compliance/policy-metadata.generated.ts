@@ -149,43 +149,6 @@ export const POLICY_METADATA: Record<string, PolicyMetadata> = {
     "parameters": {},
     "controls": {}
   },
-  "1e66c121-a66a-4b1f-9b83-0fd99bf0fc2d": {
-    "displayName": "Key vaults should have soft delete enabled",
-    "version": "3.1.0",
-    "category": "Key Vault",
-    "deprecated": false,
-    "preview": false,
-    "effect": {
-      "defaultValue": "Audit",
-      "allowedValues": [
-        "Audit",
-        "Deny",
-        "Disabled"
-      ]
-    },
-    "parameters": {},
-    "controls": {
-      "cis-azure": [
-        "3.3.5"
-      ]
-    }
-  },
-  "1f314764-cb73-4fc9-b863-8eca98ac36e9": {
-    "displayName": "An Azure Active Directory administrator should be provisioned for SQL servers",
-    "version": "1.0.0",
-    "category": "SQL",
-    "deprecated": false,
-    "preview": false,
-    "effect": {
-      "defaultValue": "AuditIfNotExists",
-      "allowedValues": [
-        "AuditIfNotExists",
-        "Disabled"
-      ]
-    },
-    "parameters": {},
-    "controls": {}
-  },
   "2b9ad585-36bc-4615-b300-fd4435808332": {
     "displayName": "App Service apps should use managed identity",
     "version": "3.0.0",
@@ -218,38 +181,6 @@ export const POLICY_METADATA: Record<string, PolicyMetadata> = {
     },
     "parameters": {},
     "controls": {}
-  },
-  "34c877ad-507e-4c82-993e-3452a6e0ad3c": {
-    "displayName": "Storage accounts should restrict network access",
-    "version": "1.2.0",
-    "category": "Storage",
-    "deprecated": false,
-    "preview": false,
-    "effect": {
-      "defaultValue": "Audit",
-      "allowedValues": [
-        "Audit",
-        "Deny",
-        "Disabled"
-      ]
-    },
-    "parameters": {
-      "excludedManagedByResourceProviders": {
-        "type": "Array",
-        "defaultValue": [],
-        "allowedValues": [
-          "Azure Red Hat OpenShift",
-          "Azure Databricks",
-          "Microsoft Purview",
-          "All managed resource groups"
-        ]
-      }
-    },
-    "controls": {
-      "cis-azure": [
-        "4.7"
-      ]
-    }
   },
   "404c3081-a854-4457-ae30-26a93ef643f9": {
     "displayName": "Secure transfer to storage accounts should be enabled",
@@ -713,23 +644,6 @@ export const POLICY_METADATA: Record<string, PolicyMetadata> = {
       ]
     }
   },
-  "d0793b48-0edc-4296-a390-4c75d1bdfd71": {
-    "displayName": "Container registries should not allow unrestricted network access",
-    "version": "2.0.0",
-    "category": "Container Registry",
-    "deprecated": false,
-    "preview": false,
-    "effect": {
-      "defaultValue": "Audit",
-      "allowedValues": [
-        "Audit",
-        "Deny",
-        "Disabled"
-      ]
-    },
-    "parameters": {},
-    "controls": {}
-  },
   "d550e854-df1a-4de9-bf44-cd894b39a95e": {
     "displayName": "Azure Monitor Logs for Application Insights should be linked to a Log Analytics workspace",
     "version": "1.1.0",
@@ -860,22 +774,6 @@ export const POLICY_METADATA: Record<string, PolicyMetadata> = {
         "type": "Array"
       }
     },
-    "controls": {}
-  },
-  "e8eef0a8-67cf-4eb4-9386-14b0e78733d4": {
-    "displayName": "Container registries should use private link",
-    "version": "1.0.1",
-    "category": "Container Registry",
-    "deprecated": false,
-    "preview": false,
-    "effect": {
-      "defaultValue": "Audit",
-      "allowedValues": [
-        "Audit",
-        "Disabled"
-      ]
-    },
-    "parameters": {},
     "controls": {}
   },
   "ee7495e7-3ba7-40b6-bfee-c29e22cc75d4": {

@@ -133,12 +133,18 @@ async function checkAzureRm(lines: string[], errors: string[]): Promise<void> {
 function decode(text: string): string {
   return text
     .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
-    .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&")
     .trim();
+}
+
+// Feed titles go into a GitHub issue; keep them from mentioning users or
+// linking issues.
+function inert(text: string): string {
+  return text.replace(/[[\]`]/g, "").replace(/([@#])/g, "$1\u200b");
 }
 
 async function checkRetirements(lines: string[], errors: string[], days: number): Promise<void> {
@@ -157,7 +163,7 @@ async function checkRetirements(lines: string[], errors: string[], days: number)
       const haystack = [title, ...categories].join(" | ").toLowerCase();
       const matched = SERVICE_KEYWORDS.filter((k) => haystack.includes(k.toLowerCase()));
       if (matched.length === 0) continue;
-      lines.push(`- [${title}](${link}) (${matched.join(", ")})`);
+      lines.push(`- [${inert(title)}](${link}) (${matched.join(", ")})`);
     }
   } catch (error) {
     errors.push(`Azure Updates feed: ${(error as Error).message}`);
@@ -202,7 +208,8 @@ async function main(): Promise<void> {
   if (reportPath) await fs.writeFile(reportPath, body, "utf8");
   // Signals "something needs attention" to the workflow without failing it.
   if (process.env.GITHUB_OUTPUT) {
-    await fs.appendFile(process.env.GITHUB_OUTPUT, `attention=${releases.length + retirements.length + manual.length > 0}\n`);
+    const total = releases.length + retirements.length + manual.length + errors.length;
+    await fs.appendFile(process.env.GITHUB_OUTPUT, `attention=${total > 0}\n`);
   }
 }
 

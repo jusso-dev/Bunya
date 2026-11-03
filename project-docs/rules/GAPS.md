@@ -13,7 +13,7 @@ _Generated 2026-11-03 from 293 rules._
 
 ## Compliance frameworks not ingested
 
-- CIS Microsoft Azure Foundations Benchmark — commercial, not redistributable. Benchmark text is never ingested. 50 rules are tagged `cis-azure-v3.0.0:<control>` through Microsoft's Azure Policy regulatory-compliance mapping, shown as "aligned", never "compliant" ([#5](https://github.com/jusso-dev/Bunya/issues/5))
+- CIS Microsoft Azure Foundations Benchmark — CIS licence terms do not permit redistribution in Bunya. Benchmark text is never ingested. 44 rules are tagged `cis-azure-v3.0.0:<control>` through Microsoft's Azure Policy regulatory-compliance mapping, shown as "aligned", never "compliant" ([#5](https://github.com/jusso-dev/Bunya/issues/5))
 - PCI DSS — permanently out of scope. Bunya does not check PCI DSS and adds no PCI tags; use a QSA, not a diagram tool ([#6](https://github.com/jusso-dev/Bunya/issues/6))
 - HITRUST CSF — won't fix. Commercial, US-healthcare-centric and outside the Australian-government audience ([#7](https://github.com/jusso-dev/Bunya/issues/7))
 
