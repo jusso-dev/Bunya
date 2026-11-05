@@ -141,9 +141,7 @@ function emitPrivateEndpoint(node: GraphNode, ctx: GeneratorContext): ArmResourc
     (e) => ctx.nodesById.get(e.target)?.type !== "subnet",
   );
   const groupId = (node.properties.groupId as string) ?? "blob";
-  const subnetId = subnetEdge
-    ? `[resourceId('Microsoft.Network/virtualNetworks/subnets', 'main-vnet', '${resourceName(ctx, subnetEdge.target)}')]`
-    : "[resourceId('Microsoft.Network/virtualNetworks/subnets', 'main-vnet', 'main-subnet')]";
+  const subnetId = subnetArmId(ctx, subnetEdge?.target);
   const targetId = targetEdge
     ? armResourceId(ctx.nodesById.get(targetEdge.target)!, ctx)
     : null;
@@ -313,10 +311,9 @@ function subnetArmId(ctx: GeneratorContext, subnetId?: string): string {
     return "[resourceId('Microsoft.Network/virtualNetworks/subnets', 'main-vnet', 'main-subnet')]";
   }
   const subnetName = resourceName(ctx, subnetId);
-  const vnetEdge = outgoingOf(ctx, subnetId, "depends_on").find(
-    (e) => ctx.nodesById.get(e.target)?.type === "virtualNetwork",
-  );
-  const vnetName = vnetEdge ? resourceName(ctx, vnetEdge.target) : "main-vnet";
+  const subnet = ctx.nodesById.get(subnetId);
+  const vnet = subnet ? resolveVirtualNetwork(ctx, subnet) : null;
+  const vnetName = vnet ? resourceName(ctx, vnet.id) : "main-vnet";
   return `[resourceId('Microsoft.Network/virtualNetworks/subnets', '${vnetName}', '${subnetName}')]`;
 }
 

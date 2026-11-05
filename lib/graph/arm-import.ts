@@ -105,6 +105,35 @@ function resolveString(
   return value;
 }
 
+// Portal exports reference resources through parameter names, e.g.
+// resourceId('Microsoft.Web/serverfarms', parameters('serverfarms_x_name')).
+// Swap each reference for its default value so edge matching sees real names.
+function expandReferences(
+  value: unknown,
+  parameters: Record<string, unknown>,
+  variables: Record<string, unknown>,
+): unknown {
+  if (typeof value === "string") {
+    return value.replace(/\b(parameters|variables)\('([^']+)'\)/gi, (match, kind: string, key: string) => {
+      const resolved = kind.toLowerCase() === "parameters" ? asRecord(parameters[key]).defaultValue : variables[key];
+      return typeof resolved === "string" ? `'${resolved.replace(/'/g, "''")}'` : match;
+    });
+  }
+  if (Array.isArray(value)) return value.map((item) => expandReferences(item, parameters, variables));
+  if (typeof value === "object" && value !== null) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, expandReferences(item, parameters, variables)]),
+    );
+  }
+  return value;
+}
+
+// Exporters accept only letters, numbers, dots, underscores and hyphens.
+function safeResourceName(name: string, fallback: string): string {
+  const safe = name.replace(/[^A-Za-z0-9_.-]+/g, "-").replace(/^[-.]+|[-.]+$/g, "");
+  return safe || fallback;
+}
+
 function flattenResources(
   resources: unknown[],
   parameters: Record<string, unknown>,
@@ -171,6 +200,10 @@ function linuxRuntime(
   if (!fx) return {};
   const match = /^([A-Za-z-]+)\|(.+)$/.exec(fx.trim());
   const runtime = match ? LINUX_FX_RUNTIMES[match[1].toUpperCase()] : undefined;
+  if (match?.[1].toUpperCase() === "DOCKER") {
+    warnings.push(`${resourceName}: container image deployments (${fx}) are not modelled; the app was imported with the default runtime.`);
+    return {};
+  }
   if (!match || !runtime) {
     warnings.push(`${resourceName}: runtime "${fx}" is not modelled; Bunya defaults were used.`);
     return {};
@@ -182,7 +215,18 @@ function linuxRuntime(
   return { runtime, runtimeVersion: match[2].trim() };
 }
 
-function baseProperties(type: ServiceType, resource: FlatArmResource, parameters: Record<string, unknown>, variables: Record<string, unknown>, warnings: string[]): Record<string, unknown> {
+function sqlDatabaseSku(sku: Record<string, unknown>): string | undefined {
+  const name = asString(sku.name);
+  const capacity = asNumber(sku.capacity);
+  if (!name) return undefined;
+  // Exports split vCore SKUs into name + capacity, e.g. GP_S_Gen5 + 2.
+  if (/_Gen\d+$/i.test(name) && capacity !== undefined) return `${name}_${capacity}`;
+  // DTU Standard tiers are exported as name "Standard" + DTU capacity.
+  if (name === "Standard" && capacity !== undefined) return ({ 10: "S0", 20: "S1" } as Record<number, string>)[capacity] ?? name;
+  return name;
+}
+
+function baseProperties(type: ServiceType, resource: FlatArmResource, allResources: FlatArmResource[], parameters: Record<string, unknown>, variables: Record<string, unknown>, warnings: string[]): Record<string, unknown> {
   const def = getServiceDefinition(type);
   const props = asRecord(resource.raw.properties);
   const sku = asRecord(resource.raw.sku);
@@ -335,12 +379,39 @@ function baseProperties(type: ServiceType, resource: FlatArmResource, parameters
         scope: asString((resource.raw as { scope?: unknown }).scope) ?? defaults.scope,
       };
     }
+    case "containerRegistry":
+      return {
+        ...defaults,
+        sku: asString(sku.name) ?? defaults.sku,
+        adminUserEnabled: props.adminUserEnabled === true,
+        publicNetworkAccess: asString(props.publicNetworkAccess) !== "Disabled",
+      };
+    case "sqlDatabase": {
+      const serverName = resource.parentName ?? resource.fullName.split("/").slice(0, -1).join("/");
+      const server = allResources.find(
+        (candidate) => candidate.type.toLowerCase() === "microsoft.sql/servers" && candidate.fullName.toLowerCase() === serverName.toLowerCase(),
+      );
+      return {
+        ...defaults,
+        sku: sqlDatabaseSku(sku) ?? defaults.sku,
+        collation: asString(props.collation) ?? defaults.collation,
+        zoneRedundant: props.zoneRedundant === true,
+        adminLogin: asString(asRecord(server?.raw.properties).administratorLogin) ?? defaults.adminLogin,
+      };
+    }
+    case "cosmosDb":
+      return {
+        ...defaults,
+        consistency: asString(asRecord(props.consistencyPolicy).defaultConsistencyLevel) ?? defaults.consistency,
+        freeTier: props.enableFreeTier === true,
+        multiRegionWrites: props.enableMultipleWriteLocations === true,
+        capabilities: asArray(props.capabilities)
+          .map((capability) => asString(asRecord(capability).name))
+          .filter((name): name is string => !!name),
+      };
     case "frontDoor":
     case "applicationGateway":
     case "apiManagement":
-    case "containerRegistry":
-    case "cosmosDb":
-    case "sqlDatabase":
     case "networkSecurityGroup":
     case "privateEndpoint":
     case "userAssignedIdentity":
@@ -362,7 +433,8 @@ function validatedProperties(type: ServiceType, resource: FlatArmResource, prope
   const adjusted = { ...properties };
   for (const key of invalidKeys) adjusted[key] = definition.defaultProperties[key];
   const validated = definition.propertiesSchema.parse(adjusted) as Record<string, unknown>;
-  warnings.push(`${definition.label} ${resource.name}: unsupported ${[...invalidKeys].join(", ")}; used Bunya defaults for these properties.`);
+  const details = [...invalidKeys].map((key) => `${key} ${JSON.stringify(properties[key])}`).join(", ");
+  warnings.push(`${definition.label} ${resource.name}: unsupported ${details}; used Bunya defaults for these properties.`);
   return validated;
 }
 
@@ -402,7 +474,7 @@ function findReferencedNode(
     .map(({ flat, node }) => {
       const full = flat.fullName.toLowerCase();
       const parts = full.split("/").filter(Boolean);
-      const name = node.resourceName.toLowerCase();
+      const name = flat.name.toLowerCase();
       const type = flat.type.toLowerCase();
       let score = 0;
       if (lower.includes(full)) score = Math.max(score, 120 + parts.length);
@@ -592,7 +664,7 @@ function findVirtualNetworkParent(resources: ImportedResource[], item: ImportedR
     ({ flat, node }) =>
       node.type === "virtualNetwork" &&
       (flat.fullName.toLowerCase() === parentName.toLowerCase() ||
-        node.resourceName.toLowerCase() === cleanName(parentName, parentName).toLowerCase()),
+        flat.name.toLowerCase() === cleanName(parentName, parentName).toLowerCase()),
   )?.node;
 }
 
@@ -655,9 +727,11 @@ function layoutImportedNodes(
       }
     }
     if (item.node.type === "appService" || item.node.type === "functionApp") {
-      const planId = edges.find((edge) => edge.source === item.node.id && edge.kind === "depends_on")?.target;
-      const plan = planId ? nodeById.get(planId) : undefined;
-      if (plan?.type === "appServicePlan") {
+      const plan = edges
+        .filter((edge) => edge.source === item.node.id && edge.kind === "depends_on")
+        .map((edge) => nodeById.get(edge.target))
+        .find((target) => target?.type === "appServicePlan");
+      if (plan) {
         parentById.set(item.node.id, plan.id);
         continue;
       }
@@ -781,13 +855,18 @@ export function parseArmTemplate(text: string): ArmImportResult {
       const type = serviceTypeFor(resource);
       if (!type) return null;
       const def = getServiceDefinition(type);
+      const armName = cleanName(resource.name, `${type}-${index + 1}`);
+      const resourceName = safeResourceName(armName, `${type}-${index + 1}`);
+      if (resourceName !== armName) {
+        warnings.push(`${def.label}: renamed "${armName}" to "${resourceName}" because exports allow only letters, numbers, dots, underscores and hyphens; check the name before deploying.`);
+      }
       const node: GraphNode = {
         id: `arm-node-${index + 1}`,
         type,
         name: def.label,
-        resourceName: cleanName(resource.name, `${type}-${index + 1}`),
+        resourceName,
         position: { x: 0, y: 0 },
-        properties: validatedProperties(type, resource, baseProperties(type, resource, parameters, variables, warnings), warnings),
+        properties: validatedProperties(type, resource, baseProperties(type, resource, flat, parameters, variables, warnings), warnings),
       };
       return { flat: resource, node };
     })
@@ -810,6 +889,7 @@ export function parseArmTemplate(text: string): ArmImportResult {
     };
   }
 
+  for (const resource of flat) resource.raw = expandReferences(resource.raw, parameters, variables) as ArmResource;
   const edges = inferEdges(known, flat);
   const nodes = layoutImportedNodes(known, edges, resourceGroup);
   if (nodes.length > 200 || edges.length > 1000) {
@@ -840,6 +920,6 @@ export function parseArmTemplate(text: string): ArmImportResult {
   return {
     ok: true,
     document,
-    warning: [skipped > 0 ? `${skipped} unsupported ARM resources were skipped.` : "", ...warnings].filter(Boolean).join(" ") || undefined,
+    warning: [skipped > 0 ? `${skipped} unsupported ARM resources were skipped.` : "", ...warnings].filter(Boolean).join("\n") || undefined,
   };
 }

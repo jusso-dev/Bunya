@@ -7,6 +7,7 @@ import {
   effectiveResourceGroup,
   outgoingOf,
   resolveAppServicePlan,
+  resolveVirtualNetwork,
 } from "./shared/context";
 import { GeneratorResult } from "./types";
 
@@ -36,10 +37,8 @@ function emit(node: GraphNode, ctx: GeneratorContext): string[] {
         `az network vnet create ${COMMON} --name "${name}" --address-prefixes "${(node.properties.addressSpace as string) ?? "10.0.0.0/16"}" --location "${region}" >/dev/null`,
       ];
     case "subnet": {
-      const vnetEdge = outgoingOf(ctx, node.id, "depends_on").find(
-        (e) => ctx.nodesById.get(e.target)?.type === "virtualNetwork",
-      );
-      const vnetName = vnetEdge ? ctx.resourceNames.get(vnetEdge.target)! : "main-vnet";
+      const vnet = resolveVirtualNetwork(ctx, node);
+      const vnetName = vnet ? ctx.resourceNames.get(vnet.id)! : "main-vnet";
       return [
         `# Subnet ${name}`,
         `az network vnet subnet create ${COMMON} --vnet-name "${vnetName}" --name "${name}" --address-prefixes "${(node.properties.addressPrefix as string) ?? "10.0.1.0/24"}" --private-endpoint-network-policies ${(node.properties.privateEndpointNetworkPolicies as string) ?? "Disabled"} >/dev/null`,
@@ -55,12 +54,9 @@ function emit(node: GraphNode, ctx: GeneratorContext): string[] {
         (e) => ctx.nodesById.get(e.target)?.type === "subnet",
       );
       const subnetName = subnetEdge ? ctx.resourceNames.get(subnetEdge.target)! : "main-subnet";
-      const vnetEdge = subnetEdge
-        ? outgoingOf(ctx, subnetEdge.target, "depends_on").find(
-            (e) => ctx.nodesById.get(e.target)?.type === "virtualNetwork",
-          )
-        : undefined;
-      const vnetName = vnetEdge ? ctx.resourceNames.get(vnetEdge.target)! : "main-vnet";
+      const subnet = subnetEdge ? ctx.nodesById.get(subnetEdge.target) : undefined;
+      const vnet = subnet ? resolveVirtualNetwork(ctx, subnet) : null;
+      const vnetName = vnet ? ctx.resourceNames.get(vnet.id)! : "main-vnet";
       const targetEdge = outgoingOf(ctx, node.id, "network").find(
         (e) => ctx.nodesById.get(e.target)?.type !== "subnet",
       );
@@ -123,8 +119,10 @@ function emit(node: GraphNode, ctx: GeneratorContext): string[] {
       const subnetEdge = outgoingOf(ctx, node.id, "network").find(
         (e) => ctx.nodesById.get(e.target)?.type === "subnet",
       );
-      const subnetArg = subnetEdge
-        ? ` --vnet-subnet-id "$(az network vnet subnet show ${COMMON} --name "${ctx.resourceNames.get(subnetEdge.target)!}" --vnet-name "main-vnet" --query id -o tsv)"`
+      const subnet = subnetEdge ? ctx.nodesById.get(subnetEdge.target) : undefined;
+      const subnetVnet = subnet ? resolveVirtualNetwork(ctx, subnet) : null;
+      const subnetArg = subnet
+        ? ` --vnet-subnet-id "$(az network vnet subnet show ${COMMON} --name "${ctx.resourceNames.get(subnet.id)!}" --vnet-name "${subnetVnet ? ctx.resourceNames.get(subnetVnet.id)! : "main-vnet"}" --query id -o tsv)"`
         : "";
       const privateArg = node.properties.privateCluster === true ? " --enable-private-cluster" : "";
       const policy = (node.properties.networkPolicy as string) ?? "azure";

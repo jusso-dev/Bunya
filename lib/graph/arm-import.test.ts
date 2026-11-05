@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CONTAINER_SIZE, type GraphNode, isContainerType } from "./schema";
 import { parseArmTemplate } from "./arm-import";
+import { generateTerraform } from "@/lib/generators/terraform";
 
 function sizeOf(node: GraphNode): { width: number; height: number } {
   if (node.size) return node.size;
@@ -502,5 +503,110 @@ describe("parseArmTemplate", () => {
     expect(byName["web-param"]).toMatchObject({ runtime: "node", runtimeVersion: "20-lts" });
     expect(byName["fn-isolated"]).toMatchObject({ runtime: "dotnet", runtimeVersion: "8.0" });
     expect(result.warning).toContain("fn-isolated: the .NET isolated worker model is not modelled");
+  });
+
+  it("imports an Azure portal export with parameterised plans, unsafe names and mapped settings", () => {
+    const planId = (param: string) => `[resourceId('Microsoft.Web/serverfarms', parameters('${param}'))]`;
+    const template = {
+      parameters: {
+        serverfarms_ASP_general_a897_name: { defaultValue: "ASP-general-a897", type: "String" },
+        serverfarms_ASP_general_adba_name: { defaultValue: "ASP-general-adba", type: "String" },
+        sites_dashboard_name: { defaultValue: "app-dashboard", type: "String" },
+        sites_docs_name: { defaultValue: "app-docs", type: "String" },
+        registries_acr_name: { defaultValue: "acrexample", type: "String" },
+        servers_sql_name: { defaultValue: "sql-example", type: "String" },
+        actiongroups_smart_detection_name: { defaultValue: "Application Insights Smart Detection", type: "String" },
+      },
+      resources: [
+        {
+          type: "Microsoft.ContainerRegistry/registries",
+          name: "[parameters('registries_acr_name')]",
+          location: "australiaeast",
+          sku: { name: "Standard", tier: "Standard" },
+          properties: { adminUserEnabled: true, publicNetworkAccess: "Disabled" },
+        },
+        {
+          type: "microsoft.insights/actionGroups",
+          name: "[parameters('actiongroups_smart_detection_name')]",
+          location: "Global",
+          properties: { groupShortName: "SmartDetect", emailReceivers: [] },
+        },
+        {
+          type: "Microsoft.Web/serverfarms",
+          name: "[parameters('serverfarms_ASP_general_a897_name')]",
+          location: "Australia East",
+          kind: "linux",
+          sku: { name: "P0v3", tier: "Premium0V3", capacity: 1 },
+          properties: { reserved: true },
+        },
+        {
+          type: "Microsoft.Web/serverfarms",
+          name: "[parameters('serverfarms_ASP_general_adba_name')]",
+          location: "Australia East",
+          kind: "linux",
+          sku: { name: "B1", tier: "Basic", capacity: 1 },
+          properties: { reserved: true },
+        },
+        {
+          type: "Microsoft.Web/sites",
+          name: "[parameters('sites_dashboard_name')]",
+          location: "Australia East",
+          kind: "app,linux,container",
+          dependsOn: [planId("serverfarms_ASP_general_a897_name")],
+          properties: {
+            serverFarmId: planId("serverfarms_ASP_general_a897_name"),
+            siteConfig: { linuxFxVersion: "[concat('DOCKER|acrexample.azurecr.io/', parameters('sites_dashboard_name'), ':latest')]" },
+          },
+        },
+        {
+          type: "Microsoft.Web/sites",
+          name: "[parameters('sites_docs_name')]",
+          location: "Australia East",
+          kind: "app,linux",
+          dependsOn: [planId("serverfarms_ASP_general_adba_name")],
+          properties: {
+            serverFarmId: planId("serverfarms_ASP_general_adba_name"),
+            siteConfig: { linuxFxVersion: "NODE|20-lts" },
+          },
+        },
+        {
+          type: "Microsoft.Sql/servers",
+          name: "[parameters('servers_sql_name')]",
+          location: "australiaeast",
+          properties: { administratorLogin: "sqladmin" },
+        },
+        {
+          type: "Microsoft.Sql/servers/databases",
+          name: "[concat(parameters('servers_sql_name'), '/orders_db')]",
+          location: "australiaeast",
+          sku: { name: "GP_S_Gen5", tier: "GeneralPurpose", family: "Gen5", capacity: 2 },
+          properties: { collation: "Latin1_General_CI_AS", zoneRedundant: true },
+        },
+      ],
+    };
+    const result = parseArmTemplate(JSON.stringify(template));
+    if (!result.ok) throw new Error(result.reason);
+    const nodes = result.document.nodes;
+    const byName = (name: string) => {
+      const node = nodes.find((candidate) => candidate.resourceName === name);
+      if (!node) throw new Error(`missing ${name}: ${nodes.map((n) => n.resourceName).join(", ")}`);
+      return node;
+    };
+
+    expect(byName("app-dashboard").parentId).toBe(byName("ASP-general-a897").id);
+    expect(byName("app-docs").parentId).toBe(byName("ASP-general-adba").id);
+    expect(byName("acrexample").properties).toMatchObject({ sku: "Standard", adminUserEnabled: true, publicNetworkAccess: false });
+    expect(byName("orders_db").properties).toMatchObject({ sku: "GP_S_Gen5_2", collation: "Latin1_General_CI_AS", zoneRedundant: true, adminLogin: "sqladmin" });
+    expect(byName("Application-Insights-Smart-Detection").type).toBe("actionGroup");
+    for (const node of nodes) expect(node.resourceName).toMatch(/^[A-Za-z0-9_.-]+$/);
+
+    expect(result.warning).toContain('App Service Plan ASP-general-a897: unsupported sku "P0v3"');
+    expect(result.warning).toContain('renamed "Application Insights Smart Detection" to "Application-Insights-Smart-Detection"');
+    expect(result.warning).toContain("app-dashboard: container image deployments (DOCKER|acrexample.azurecr.io/app-dashboard:latest) are not modelled");
+    expect(result.warning).not.toContain("Container Registry acrexample: ARM configuration is not mapped");
+    expect(result.warning).not.toContain("Azure SQL Database orders_db: ARM configuration is not mapped");
+
+    const terraform = generateTerraform(result.document);
+    expect(terraform.ok ? "ok" : terraform.reason).toBe("ok");
   });
 });

@@ -163,7 +163,7 @@ export function Toolbar() {
       }
       replaceDocument(result.document);
       if (typeof window !== "undefined") window.history.replaceState(null, "", "#");
-      setShareMessage(`Imported ${file.name} (${result.document.nodes.length} nodes).${result.warning ? ` ${result.warning}` : ""}`);
+      setShareMessage(`Imported ${file.name} (${result.document.nodes.length} nodes).${result.warning ? `\nImport notes:\n${result.warning}` : ""}`);
       setImportMessage(null);
       setImportOpen(false);
     },
@@ -188,7 +188,7 @@ export function Toolbar() {
     setImportText("");
     setImportMessage(null);
     setImportOpen(false);
-    setShareMessage(`Imported pasted JSON (${result.document.nodes.length} nodes).${result.warning ? ` ${result.warning}` : ""}`);
+    setShareMessage(`Imported pasted JSON (${result.document.nodes.length} nodes).${result.warning ? `\nImport notes:\n${result.warning}` : ""}`);
   }, [importText, replaceDocument]);
 
   const onFileChange = useCallback(
@@ -216,7 +216,7 @@ export function Toolbar() {
           type="button"
           disabled={!canUndo}
           onClick={undo}
-          className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+          className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
         >
           Undo
         </button>
@@ -224,7 +224,7 @@ export function Toolbar() {
           type="button"
           disabled={!canRedo}
           onClick={redo}
-          className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+          className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
         >
           Redo
         </button>
@@ -232,7 +232,7 @@ export function Toolbar() {
           <button
             type="button"
             onClick={() => setTemplateOpen((v) => !v)}
-            className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+            className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
           >
             Templates
           </button>
@@ -261,7 +261,7 @@ export function Toolbar() {
               setImportMessage(null);
               setImportOpen((v) => !v);
             }}
-            className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+            className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
             title={`Import a ${PORTABLE_EXTENSION} file or Azure ARM template`}
           >
             Import
@@ -296,7 +296,7 @@ export function Toolbar() {
                 <button
                   type="button"
                   onClick={onImportClick}
-                  className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+                  className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
                 >
                   Upload JSON
                 </button>
@@ -308,14 +308,14 @@ export function Toolbar() {
                       setImportMessage(null);
                       setImportOpen(false);
                     }}
-                    className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+                    className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
                   >
                     Cancel
                   </button>
                   <button
                     type="button"
                     onClick={onImportPaste}
-                    className="rounded-md bg-zinc-900 px-2 py-1 text-xs font-medium text-white hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900"
+                    className="rounded-md bg-zinc-900 px-2 py-1 text-xs font-medium text-white hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
                   >
                     Import
                   </button>
@@ -329,7 +329,7 @@ export function Toolbar() {
         <button
           type="button"
           onClick={onExport}
-          className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+          className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
           title={`Download as ${PORTABLE_EXTENSION}`}
         >
           Export
@@ -337,14 +337,14 @@ export function Toolbar() {
         <button
           type="button"
           onClick={onShare}
-          className="rounded-md bg-zinc-900 px-2 py-1 text-xs font-medium text-white hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900"
+          className="rounded-md bg-zinc-900 px-2 py-1 text-xs font-medium text-white hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
         >
           Share
         </button>
         <button
           type="button"
           onClick={onNew}
-          className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+          className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
         >
           New
         </button>
@@ -359,8 +359,8 @@ export function Toolbar() {
       </div>
       {saveFailed && <p role="alert" className="w-full text-sm text-red-700 dark:text-red-300">Changes cannot be saved in this browser. Export your diagram to keep your work.</p>}
       {shareMessage ? (
-        <div role="status" className="absolute left-2 right-2 top-full z-40 mt-1 break-words rounded-md border border-zinc-200 bg-white px-3 py-1 text-xs shadow dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
-          {shareMessage}
+        <div role="status" className="absolute left-2 right-2 top-full z-40 mt-1 flex items-start justify-between gap-2 rounded-md border border-zinc-200 bg-white px-3 py-1 text-xs shadow dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
+          <p className="max-h-60 overflow-auto whitespace-pre-line break-words">{shareMessage}</p>
           <button
             type="button"
             aria-label="Dismiss notification"

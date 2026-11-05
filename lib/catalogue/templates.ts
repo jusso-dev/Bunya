@@ -83,7 +83,10 @@ export const STARTER_TEMPLATES: StarterTemplate[] = [
         buildNode("rg", "resourceGroup", "Resource Group", "rg-three-tier", 0, 0, undefined, { width: 1540, height: 730 }),
         buildNode("vnet", "virtualNetwork", "VNet", "vnet-three-tier", 40, 350, "rg", { width: 520, height: 300 }),
         buildNode("snet-app", "subnet", "App Subnet", "snet-app", 40, 60, "vnet"),
-        buildNode("snet-pe", "subnet", "PE Subnet", "snet-pe", 40, 200, "vnet"),
+        {
+          ...buildNode("snet-pe", "subnet", "PE Subnet", "snet-pe", 40, 200, "vnet"),
+          properties: { ...getServiceDefinition("subnet").defaultProperties, addressPrefix: "10.0.2.0/24" },
+        },
         buildNode("plan", "appServicePlan", "Plan", "plan-three-tier", 40, 60, "rg", { width: 300, height: 180 }),
         buildNode("app", "appService", "Web", "app-three-tier", 40, 60, "plan"),
         buildNode("kv", "keyVault", "Secrets", "kv-three-tier", 980, 80, "rg"),

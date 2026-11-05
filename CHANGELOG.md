@@ -6,6 +6,26 @@ project follows [Conventional Commits](https://www.conventionalcommits.org/).
 
 ## [Unreleased]
 
+### ARM import fixes and deployability checks
+
+- ARM import nests web apps in their App Service Plan when the export
+  references plans through `parameters(...)`, maps Container Registry, SQL
+  Database and Cosmos DB settings, and renames resources whose names exporters
+  cannot emit (for example action groups with spaces).
+- Import notes list one per line and include the unsupported value.
+- Deployment exports no longer fail on catalogue display names such as
+  "Web App (App Service)".
+- New `BUNYA.NET.013` error, also enforced by deployment exporters: subnets
+  must belong to a Virtual Network, subnet prefixes must fit the VNet and not
+  overlap, containers accept only valid children, and VM Scale Sets must join
+  a subnet.
+- Bicep, ARM, PowerShell and Azure CLI exports reference a subnet's containing
+  VNet instead of `main-vnet` when the subnet has no `depends_on` edge.
+- Implicit Private Endpoint subnets and subnets dropped into a VNet pick a free
+  prefix inside the VNet address space. The three-tier template no longer ships
+  overlapping subnets.
+- Dark mode toolbar buttons keep readable contrast on hover.
+
 ### Compliance alignment, Azure Policy export and nightly upstream sync
 
 - Tagged 44 rules with CIS Microsoft Azure Foundations v3.0.0 control IDs

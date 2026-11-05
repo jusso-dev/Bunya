@@ -1,6 +1,7 @@
 import { graphRule, nodeRule } from "@/lib/rules/builders";
 import type { RuleEntry } from "@/lib/rules/schema";
 import type { GraphDocument } from "@/lib/graph/schema";
+import { topologyProblems } from "@/lib/graph/topology";
 
 const MS_LEARN = "Microsoft Learn";
 
@@ -455,5 +456,23 @@ export const networkRules: RuleEntry[] = [
       }
       return findings;
     },
+  }),
+
+  // BUNYA.NET.013 — diagrams Azure cannot deploy; exporters block on these too
+  graphRule({
+    id: "BUNYA.NET.013",
+    source: {
+      name: MS_LEARN,
+      url: "https://learn.microsoft.com/en-us/azure/virtual-network/virtual-network-manage-subnet",
+      license: "CC-BY-4.0",
+    },
+    category: "network",
+    severity: "error",
+    message: "Diagram placement or addressing cannot be deployed to Azure.",
+    longExplanation:
+      "Azure rejects a subnet that has no parent Virtual Network, a subnet prefix outside its Virtual Network address space, and overlapping subnet prefixes in one Virtual Network. A Virtual Network holds only subnets, an App Service Plan hosts only web and function apps, and Resource Groups cannot nest. Virtual Machine Scale Sets must join a subnet. Bunya blocks deployment exports until these are fixed.",
+    tags: ["bunya", "topology", "subnet", "deployability"],
+    predicate: (graph: GraphDocument) =>
+      topologyProblems(graph).map((problem) => ({ nodeIds: problem.nodeIds, message: problem.message })),
   }),
 ];

@@ -7,6 +7,7 @@ import {
   incomingOf,
   outgoingOf,
   resolveAppServicePlan,
+  resolveVirtualNetwork,
 } from "./shared/context";
 import { GeneratedFile, GeneratorResult } from "./types";
 
@@ -68,10 +69,8 @@ function emitVirtualNetwork(node: GraphNode, ctx: GeneratorContext): string {
 function emitSubnet(node: GraphNode, ctx: GeneratorContext): string {
   const ident = nodeRef(ctx, node.id);
   const prefix = (node.properties.addressPrefix as string) ?? "10.0.1.0/24";
-  const vnetEdge = outgoingOf(ctx, node.id, "depends_on").find(
-    (e) => ctx.nodesById.get(e.target)?.type === "virtualNetwork",
-  );
-  const vnetIdent = vnetEdge ? nodeRef(ctx, vnetEdge.target) : "mainVnet";
+  const vnet = resolveVirtualNetwork(ctx, node);
+  const vnetIdent = vnet ? nodeRef(ctx, vnet.id) : "mainVnet";
   return [
     autoComment(ctx, node.id, "//"),
     `resource ${ident} 'Microsoft.Network/virtualNetworks/subnets@2023-11-01' = {`,

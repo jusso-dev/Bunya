@@ -8,13 +8,13 @@ exports[`REGISTRY > produces a stable summary snapshot 1`] = `
     "data-protection": 45,
     "identity": 25,
     "naming": 35,
-    "network": 64,
+    "network": 65,
     "observability": 18,
     "reliability": 46,
     "sovereignty": 7,
   },
   "bySeverity": {
-    "error": 99,
+    "error": 100,
     "info": 73,
     "warning": 121,
   },
@@ -64,7 +64,7 @@ exports[`REGISTRY > produces a stable summary snapshot 1`] = `
     "Manage a private endpoint": 1,
     "Manage subnets in an Azure virtual network": 1,
     "Microsoft Cloud Security Benchmark v3": 3,
-    "Microsoft Learn": 25,
+    "Microsoft Learn": 26,
     "Microsoft Learn — Azure App Service hosting plans": 1,
     "Microsoft Learn — Azure Architecture Center": 10,
     "Microsoft Learn — Azure Functions hosting options and scale": 1,
@@ -78,6 +78,6 @@ exports[`REGISTRY > produces a stable summary snapshot 1`] = `
     "What is Azure Front Door?": 1,
     "Workspace-based Application Insights resources": 1,
   },
-  "total": 293,
+  "total": 294,
 }
 `;

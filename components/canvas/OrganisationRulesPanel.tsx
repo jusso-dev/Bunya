@@ -299,7 +299,7 @@ export function OrganisationRulesPanel() {
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+        className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
         title="Create, import, and export organisation rule packs"
       >
         Org Rules {organisationRules.length > 0 ? `(${enabledCount}/${organisationRules.length})` : ""}
@@ -428,7 +428,7 @@ export function OrganisationRulesPanel() {
             <button
               type="button"
               onClick={addCustomRule}
-              className="rounded-md bg-zinc-900 px-2 py-1.5 font-medium text-white hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900"
+              className="rounded-md bg-zinc-900 px-2 py-1.5 font-medium text-white hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
             >
               Add Rule
             </button>
@@ -502,7 +502,7 @@ export function OrganisationRulesPanel() {
               <button
                 type="button"
                 onClick={importRulesText}
-                className="rounded-md bg-zinc-900 px-2 py-1 font-medium text-white hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900"
+                className="rounded-md bg-zinc-900 px-2 py-1 font-medium text-white hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
               >
                 Import
               </button>

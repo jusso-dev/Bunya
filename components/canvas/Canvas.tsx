@@ -33,6 +33,7 @@ import {
   SERVICE_TYPES,
   isContainerType,
 } from "@/lib/graph/schema";
+import { acceptsChild, freeSubnetPrefix, subnetVirtualNetwork } from "@/lib/graph/topology";
 import { ServiceNode, ServiceNodeData } from "./ServiceNode";
 import { ContainerNode } from "./ContainerNode";
 import { isPortableFile, parseImportText, readFileAsText } from "@/lib/graph/portable";
@@ -110,17 +111,6 @@ function findContainerAt(
     }
   }
   return chosen;
-}
-
-function acceptsChild(parentType: ServiceType, childType: ServiceType): boolean {
-  if (parentType === "virtualNetwork") return childType === "subnet";
-  if (parentType === "appServicePlan") {
-    return childType === "appService" || childType === "functionApp";
-  }
-  if (parentType === "resourceGroup") {
-    return childType !== "resourceGroup";
-  }
-  return false;
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -373,13 +363,22 @@ function CanvasInner() {
             y: absPosition.y - absolutePosition(document, parent).y,
           }
         : absPosition;
+      const properties: Record<string, unknown> = { ...def.defaultProperties };
+      if (type === "subnet" && parent?.type === "virtualNetwork") {
+        // Keep sibling subnets from colliding on the default prefix.
+        const siblings = document.nodes
+          .filter((n) => n.type === "subnet" && subnetVirtualNetwork(document, n)?.id === parent.id)
+          .map((n) => n.properties.addressPrefix);
+        const prefix = freeSubnetPrefix(parent.properties.addressSpace, siblings);
+        if (prefix) properties.addressPrefix = prefix;
+      }
       addNode({
         type,
         position,
         parentId: parent?.id ?? null,
         name: `${def.label} ${index}`,
         resourceName: defaultResourceName(type, index),
-        properties: { ...def.defaultProperties },
+        properties,
         size: isContainerType(type) ? DEFAULT_CONTAINER_SIZE[type] : undefined,
       });
     },
@@ -449,7 +448,7 @@ function CanvasInner() {
       {connectionError ? (
         <div role="alert" className="pointer-events-auto absolute right-4 top-4 max-w-sm rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800 shadow dark:bg-red-950/40 dark:text-red-200">
           <div className="flex items-start justify-between gap-2">
-            <span>{connectionError}</span>
+            <span className="whitespace-pre-line">{connectionError}</span>
             <button
               type="button"
               onClick={() => setConnectionError(null)}

@@ -6,6 +6,7 @@ import {
   buildGeneratorContext,
   outgoingOf,
   resolveAppServicePlan,
+  resolveVirtualNetwork,
 } from "./shared/context";
 import { GeneratorResult } from "./types";
 
@@ -63,10 +64,8 @@ function emitNode(node: GraphNode, ctx: GeneratorContext): string[] {
         `New-AzVirtualNetwork @vnetParams -Force | Out-Null`,
       ];
     case "subnet": {
-      const vnetEdge = outgoingOf(ctx, node.id, "depends_on").find(
-        (e) => ctx.nodesById.get(e.target)?.type === "virtualNetwork",
-      );
-      const vnetName = vnetEdge ? ctx.resourceNames.get(vnetEdge.target)! : "main-vnet";
+      const vnet = resolveVirtualNetwork(ctx, node);
+      const vnetName = vnet ? ctx.resourceNames.get(vnet.id)! : "main-vnet";
       return [
         `# Subnet ${name}`,
         `$vnet = Get-AzVirtualNetwork -ResourceGroupName $ResourceGroupName -Name '${vnetName}'`,

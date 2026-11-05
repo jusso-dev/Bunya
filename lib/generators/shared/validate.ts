@@ -1,11 +1,15 @@
 import { getServiceDefinition } from "../../catalogue/services";
 import { GraphDocumentSchema, type GraphDocument } from "../../graph/schema";
 import { checkImportText, checkObjectDepth } from "../../graph/limits";
+import { topologyProblems } from "../../graph/topology";
 
 // These exporters emit literal deployment values, never user-provided code.
 // Keep one conservative literal grammar across Bash, PowerShell, HCL, Bicep
 // and ARM; unsupported expressions fail visibly rather than changing meaning.
 const literal = /^[\p{L}\p{N} ._/@:+,=*-]*$/u;
+// Display names reach only diagrams and docs, never deployment code, so they
+// may also use parentheses, e.g. the catalogue label "Web App (App Service)".
+const displayName = /^[\p{L}\p{N} ._/@:+,=*()-]*$/u;
 
 function checkLiteral(value: unknown, path: string): void {
   if (typeof value === "string" && (!literal.test(value) || value.length > 4096)) {
@@ -27,8 +31,8 @@ export function validateGeneration(document: GraphDocument, deployment = true): 
     checkLiteral(parsed.metadata, "Document");
     if (!/^[A-Za-z0-9_.-]+$/.test(parsed.metadata.resourceGroupName)) throw new Error("Resource group name must use letters, numbers, dots, underscores or hyphens.");
     for (const node of parsed.nodes) {
-      checkLiteral(node.name, `Node ${node.id} name`);
-      if (!/^[A-Za-z0-9_.-]+$/.test(node.resourceName)) throw new Error(`Node ${node.id}: resource name must use letters, numbers, dots, underscores or hyphens.`);
+      if (!displayName.test(node.name) || node.name.length > 4096) throw new Error(`${node.name.slice(0, 80)}: display name contains unsupported characters. Use letters, numbers, spaces and basic punctuation.`);
+      if (!/^[A-Za-z0-9_.-]+$/.test(node.resourceName)) throw new Error(`${node.name} "${node.resourceName.slice(0, 80)}": resource name must use letters, numbers, dots, underscores or hyphens. Rename it in the inspector.`);
       const properties = getServiceDefinition(node.type).propertiesSchema.parse(node.properties) as Record<string, unknown>;
       if (node.properties.tags !== undefined) {
         const tags = node.properties.tags;
@@ -41,6 +45,10 @@ export function validateGeneration(document: GraphDocument, deployment = true): 
         (properties.outboundRules as unknown[]).length > 0 || parsed.edges.some((edge) => edge.source === node.id || edge.target === node.id)
       )) throw new Error("NSG rules and associations are not yet supported by deployment exporters. Export blocked to avoid silently dropping firewall controls. The diagram remains available for review and JSON export.");
       node.properties = properties;
+    }
+    if (deployment) {
+      const problems = topologyProblems(parsed);
+      if (problems.length > 0) throw new Error(`This diagram cannot be deployed to Azure as drawn: ${problems.map((problem) => problem.message).join(" ")}`);
     }
     return { ok: true, document: parsed };
   } catch (error) {

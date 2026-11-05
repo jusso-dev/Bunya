@@ -6,6 +6,7 @@ import {
   ServiceType,
 } from "@/lib/graph/schema";
 import { getServiceDefinition } from "@/lib/catalogue/services";
+import { freeSubnetPrefix } from "@/lib/graph/topology";
 
 export type ImplicitAddition =
   | { kind: "node"; node: GraphNode; reason: string }
@@ -169,6 +170,9 @@ export function expandImplicits(document: GraphDocument): ExpandedGraph {
             x: pe.position.x - 240,
             y: pe.position.y + 40,
           });
+          // The default prefix may fall outside an existing VNet's address space.
+          const prefix = freeSubnetPrefix(vnet.properties.addressSpace, []);
+          if (prefix) subnet.properties = { ...subnet.properties, addressPrefix: prefix };
           nodes.push(subnet);
           autoNodeIds.add(subnet.id);
           additions.push({
