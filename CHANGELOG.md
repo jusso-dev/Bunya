@@ -26,6 +26,13 @@ project follows [Conventional Commits](https://www.conventionalcommits.org/).
   overlapping subnets.
 - Dark mode toolbar buttons keep readable contrast on hover.
 
+### GitHub Pages deployment
+
+- A Pages workflow builds and deploys the site on every push to `main`. The
+  committed `docs/` build is gone, and the nightly sync now only checks that the
+  Pages build passes before offering icon updates.
+- CI no longer runs Playwright e2e tests; run `pnpm e2e` locally.
+
 ### Compliance alignment, Azure Policy export and nightly upstream sync
 
 - Tagged 44 rules with CIS Microsoft Azure Foundations v3.0.0 control IDs

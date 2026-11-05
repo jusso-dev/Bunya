@@ -5,9 +5,8 @@ name: Nightly upstream sync
 #   - Azure Policy built-in metadata and CIS control alignment (pnpm compliance:sync)
 #   - rule-source releases, AzureRM majors and Azure retirements (pnpm upstream:check)
 #
-# Mechanical updates (icons, policy metadata, and the GitHub Pages build when
-# icons change) are force-pushed to the automation/nightly-upstream branch and
-# offered as a single pull request. Anything that needs a human (failed checks,
+# Mechanical updates (icons and policy metadata) are force-pushed to the
+# automation/nightly-upstream branch and offered as a single pull request. Anything that needs a human (failed checks,
 # upstream releases that need rules re-curated, retirements, or a pull request
 # that could not be opened) is tracked in one "Nightly upstream report" issue.
 #
@@ -115,9 +114,9 @@ jobs:
           echo "exit=$?" >> "$GITHUB_OUTPUT"
           exit 0
 
-      # GitHub Pages serves the committed docs/ build, so icon changes must
-      # ship with a rebuilt site.
-      - name: Rebuild GitHub Pages site
+      # The Pages workflow deploys every push to main, so icon changes are only
+      # held back when the Pages build itself fails.
+      - name: Check GitHub Pages build
         id: pages
         run: |
           set +e
@@ -126,9 +125,9 @@ jobs:
             pnpm build:pages
             status=$?
             if [ "$status" != "0" ]; then
-              # Do not publish icons without the matching site build.
-              git checkout -- public/azure-icons lib/catalogue/icon-manifest.json docs
-              git clean -fdq -- public/azure-icons docs
+              # Do not publish icons that break the site build.
+              git checkout -- public/azure-icons lib/catalogue/icon-manifest.json
+              git clean -fdq -- public/azure-icons
             fi
           fi
           echo "exit=$status" >> "$GITHUB_OUTPUT"
@@ -260,7 +259,7 @@ jobs:
             fi
             if [ "$PAGES_EXIT" != "0" ]; then
               echo "> [!WARNING]"
-              echo "> The GitHub Pages rebuild failed, so icon updates were held back."
+              echo "> The GitHub Pages build failed, so icon updates were held back."
               echo
             fi
             if [ "$CHANGED" = "true" ] && [ "$TESTS_EXIT" != "0" ]; then

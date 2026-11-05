@@ -472,6 +472,7 @@ pnpm typecheck       # tsc --noEmit, strict
 pnpm test            # vitest run (unit tests, snapshot coverage of every generator)
 pnpm e2e             # playwright tests against the dev server
 pnpm build           # next build (Turbopack)
+pnpm build:pages     # static export to out/ with the /Bunya base path (CI deploys it on every push to main)
 pnpm rules:import    # rebuild rule registry + COVERAGE.md + GAPS.md
 pnpm rules:verify    # assert every rule has source.url, no duplicates, >=100 total
 pnpm rules:coverage  # regenerate coverage docs without re-ingesting
