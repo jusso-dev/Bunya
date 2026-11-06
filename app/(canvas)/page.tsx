@@ -3,11 +3,12 @@
 import { useEffect } from "react";
 import { ServicePalette } from "@/components/catalogue/ServicePalette";
 import { OutputTabs } from "@/components/output/OutputTabs";
-import { CanvasMount } from "@/components/canvas/CanvasMount";
+import { Canvas } from "@/components/canvas/Canvas";
 import { PropertiesPanel } from "@/components/properties/PropertiesPanel";
 import { Toolbar } from "@/components/canvas/Toolbar";
 import { ValidationPanel } from "@/components/canvas/ValidationPanel";
 import { useGraphStore } from "@/lib/graph/store";
+import { COMPACT_LAYOUT_QUERY } from "@/lib/session/ui";
 
 function CollapsedRail({
   label,
@@ -40,7 +41,7 @@ export default function CanvasPage() {
   const togglePanel = useGraphStore((s) => s.togglePanel);
 
   useEffect(() => {
-    const compact = window.matchMedia("(max-width: 1023px)");
+    const compact = window.matchMedia(COMPACT_LAYOUT_QUERY);
     // Below 1440px the three side panels leave the canvas almost no room, so
     // start with Output collapsed; it opens from its rail.
     const medium = window.matchMedia("(max-width: 1439px)");
@@ -71,7 +72,7 @@ export default function CanvasPage() {
         )}
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="min-h-0 flex-1">
-            <CanvasMount />
+            <Canvas />
           </div>
           <ValidationPanel />
         </div>

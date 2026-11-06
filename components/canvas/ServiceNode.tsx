@@ -5,23 +5,23 @@ import { Handle, NodeProps, Position } from "reactflow";
 import { CATEGORY_THEME, ServiceIcon } from "@/lib/catalogue/icons";
 import { getServiceDefinition } from "@/lib/catalogue/services";
 import { ServiceType } from "@/lib/graph/schema";
+import { SERVICE_NODE_SIZE } from "@/lib/session/geometry";
 
-export type ServiceNodeData = {
+export type CanvasNodeData = {
   serviceType: ServiceType;
   name: string;
   resourceName: string;
-  selected: boolean;
 };
 
-function ServiceNodeInner({ data, selected }: NodeProps<ServiceNodeData>) {
+function ServiceNodeInner({ data, selected }: NodeProps<CanvasNodeData>) {
   const def = getServiceDefinition(data.serviceType);
   const theme = CATEGORY_THEME[def.category];
-  const active = selected || data.selected;
 
   return (
     <div
-      className={`group flex w-[220px] items-stretch overflow-hidden rounded-lg border bg-white shadow-sm transition-all dark:bg-zinc-900 ${
-        active ? theme.cardRingActive : theme.cardRing
+      style={{ width: SERVICE_NODE_SIZE.width }}
+      className={`group flex items-stretch overflow-hidden rounded-lg border bg-white shadow-sm transition-all dark:bg-zinc-900 ${
+        selected ? theme.cardRingActive : theme.cardRing
       }`}
     >
       <Handle type="target" position={Position.Left} className="!bg-zinc-400" />

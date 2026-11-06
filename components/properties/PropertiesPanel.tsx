@@ -4,13 +4,15 @@ import { useMemo, useState } from "react";
 import { useGraphStore } from "@/lib/graph/store";
 import { getServiceDefinition } from "@/lib/catalogue/services";
 import { describeObjectSchema, FieldDescriptor } from "@/lib/catalogue/introspect";
-import { GraphNode } from "@/lib/graph/schema";
+import { AZURE_REGIONS, GraphMetadataSchema, GraphNode } from "@/lib/graph/schema";
+import { FILENAME_STEM_MAX } from "@/lib/graph/filename";
 
-// Display names appear on the canvas, in the header and in file names.
-export const DOCUMENT_NAME_MAX = 80;
-const DISPLAY_NAME_MAX = 80;
-// Free text in properties; the exporters' literal limit (validate.ts).
+// The document name becomes the stem of every download's file name.
+const DOCUMENT_NAME_MAX = FILENAME_STEM_MAX;
+const NODE_NAME_MAX = 80;
+// TODO(untangle): use the exported literal length limit from lib/graph/literal (MAX_LITERAL is not exported)
 const PROPERTY_TEXT_MAX = 4096;
+const ENVIRONMENTS = GraphMetadataSchema.shape.environment.options;
 
 export function PropertiesPanel() {
   const document = useGraphStore((s) => s.document);
@@ -52,13 +54,13 @@ export function PropertiesPanel() {
           <select
             value={document.metadata.environment}
             onChange={(e) =>
-              setMetadata({ environment: e.target.value as "dev" | "test" | "prod" })
+              setMetadata({ environment: e.target.value as (typeof ENVIRONMENTS)[number] })
             }
             className="w-full rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 text-sm dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
           >
-            <option value="dev">dev</option>
-            <option value="test">test</option>
-            <option value="prod">prod</option>
+            {ENVIRONMENTS.map((environment) => (
+              <option key={environment} value={environment}>{environment}</option>
+            ))}
           </select>
         </label>
         <label className="space-y-1">
@@ -70,10 +72,9 @@ export function PropertiesPanel() {
             }
             className="w-full rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 text-sm dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
           >
-            <option value="australiaeast">australiaeast</option>
-            <option value="australiasoutheast">australiasoutheast</option>
-            <option value="australiacentral">australiacentral</option>
-            <option value="australiacentral2">australiacentral2</option>
+            {AZURE_REGIONS.map((region) => (
+              <option key={region} value={region}>{region}</option>
+            ))}
           </select>
         </label>
         <label className="space-y-1">
@@ -124,7 +125,7 @@ function NodeProperties({ node }: { node: GraphNode }) {
         <RequiredText
           aria-label="Node name"
           value={node.name}
-          maxLength={DISPLAY_NAME_MAX}
+          maxLength={NODE_NAME_MAX}
           onCommit={(name) => updateNode(node.id, { name })}
           className="w-full rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 text-sm font-semibold dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
         />
@@ -286,7 +287,6 @@ function NumberField({ field, value, label, onChange }: { field: FieldDescriptor
         onChange={(e) => {
           setDraft(e.target.value);
           const n = Number(e.target.value);
-          // Store only values that are already valid; out-of-range input is fixed on blur.
           if (e.target.value.trim() !== "" && Number.isFinite(n) && n === parse(e.target.value)) onChange(n);
         }}
         onBlur={() => {

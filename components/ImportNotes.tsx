@@ -3,14 +3,27 @@
 import { toast } from "sonner";
 import { Dialog } from "@/components/Dialog";
 import { useGraphStore } from "@/lib/graph/store";
+import { loadDocument, readImport, type ImportSource } from "@/lib/session/import";
+import { useSessionUi } from "@/lib/session/ui";
 
-const OPEN_EVENT = "bunya:open-import-notes";
+// Imports a file or pasted text. A failure opens the Import dialog with the
+// reason and leaves the canvas as it was. Returns whether the import loaded.
+export async function importDiagram(input: ImportSource): Promise<boolean> {
+  const ui = useSessionUi.getState();
+  const result = await readImport(input);
+  if (!result.ok) {
+    ui.openImport(result.reason);
+    return false;
+  }
+  loadDocument(result.document, result.imported);
+  ui.closeImport();
+  announceImport(result.imported.source, result.document.nodes.length, result.imported.notes);
+  return true;
+}
 
 // One short toast per import. Long notes live in a scrollable dialog, so a
 // large import can never cover the screen.
-export function announceImport(source: string, nodes: number, warning: string | undefined) {
-  const notes = (warning ?? "").split("\n").map((line) => line.trim()).filter(Boolean);
-  useGraphStore.getState().setImportNotes(notes.length > 0 ? { source, notes } : null);
+function announceImport(source: string, nodes: number, notes: string[]) {
   const title = `Imported ${source} (${nodes} resource${nodes === 1 ? "" : "s"}).`;
   if (notes.length === 0) {
     toast.success(title, { id: "import" });
@@ -20,21 +33,17 @@ export function announceImport(source: string, nodes: number, warning: string | 
     id: "import",
     description: `${notes.length} note${notes.length === 1 ? "" : "s"}; also under Import notes in the toolbar.`,
     duration: 6000,
-    action: { label: "View notes", onClick: () => window.dispatchEvent(new Event(OPEN_EVENT)) },
+    action: { label: "View notes", onClick: () => useSessionUi.getState().setImportNotesOpen(true) },
   });
 }
 
-export function openImportNotes() {
-  window.dispatchEvent(new Event(OPEN_EVENT));
-}
-
-export { OPEN_EVENT as IMPORT_NOTES_EVENT };
-
-export function ImportNotesDialog({ onClose }: { onClose: () => void }) {
+export function ImportNotesDialog() {
   const importNotes = useGraphStore((s) => s.importNotes);
-  if (!importNotes) return null;
+  const open = useSessionUi((s) => s.importNotesOpen);
+  const setOpen = useSessionUi((s) => s.setImportNotesOpen);
+  if (!open || !importNotes) return null;
   return (
-    <Dialog label="Import notes" onClose={onClose}>
+    <Dialog label="Import notes" onClose={() => setOpen(false)}>
       <div className="flex w-[36rem] max-w-full flex-col gap-2 text-xs">
         <p className="text-zinc-600 dark:text-zinc-300">
           {importNotes.notes.length} note{importNotes.notes.length === 1 ? "" : "s"} from importing {importNotes.source}. These describe settings Bunya changed or did not keep; the resources in Azure are unaffected.
