@@ -1,4 +1,4 @@
-import { GraphDocument, EdgeKind, ServiceType } from "@/lib/graph/schema";
+import { GraphDocument, EdgeKind } from "@/lib/graph/schema";
 import { topologicalSort } from "@/lib/graph/ordering";
 import { getServiceDefinition, isEdgeKindAllowed, inferDefaultEdgeKind } from "./services";
 
@@ -55,12 +55,4 @@ export function canConnect(
     return { ok: false, reason: "Connecting these nodes would create a dependency cycle." };
   }
   return { ok: true, kind };
-}
-
-export function describeAllowedTargets(type: ServiceType): { type: ServiceType; label: string }[] {
-  const def = getServiceDefinition(type);
-  return def.allowedEdgeTargets.map((t) => ({
-    type: t,
-    label: getServiceDefinition(t).label,
-  }));
 }

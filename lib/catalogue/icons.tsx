@@ -1,14 +1,10 @@
 import Image, { type ImageProps } from "next/image";
-import type { ServiceCategory } from "./services";
+import { getServiceDefinition, type ServiceCategory } from "./services";
 import { ServiceType } from "@/lib/graph/schema";
-
-type ServiceIconAsset = {
-  src: string;
-  title: string;
-};
 
 export type ServiceIconProps = Omit<ImageProps, "alt" | "height" | "src" | "width"> & {
   size?: number;
+  // Accepted for callers written for line icons; the Azure SVGs ignore it.
   strokeWidth?: number;
   title?: string;
   type: ServiceType;
@@ -62,61 +58,9 @@ export const CATEGORY_THEME: Record<
   },
 };
 
-export const SERVICE_ICONS: Record<ServiceType, ServiceIconAsset> = {
-  resourceGroup: { src: "/azure-icons/resourceGroup.svg", title: "Resource Group" },
-  virtualNetwork: { src: "/azure-icons/virtualNetwork.svg", title: "Virtual Network" },
-  subnet: { src: "/azure-icons/subnet.svg", title: "Subnet" },
-  networkSecurityGroup: {
-    src: "/azure-icons/networkSecurityGroup.svg",
-    title: "Network Security Group",
-  },
-  privateEndpoint: { src: "/azure-icons/privateEndpoint.svg", title: "Private Endpoint" },
-  privateDnsZone: { src: "/azure-icons/privateDnsZone.svg", title: "Private DNS Zone" },
-  appServicePlan: { src: "/azure-icons/appServicePlan.svg", title: "App Service Plan" },
-  appService: { src: "/azure-icons/appService.svg", title: "App Service" },
-  functionApp: { src: "/azure-icons/functionApp.svg", title: "Function App" },
-  staticWebApp: { src: "/azure-icons/staticWebApp.svg", title: "Static Web App" },
-  aksCluster: { src: "/azure-icons/aksCluster.svg", title: "Azure Kubernetes Service" },
-  virtualMachineScaleSet: {
-    src: "/azure-icons/virtualMachineScaleSet.svg",
-    title: "Virtual Machine Scale Set",
-  },
-  storageAccount: { src: "/azure-icons/storageAccount.svg", title: "Storage Account" },
-  sqlDatabase: { src: "/azure-icons/sqlDatabase.svg", title: "Azure SQL Database" },
-  cosmosDb: { src: "/azure-icons/cosmosDb.svg", title: "Cosmos DB" },
-  keyVault: { src: "/azure-icons/keyVault.svg", title: "Key Vault" },
-  applicationInsights: {
-    src: "/azure-icons/applicationInsights.svg",
-    title: "Application Insights",
-  },
-  logAnalytics: {
-    src: "/azure-icons/logAnalytics.svg",
-    title: "Log Analytics Workspace",
-  },
-  monitorAlert: { src: "/azure-icons/monitorAlert.svg", title: "Monitor Alert Rule" },
-  actionGroup: { src: "/azure-icons/actionGroup.svg", title: "Action Group" },
-  frontDoor: { src: "/azure-icons/frontDoor.svg", title: "Front Door" },
-  applicationGateway: {
-    src: "/azure-icons/applicationGateway.svg",
-    title: "Application Gateway",
-  },
-  apiManagement: { src: "/azure-icons/apiManagement.svg", title: "API Management" },
-  containerRegistry: {
-    src: "/azure-icons/containerRegistry.svg",
-    title: "Container Registry",
-  },
-  userAssignedIdentity: {
-    src: "/azure-icons/userAssignedIdentity.svg",
-    title: "User-Assigned Managed Identity",
-  },
-  roleAssignment: {
-    src: "/azure-icons/roleAssignment.svg",
-    title: "Role Assignment",
-  },
-};
-
-export function getServiceIcon(type: ServiceType): ServiceIconAsset {
-  return SERVICE_ICONS[type] ?? SERVICE_ICONS.resourceGroup;
+// Maintained by `pnpm icons:sync` from Microsoft's Azure architecture icons.
+export function serviceIconPath(type: ServiceType): string {
+  return `/azure-icons/${type}.svg`;
 }
 
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
@@ -130,8 +74,7 @@ export function ServiceIcon({
   ...props
 }: ServiceIconProps) {
   void _strokeWidth;
-  const icon = getServiceIcon(type);
-  const label = title ?? icon.title;
+  const label = title ?? getServiceDefinition(type).label;
 
   return (
     <Image
@@ -139,7 +82,7 @@ export function ServiceIcon({
       alt={props["aria-hidden"] ? "" : label}
       draggable={false}
       height={size}
-      src={`${BASE_PATH}${icon.src}`}
+      src={`${BASE_PATH}${serviceIconPath(type)}`}
       style={{
         display: "block",
         height: size,

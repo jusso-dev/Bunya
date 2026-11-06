@@ -1,5 +1,5 @@
 // One safe file name stem for every download (Bunya file, ZIP, images):
-// lowercase letters, digits and hyphens, at most 80 characters, so any name
+// lowercase letters, digits and hyphens, so any name
 // works on Windows, macOS and Linux and never carries path characters.
 export const FILENAME_STEM_MAX = 80;
 
