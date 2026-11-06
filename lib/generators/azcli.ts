@@ -11,6 +11,7 @@ import {
 } from "./shared/context";
 import { GeneratorResult } from "./types";
 import { needsTemplateDeployment } from "./shared/hosting";
+import { quote } from "./shared/quote";
 import { privateEndpointTarget } from "@/lib/graph/topology";
 import { storagePublicNetwork } from "@/lib/catalogue/services";
 
@@ -37,7 +38,7 @@ function emit(node: GraphNode, ctx: GeneratorContext): string[] {
     case "virtualNetwork":
       return [
         `# Virtual Network ${name}`,
-        `az network vnet create ${COMMON} --name "${name}" --address-prefixes "${(node.properties.addressSpace as string) ?? "10.0.0.0/16"}" --location "${region}" >/dev/null`,
+        `az network vnet create ${COMMON} --name "${name}" --address-prefixes ${[(node.properties.addressSpace as string) ?? "10.0.0.0/16", ...((node.properties.additionalAddressSpaces as string[] | undefined) ?? [])].map((space) => `"${space}"`).join(" ")} --location "${region}" >/dev/null`,
       ];
     case "subnet": {
       const vnet = resolveVirtualNetwork(ctx, node);
@@ -189,7 +190,7 @@ function emit(node: GraphNode, ctx: GeneratorContext): string[] {
     case "actionGroup":
       return [
         `# Action Group ${name}`,
-        `az monitor action-group create ${COMMON} --name "${name}" --short-name "${(node.properties.shortName as string) ?? "ops"}" --action email ops "${(node.properties.email as string) ?? "ops@example.com"}" >/dev/null`,
+        `az monitor action-group create ${COMMON} --name "${name}" --short-name "${(node.properties.shortName as string) ?? "ops"}" --action email ops ${quote.bash((node.properties.email as string) ?? "ops@example.com")} >/dev/null`,
       ];
     case "frontDoor":
       return [
@@ -205,7 +206,7 @@ function emit(node: GraphNode, ctx: GeneratorContext): string[] {
     case "apiManagement":
       return [
         `# API Management ${name}`,
-        `az apim create ${COMMON} --name "${name}" --location "${region}" --publisher-name "${(node.properties.publisherName as string) ?? "Bunya"}" --publisher-email "${(node.properties.publisherEmail as string) ?? "ops@example.com"}" --sku-name "${(node.properties.sku as string) ?? "Consumption"}" >/dev/null`,
+        `az apim create ${COMMON} --name "${name}" --location "${region}" --publisher-name "${(node.properties.publisherName as string) ?? "Bunya"}" --publisher-email ${quote.bash((node.properties.publisherEmail as string) ?? "ops@example.com")} --sku-name "${(node.properties.sku as string) ?? "Consumption"}" >/dev/null`,
       ];
     case "containerRegistry":
       return [

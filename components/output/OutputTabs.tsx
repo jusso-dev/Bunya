@@ -1,6 +1,7 @@
 "use client";
 
 import { toast } from "sonner";
+import { fileStem } from "@/lib/graph/filename";
 import { useMemo, useState } from "react";
 import JSZip from "jszip";
 import { useGraphStore } from "@/lib/graph/store";
@@ -60,7 +61,7 @@ async function downloadZip(results: { tab: Tab; result: GeneratorResult }[], bas
   const url = URL.createObjectURL(blob);
   const a = window.document.createElement("a");
   a.href = url;
-  a.download = `${baseName}.zip`;
+  a.download = `${fileStem(baseName, "bunya")}.zip`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -118,14 +119,14 @@ export function OutputTabs() {
           type="button"
           disabled={failed}
           title={failed ? "Resolve generation errors before downloading the complete bundle." : undefined}
-          onClick={() => { void downloadZip(results, document.metadata.name || "bunya").then(() => toast.success("ZIP downloaded.")).catch(() => toast.error("Download failed. Try downloading individual files.")); }}
+          onClick={() => { void downloadZip(results, document.metadata.name || "bunya").then(() => toast.success("ZIP downloaded.", { id: "zip" })).catch(() => toast.error("Download failed. Try downloading individual files.")); }}
           className="ml-auto rounded border border-zinc-200 px-2 py-1 text-xs font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-100 dark:hover:bg-zinc-800"
         >
           Download all (.zip)
         </button>
       </div>
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-3 py-2">
-        {failed && <p role="alert" className="mb-2 text-sm text-red-700 dark:text-red-300">Some outputs cannot be generated. Complete ZIP download is unavailable; review the affected tabs.</p>}
+        {failed && <p className="mb-2 text-xs text-zinc-600 dark:text-zinc-300">Some outputs cannot be generated yet, so the complete ZIP is unavailable; see the affected tabs.</p>}
         {activeId === "cost" ? (
           <CostPanel document={document} />
         ) : active ? (
@@ -136,13 +137,38 @@ export function OutputTabs() {
   );
 }
 
+// Reasons are line-based: a summary, optional "Heading:" lines and "- item"
+// lines. Shown as a scrollable list so long reasons never fill the panel.
+function GenerationError({ label, reason, cycle }: { label: string; reason: string; cycle?: string[] }) {
+  // Single-line reasons get a short heading so the detail is not all bold.
+  const lines = reason.split("\n");
+  const [summary, ...rest] = lines.length > 1 ? lines : ["cannot be generated yet.", lines[0]];
+  return (
+    <div tabIndex={0} role="alert" className="max-h-[50vh] overflow-y-auto rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950 [overflow-wrap:anywhere] dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+      <p className="font-semibold">{label}: {summary}</p>
+      {rest.length > 0 ? (
+        <div className="mt-2 space-y-1">
+          {rest.map((line, index) =>
+            line.startsWith("- ") ? (
+              <p key={index} className="pl-3 -indent-3">• {line.slice(2)}</p>
+            ) : line.endsWith(":") ? (
+              <p key={index} className="mt-2 font-medium">{line}</p>
+            ) : (
+              <p key={index}>{line}</p>
+            ),
+          )}
+        </div>
+      ) : null}
+      {cycle ? <p className="mt-2">Cycle: {cycle.join(" -> ")}</p> : null}
+      <p className="mt-2 text-amber-800 dark:text-amber-200">The diagram, Mermaid, README, cost estimate and JSON export still work. Select an item on the canvas to fix it.</p>
+    </div>
+  );
+}
+
 function ActivePanel({ tab, result }: { tab: Tab; result: GeneratorResult }) {
   if (!result.ok) {
     return (
-      <pre tabIndex={0} role="alert" className="whitespace-pre-wrap break-words rounded-md bg-red-50 p-3 text-xs text-red-700 dark:bg-red-950/40 dark:text-red-200">
-        {tab.label} generation failed: {result.reason}
-        {result.cycle ? `\nCycle: ${result.cycle.join(" -> ")}` : ""}
-      </pre>
+      <GenerationError label={tab.label} reason={result.reason} cycle={result.cycle} />
     );
   }
   return (
@@ -158,7 +184,7 @@ function ActivePanel({ tab, result }: { tab: Tab; result: GeneratorResult }) {
                 type="button"
                 aria-label={`Copy ${file.path}`}
                 onClick={async () => {
-                  try { await navigator.clipboard.writeText(file.content); toast.success(`Copied ${file.path}.`); }
+                  try { await navigator.clipboard.writeText(file.content); toast.success(`Copied ${file.path}.`, { id: "copy" }); }
                   catch { toast.error(`Could not copy ${file.path}. Use Download instead.`); }
                 }}
                 className="rounded border border-zinc-200 px-1.5 py-0.5 text-[10px] uppercase hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"

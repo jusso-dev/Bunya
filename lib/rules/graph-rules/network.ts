@@ -464,11 +464,33 @@ export const networkRules: RuleEntry[] = [
     },
     category: "network",
     severity: "error",
-    message: "Diagram placement or addressing cannot be deployed to Azure.",
+    message: "Azure would reject this placement, addressing or hosting.",
     longExplanation:
-      "Azure rejects a subnet that has no parent Virtual Network, a subnet prefix outside its Virtual Network address space, and overlapping subnet prefixes in one Virtual Network. A Virtual Network holds only subnets, an App Service Plan hosts only web and function apps, and Resource Groups cannot nest. Virtual Machine Scale Sets must join a subnet. Web apps need a Basic, Standard or Premium plan (Consumption, Flex Consumption and Elastic Premium host Function Apps only), Bunya exports Linux sites so their plan must be Linux, a Flex Consumption plan hosts one app, container images need an Elastic Premium or dedicated plan, Consumption apps cannot use VNet integration, and a VNet integration subnet takes one delegation and no other resources. Bunya blocks deployment exports until these are fixed.",
+      "Azure rejects a subnet with no parent Virtual Network, a subnet prefix outside its Virtual Network address ranges, and overlapping subnet prefixes in one Virtual Network. A Virtual Network holds only subnets, an App Service Plan hosts only web and function apps, and Resource Groups cannot nest. Virtual Machine Scale Sets must join a subnet. Web apps need a Basic, Standard or Premium plan, a Flex Consumption plan hosts one app, container images need an Elastic Premium or dedicated plan, Consumption apps cannot use VNet integration, and a VNet integration subnet takes one delegation and no other resources. Bunya blocks deployment exports until these are fixed.",
     tags: ["bunya", "topology", "subnet", "deployability"],
     predicate: (graph: GraphDocument) =>
-      topologyProblems(graph).map((problem) => ({ nodeIds: problem.nodeIds, message: problem.message })),
+      topologyProblems(graph)
+        .filter((problem) => problem.kind === "azure")
+        .map((problem) => ({ nodeIds: problem.nodeIds, message: problem.message })),
+  }),
+
+  // BUNYA.EXP.001 — valid in Azure, but Bunya cannot export it yet
+  graphRule({
+    id: "BUNYA.EXP.001",
+    source: {
+      name: MS_LEARN,
+      url: "https://learn.microsoft.com/en-us/azure/app-service/overview-hosting-plans",
+      license: "CC-BY-4.0",
+    },
+    category: "network",
+    severity: "warning",
+    message: "This part of the design can run in Azure, but Bunya cannot export it yet.",
+    longExplanation:
+      "Some designs work in Azure but use features Bunya does not model: Windows App Service apps, container pulls with registry credentials, older runtime versions, and private networking that depends on peered hub networks or DNS zones outside the diagram. Bunya blocks deployment exports for these rather than generate code that deploys something different. The diagram, cost estimate and JSON export still work, and your Azure resources are unaffected.",
+    tags: ["bunya", "export", "limitation"],
+    predicate: (graph: GraphDocument) =>
+      topologyProblems(graph)
+        .filter((problem) => problem.kind === "bunya")
+        .map((problem) => ({ nodeIds: problem.nodeIds, message: problem.message })),
   }),
 ];

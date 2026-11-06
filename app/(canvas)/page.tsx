@@ -41,14 +41,23 @@ export default function CanvasPage() {
 
   useEffect(() => {
     const compact = window.matchMedia("(max-width: 1023px)");
+    // Below 1440px the three side panels leave the canvas almost no room, so
+    // start with Output collapsed; it opens from its rail.
+    const medium = window.matchMedia("(max-width: 1439px)");
     const collapse = () => {
       if (compact.matches) for (const panel of ["palette", "properties", "output"] as const) {
         useGraphStore.getState().setPanelCollapsed(panel, true);
+      } else if (medium.matches) {
+        useGraphStore.getState().setPanelCollapsed("output", true);
       }
     };
     collapse();
     compact.addEventListener("change", collapse);
-    return () => compact.removeEventListener("change", collapse);
+    medium.addEventListener("change", collapse);
+    return () => {
+      compact.removeEventListener("change", collapse);
+      medium.removeEventListener("change", collapse);
+    };
   }, []);
 
   return (

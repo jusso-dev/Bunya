@@ -11,10 +11,13 @@ export function Toaster() {
       position="bottom-right"
       closeButton
       richColors
+      visibleToasts={3}
+      // Never taller than a third of the screen; long text wraps and scrolls.
       toastOptions={{
         classNames: {
-          toast: "text-xs",
-          description: "whitespace-pre-line",
+          toast: "text-xs max-h-[33vh] [overflow-wrap:anywhere]",
+          title: "line-clamp-3",
+          description: "whitespace-pre-line max-h-[20vh] overflow-y-auto",
         },
       }}
     />

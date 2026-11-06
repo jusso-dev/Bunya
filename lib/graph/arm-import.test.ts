@@ -613,7 +613,7 @@ describe("parseArmTemplate", () => {
     // The app pulls with registry credentials, so exports block until an
     // identity edge lets them grant AcrPull instead.
     const blocked = generateTerraform(result.document);
-    expect(blocked.ok ? "ok" : blocked.reason).toContain('"app-dashboard" pulls its image from Container Registry "acrexample" without a managed identity');
+    expect(blocked.ok ? "ok" : blocked.reason).toContain('"app-dashboard" pulls its image from Container Registry "acrexample" with registry credentials, which Bunya does not export');
     const withIdentity = {
       ...result.document,
       edges: [...result.document.edges, { id: "pull", source: byName("app-dashboard").id, target: byName("acrexample").id, kind: "identity" as const }],

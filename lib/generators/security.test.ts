@@ -47,7 +47,7 @@ describe("untrusted generator inputs", () => {
   });
   it("blocks NSG deployments instead of silently losing firewall controls", () => {
     for (const generate of deployments) {
-      expect(generate(fullStackGraph)).toMatchObject({ ok: false, reason: expect.stringContaining("NSG rules and associations") });
+      expect(generate(fullStackGraph)).toMatchObject({ ok: false, reason: expect.stringContaining("has rules or subnet associations, which Bunya's deployment exports do not emit yet") });
     }
     expect(generateMermaid(fullStackGraph).ok).toBe(true);
   });

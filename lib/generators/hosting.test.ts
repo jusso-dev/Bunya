@@ -153,7 +153,7 @@ describe("App Service hosting exports", () => {
     it("blocks a registry image that has no pull identity", () => {
       for (const generate of [generateTerraform, generateBicep, generateArm]) {
         const result = generate(without("web-acr"));
-        expect(result.ok ? "ok" : result.reason).toContain('"app-hosting" pulls its image from Container Registry "acrhosting" without a managed identity');
+        expect(result.ok ? "ok" : result.reason).toContain('"app-hosting" pulls its image from Container Registry "acrhosting" with registry credentials, which Bunya does not export');
       }
     });
 
@@ -190,7 +190,7 @@ describe("App Service hosting exports", () => {
 
     it("only allows Flex runtime versions Azure supports", () => {
       const result = generateBicep(withProps("fn-flex", { runtimeVersion: "3.9" }));
-      expect(result.ok ? "ok" : result.reason).toContain("uses python 3.9, which Flex Consumption does not run; use python 3.10, 3.11, 3.12, 3.13, 3.14");
+      expect(result.ok ? "ok" : result.reason).toContain("uses python 3.9, which Flex Consumption no longer accepts for new deployments (a running app keeps working); use python 3.10, 3.11, 3.12, 3.13, 3.14");
       // Aliases are accepted and exported in the form Flex expects.
       const dotnet = withProps("fn-flex", { runtime: "dotnet", runtimeVersion: "8" });
       const arm = JSON.parse(file(generateArm(dotnet), "azuredeploy.json")).resources.find((r: Arm) => r.name === "fn-flex");
@@ -218,7 +218,7 @@ describe("App Service hosting exports", () => {
 
     it("blocks Function Apps whose storage has no public endpoint and no private path", () => {
       const result = generateArm(withStorage({ publicNetworkAccess: false }));
-      expect(result.ok ? "ok" : result.reason).toContain('"fn-y1" cannot reach Storage Account "sthosting"');
+      expect(result.ok ? "ok" : result.reason).toContain('Bunya cannot see how Function App "fn-y1" reaches Storage Account "sthosting"');
     });
 
     it("accepts a private account reached through VNet integration and a blob Private Endpoint", () => {
@@ -226,7 +226,7 @@ describe("App Service hosting exports", () => {
       expect(flexStorage?.properties).toMatchObject({ publicNetworkAccess: "Disabled", allowBlobPublicAccess: false });
       const without = { ...hostingGraph, edges: hostingGraph.edges.filter((edge) => edge.id !== "pe-stg") };
       const result = generateArm(without);
-      expect(result.ok ? "ok" : result.reason).toContain('"fn-flex" cannot reach Storage Account "stflexpriv"');
+      expect(result.ok ? "ok" : result.reason).toContain('Bunya cannot see how Function App "fn-flex" reaches Storage Account "stflexpriv"');
     });
 
     it("keeps anonymous blob access off when the public endpoint is open", () => {
@@ -262,7 +262,7 @@ describe("App Service hosting exports", () => {
 
     it("requires file, blob and table Private Endpoints", () => {
       const result = generateArm(secured(["blob"]));
-      expect(result.ok ? "ok" : result.reason).toContain('"fn-ep" cannot reach Storage Account "stepprivate": its public network access is off, so add file, table Private Endpoints');
+      expect(result.ok ? "ok" : result.reason).toContain('Bunya cannot see how Function App "fn-ep" reaches Storage Account "stepprivate": its public network access is off and the diagram has no private path (peered hub networks are not modelled), so add file, table Private Endpoints');
       expect(result.ok ? "" : result.reason).toContain("Durable Functions also need a queue Private Endpoint");
     });
 
@@ -300,7 +300,7 @@ describe("App Service hosting exports", () => {
     it("blocks private storage the app cannot resolve", () => {
       for (const generate of [generateArm, generateTerraform]) {
         const result = generate(withoutDns);
-        expect(result.ok ? "ok" : result.reason).toContain('"fn-flex" cannot resolve Storage Account "stflexpriv" privately: link privatelink.blob.core.windows.net');
+        expect(result.ok ? "ok" : result.reason).toContain('Bunya cannot see how Function App "fn-flex" resolves Storage Account "stflexpriv" privately (for example DNS zones in another subscription or a hub VNet): link privatelink.blob.core.windows.net');
       }
     });
 

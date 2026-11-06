@@ -11,6 +11,7 @@ import {
 import { GeneratedFile, GeneratorResult } from "./types";
 import { expr, planBody, siteBody, toBicep, type Refs } from "./shared/site-resource";
 import { roleAssignmentsFor } from "./shared/roles";
+import { quote } from "./shared/quote";
 import { contentShareName } from "./shared/hosting";
 import { privateEndpointTarget, subnetDelegations } from "@/lib/graph/topology";
 import { storagePublicNetwork } from "@/lib/catalogue/services";
@@ -62,6 +63,7 @@ function emitVirtualNetwork(node: GraphNode, ctx: GeneratorContext): string {
     `    addressSpace: {`,
     `      addressPrefixes: [`,
     `        '${addressSpace}'`,
+    ...((node.properties.additionalAddressSpaces as string[] | undefined) ?? []).map((space) => `        '${space}'`),
     `      ]`,
     `    }`,
     ...(Array.isArray(node.properties.dnsServers) && (node.properties.dnsServers as string[]).length > 0
@@ -687,7 +689,7 @@ function emitApim(node: GraphNode, ctx: GeneratorContext): string {
     `  }`,
     `  properties: {`,
     `    publisherName: '${(node.properties.publisherName as string) ?? "Bunya"}'`,
-    `    publisherEmail: '${(node.properties.publisherEmail as string) ?? "ops@example.com"}'`,
+    `    publisherEmail: ${quote.bicep((node.properties.publisherEmail as string) ?? "ops@example.com")}`,
     `  }`,
     tagsLiteral(ctx, node),
     `}`,
@@ -768,7 +770,7 @@ function emitActionGroup(node: GraphNode, ctx: GeneratorContext): string {
     `    emailReceivers: [`,
     `      {`,
     `        name: 'ops'`,
-    `        emailAddress: '${(node.properties.email as string) ?? "ops@example.com"}'`,
+    `        emailAddress: ${quote.bicep((node.properties.email as string) ?? "ops@example.com")}`,
     `        useCommonAlertSchema: true`,
     `      }`,
     `    ]`,

@@ -10,6 +10,7 @@ import {
 } from "./shared/context";
 import { GeneratorResult } from "./types";
 import { needsTemplateDeployment } from "./shared/hosting";
+import { quote } from "./shared/quote";
 import { storagePublicNetwork } from "@/lib/catalogue/services";
 import { powerShellPlanSku } from "@/lib/catalogue/app-service-plans";
 
@@ -62,7 +63,7 @@ function emitNode(node: GraphNode, ctx: GeneratorContext): string[] {
         `    ResourceGroupName = $ResourceGroupName`,
         `    Name              = '${name}'`,
         `    Location          = $Location`,
-        `    AddressPrefix     = '${(node.properties.addressSpace as string) ?? "10.0.0.0/16"}'`,
+        `    AddressPrefix     = @(${[(node.properties.addressSpace as string) ?? "10.0.0.0/16", ...((node.properties.additionalAddressSpaces as string[] | undefined) ?? [])].map((space) => `'${space}'`).join(", ")})`,
         `}`,
         `New-AzVirtualNetwork @vnetParams -Force | Out-Null`,
       ];
@@ -275,7 +276,7 @@ function emitNode(node: GraphNode, ctx: GeneratorContext): string[] {
     case "actionGroup":
       return [
         `# Action Group ${name}`,
-        `$ag = New-AzActionGroupReceiver -Name 'ops' -EmailReceiver -EmailAddress '${(node.properties.email as string) ?? "ops@example.com"}'`,
+        `$ag = New-AzActionGroupReceiver -Name 'ops' -EmailReceiver -EmailAddress ${quote.powershell((node.properties.email as string) ?? "ops@example.com")}`,
         `Set-AzActionGroup -ResourceGroupName $ResourceGroupName -Name '${name}' -ShortName '${(node.properties.shortName as string) ?? "ops"}' -Receiver $ag | Out-Null`,
       ];
     case "frontDoor":
@@ -302,7 +303,7 @@ function emitNode(node: GraphNode, ctx: GeneratorContext): string[] {
         `    Location          = $Location`,
         `    Sku               = '${(node.properties.sku as string) ?? "Consumption"}'`,
         `    Organization      = '${(node.properties.publisherName as string) ?? "Bunya"}'`,
-        `    AdminEmail        = '${(node.properties.publisherEmail as string) ?? "ops@example.com"}'`,
+        `    AdminEmail        = ${quote.powershell((node.properties.publisherEmail as string) ?? "ops@example.com")}`,
         `}`,
         `New-AzApiManagement @apimParams | Out-Null`,
       ];

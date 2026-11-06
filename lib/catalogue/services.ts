@@ -22,6 +22,9 @@ export type ServiceDefinition = {
   allowedEdgeTargets: ReadonlyArray<ServiceType>;
   allowedOutgoingKinds: ReadonlyArray<EdgeKind>;
   azureNamePattern: "global" | "rg" | "lowercase-alphanum-global";
+  // Longest Azure resource name (Microsoft Learn, "Naming rules and
+  // restrictions for Azure resources").
+  nameMaxLength: number;
   icon: string;
 };
 
@@ -39,6 +42,8 @@ export const resourceGroupSchema = z.object({
 
 export const virtualNetworkSchema = z.object({
   addressSpace: z.string().regex(/^\d+\.\d+\.\d+\.\d+\/\d+$/).default("10.0.0.0/16"),
+  // Further address ranges on the same VNet (portal exports list them all).
+  additionalAddressSpaces: z.array(z.string().regex(/^\d+\.\d+\.\d+\.\d+\/\d+$/)).max(20).default([]),
   dnsServers: z.array(z.string()).default([]),
 });
 
@@ -318,6 +323,7 @@ export const SERVICES: Record<ServiceType, ServiceDefinition> = {
     allowedEdgeTargets: [],
     allowedOutgoingKinds: [],
     azureNamePattern: "rg",
+    nameMaxLength: 90,
     icon: "RG",
   },
   virtualNetwork: {
@@ -331,6 +337,7 @@ export const SERVICES: Record<ServiceType, ServiceDefinition> = {
     allowedEdgeTargets: [],
     allowedOutgoingKinds: ["diagnostic"],
     azureNamePattern: "rg",
+    nameMaxLength: 64,
     icon: "VN",
   },
   subnet: {
@@ -344,6 +351,7 @@ export const SERVICES: Record<ServiceType, ServiceDefinition> = {
     allowedEdgeTargets: ["virtualNetwork", "networkSecurityGroup"],
     allowedOutgoingKinds: ["depends_on", "network"],
     azureNamePattern: "rg",
+    nameMaxLength: 80,
     icon: "SN",
   },
   networkSecurityGroup: {
@@ -357,6 +365,7 @@ export const SERVICES: Record<ServiceType, ServiceDefinition> = {
     allowedEdgeTargets: ["subnet"],
     allowedOutgoingKinds: ["depends_on", "diagnostic"],
     azureNamePattern: "rg",
+    nameMaxLength: 80,
     icon: "NSG",
   },
   privateEndpoint: {
@@ -379,6 +388,7 @@ export const SERVICES: Record<ServiceType, ServiceDefinition> = {
     ],
     allowedOutgoingKinds: ["network", "depends_on"],
     azureNamePattern: "rg",
+    nameMaxLength: 64,
     icon: "PE",
   },
   privateDnsZone: {
@@ -392,6 +402,7 @@ export const SERVICES: Record<ServiceType, ServiceDefinition> = {
     allowedEdgeTargets: ["virtualNetwork", "privateEndpoint"],
     allowedOutgoingKinds: ["network", "depends_on"],
     azureNamePattern: "global",
+    nameMaxLength: 63,
     icon: "DNS",
   },
   appServicePlan: {
@@ -405,6 +416,7 @@ export const SERVICES: Record<ServiceType, ServiceDefinition> = {
     allowedEdgeTargets: [],
     allowedOutgoingKinds: ["diagnostic"],
     azureNamePattern: "rg",
+    nameMaxLength: 60,
     icon: "ASP",
   },
   appService: {
@@ -431,6 +443,7 @@ export const SERVICES: Record<ServiceType, ServiceDefinition> = {
     ],
     allowedOutgoingKinds: allEdgeKinds,
     azureNamePattern: "lowercase-alphanum-global",
+    nameMaxLength: 60,
     icon: "WEB",
   },
   functionApp: {
@@ -457,6 +470,7 @@ export const SERVICES: Record<ServiceType, ServiceDefinition> = {
     ],
     allowedOutgoingKinds: allEdgeKinds,
     azureNamePattern: "lowercase-alphanum-global",
+    nameMaxLength: 60,
     icon: "FN",
   },
   staticWebApp: {
@@ -470,6 +484,7 @@ export const SERVICES: Record<ServiceType, ServiceDefinition> = {
     allowedEdgeTargets: ["functionApp", "logAnalytics"],
     allowedOutgoingKinds: ["depends_on", "diagnostic"],
     azureNamePattern: "rg",
+    nameMaxLength: 40,
     icon: "SWA",
   },
   aksCluster: {
@@ -490,6 +505,7 @@ export const SERVICES: Record<ServiceType, ServiceDefinition> = {
     ],
     allowedOutgoingKinds: allEdgeKinds,
     azureNamePattern: "rg",
+    nameMaxLength: 63,
     icon: "AKS",
   },
   virtualMachineScaleSet: {
@@ -509,6 +525,7 @@ export const SERVICES: Record<ServiceType, ServiceDefinition> = {
     ],
     allowedOutgoingKinds: allEdgeKinds,
     azureNamePattern: "rg",
+    nameMaxLength: 64,
     icon: "VMSS",
   },
   storageAccount: {
@@ -522,6 +539,7 @@ export const SERVICES: Record<ServiceType, ServiceDefinition> = {
     allowedEdgeTargets: ["logAnalytics", "roleAssignment"],
     allowedOutgoingKinds: ["diagnostic"],
     azureNamePattern: "lowercase-alphanum-global",
+    nameMaxLength: 24,
     icon: "STG",
   },
   sqlDatabase: {
@@ -535,6 +553,7 @@ export const SERVICES: Record<ServiceType, ServiceDefinition> = {
     allowedEdgeTargets: ["logAnalytics", "roleAssignment"],
     allowedOutgoingKinds: ["diagnostic"],
     azureNamePattern: "rg",
+    nameMaxLength: 128,
     icon: "SQL",
   },
   cosmosDb: {
@@ -548,6 +567,7 @@ export const SERVICES: Record<ServiceType, ServiceDefinition> = {
     allowedEdgeTargets: ["logAnalytics", "roleAssignment"],
     allowedOutgoingKinds: ["diagnostic"],
     azureNamePattern: "lowercase-alphanum-global",
+    nameMaxLength: 44,
     icon: "COS",
   },
   keyVault: {
@@ -561,6 +581,7 @@ export const SERVICES: Record<ServiceType, ServiceDefinition> = {
     allowedEdgeTargets: ["logAnalytics", "roleAssignment"],
     allowedOutgoingKinds: ["diagnostic"],
     azureNamePattern: "lowercase-alphanum-global",
+    nameMaxLength: 24,
     icon: "KV",
   },
   applicationInsights: {
@@ -574,6 +595,7 @@ export const SERVICES: Record<ServiceType, ServiceDefinition> = {
     allowedEdgeTargets: ["logAnalytics"],
     allowedOutgoingKinds: ["depends_on", "diagnostic"],
     azureNamePattern: "rg",
+    nameMaxLength: 260,
     icon: "AI",
   },
   logAnalytics: {
@@ -587,6 +609,7 @@ export const SERVICES: Record<ServiceType, ServiceDefinition> = {
     allowedEdgeTargets: [],
     allowedOutgoingKinds: [],
     azureNamePattern: "rg",
+    nameMaxLength: 63,
     icon: "LA",
   },
   monitorAlert: {
@@ -600,6 +623,7 @@ export const SERVICES: Record<ServiceType, ServiceDefinition> = {
     allowedEdgeTargets: ["logAnalytics", "actionGroup", "appService", "functionApp", "aksCluster", "virtualMachineScaleSet"],
     allowedOutgoingKinds: ["diagnostic", "depends_on"],
     azureNamePattern: "rg",
+    nameMaxLength: 260,
     icon: "Alert",
   },
   actionGroup: {
@@ -613,6 +637,7 @@ export const SERVICES: Record<ServiceType, ServiceDefinition> = {
     allowedEdgeTargets: [],
     allowedOutgoingKinds: [],
     azureNamePattern: "rg",
+    nameMaxLength: 260,
     icon: "AG",
   },
   frontDoor: {
@@ -626,6 +651,7 @@ export const SERVICES: Record<ServiceType, ServiceDefinition> = {
     allowedEdgeTargets: ["appService", "functionApp", "staticWebApp", "logAnalytics"],
     allowedOutgoingKinds: ["depends_on", "diagnostic"],
     azureNamePattern: "lowercase-alphanum-global",
+    nameMaxLength: 260,
     icon: "FD",
   },
   applicationGateway: {
@@ -639,6 +665,7 @@ export const SERVICES: Record<ServiceType, ServiceDefinition> = {
     allowedEdgeTargets: ["appService", "functionApp", "subnet", "logAnalytics"],
     allowedOutgoingKinds: ["depends_on", "network", "diagnostic"],
     azureNamePattern: "rg",
+    nameMaxLength: 80,
     icon: "AGW",
   },
   apiManagement: {
@@ -652,6 +679,7 @@ export const SERVICES: Record<ServiceType, ServiceDefinition> = {
     allowedEdgeTargets: ["appService", "functionApp", "logAnalytics"],
     allowedOutgoingKinds: ["depends_on", "diagnostic"],
     azureNamePattern: "lowercase-alphanum-global",
+    nameMaxLength: 50,
     icon: "APIM",
   },
   containerRegistry: {
@@ -665,6 +693,7 @@ export const SERVICES: Record<ServiceType, ServiceDefinition> = {
     allowedEdgeTargets: ["logAnalytics", "roleAssignment"],
     allowedOutgoingKinds: ["diagnostic"],
     azureNamePattern: "lowercase-alphanum-global",
+    nameMaxLength: 50,
     icon: "ACR",
   },
   userAssignedIdentity: {
@@ -685,6 +714,7 @@ export const SERVICES: Record<ServiceType, ServiceDefinition> = {
     ],
     allowedOutgoingKinds: ["identity"],
     azureNamePattern: "rg",
+    nameMaxLength: 128,
     icon: "UMI",
   },
   roleAssignment: {
@@ -705,6 +735,7 @@ export const SERVICES: Record<ServiceType, ServiceDefinition> = {
     ],
     allowedOutgoingKinds: ["identity", "depends_on"],
     azureNamePattern: "rg",
+    nameMaxLength: 36,
     icon: "RBAC",
   },
 };

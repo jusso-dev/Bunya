@@ -1,6 +1,7 @@
 "use client";
 
 import { toast } from "sonner";
+import { announceImport } from "@/components/ImportNotes";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactFlow, {
   Background,
@@ -162,7 +163,7 @@ function CanvasInner() {
       const dataUrl = await renderDiagramImage(wrapper, getNodes(), format, background);
       const filename = imageFilename(document.metadata.name, format);
       downloadDataUrl(dataUrl, filename);
-      toast.success(`Exported ${filename}.`);
+      toast.success(`Exported ${filename}.`, { id: "image-export" });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not export the diagram image.");
     } finally {
@@ -367,8 +368,7 @@ function CanvasInner() {
               replaceDocument(result.document);
               if (typeof window !== "undefined") window.history.replaceState(null, "", "#");
               toast.dismiss("connection-error");
-              if (result.warning) toast.warning(`Imported ${file.name} (${result.document.nodes.length} node${result.document.nodes.length === 1 ? "" : "s"}).`, { description: `Import notes:\n${result.warning}`, duration: Infinity });
-              else toast.success(`Imported ${file.name} (${result.document.nodes.length} node${result.document.nodes.length === 1 ? "" : "s"}).`);
+              announceImport(file.name, result.document.nodes.length, result.warning);
             } else {
               setConnectionError(`Import failed: ${result.reason}`);
             }

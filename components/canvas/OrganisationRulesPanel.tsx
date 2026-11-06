@@ -14,8 +14,7 @@ import {
   parseOrganisationRulesText,
   type EdgeRequirement,
   type OrganisationRule,
-  type PropertyOperator,
-} from "@/lib/rules/organisation";
+  type PropertyOperator, RULE_KEY_MAX, RULE_NAME_MAX, RULE_TEXT_MAX } from "@/lib/rules/organisation";
 import type { Severity } from "@/lib/rules/schema";
 
 const ORG_RULES_STORAGE_KEY = "bunya.organisationRules";
@@ -240,7 +239,7 @@ export function OrganisationRulesPanel() {
     a.download = `organisation-rules${ORGANISATION_RULES_EXTENSION}`;
     a.click();
     URL.revokeObjectURL(url);
-    toast.success(`Exported ${a.download}.`);
+    toast.success(`Exported ${a.download}.`, { id: "rules-export" });
   };
 
   const addPublicIngressPreset = () => {
@@ -332,7 +331,8 @@ export function OrganisationRulesPanel() {
               <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">Name</span>
               <input
                 value={form.name}
-                onChange={(event) => setField("name", event.target.value)}
+                maxLength={RULE_NAME_MAX}
+                onChange={(event) => setField("name", event.target.value.slice(0, RULE_NAME_MAX))}
                 className="w-full rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs dark:border-zinc-800 dark:bg-zinc-950"
                 placeholder="No public ingress"
               />
@@ -341,7 +341,8 @@ export function OrganisationRulesPanel() {
               <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">Finding Text</span>
               <input
                 value={form.description}
-                onChange={(event) => setField("description", event.target.value)}
+                maxLength={RULE_TEXT_MAX}
+                onChange={(event) => setField("description", event.target.value.slice(0, RULE_TEXT_MAX))}
                 className="w-full rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs dark:border-zinc-800 dark:bg-zinc-950"
                 placeholder="Resources must not expose public network ingress."
               />
@@ -392,7 +393,8 @@ export function OrganisationRulesPanel() {
                   <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">Property</span>
                   <input
                     value={form.propertyKey}
-                    onChange={(event) => setField("propertyKey", event.target.value)}
+                    maxLength={RULE_KEY_MAX}
+                    onChange={(event) => setField("propertyKey", event.target.value.slice(0, RULE_KEY_MAX))}
                     className="w-full rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs dark:border-zinc-800 dark:bg-zinc-950"
                   />
                 </label>
@@ -414,7 +416,8 @@ export function OrganisationRulesPanel() {
                   <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">Value</span>
                   <input
                     value={form.propertyValue}
-                    onChange={(event) => setField("propertyValue", event.target.value)}
+                    maxLength={RULE_TEXT_MAX}
+                    onChange={(event) => setField("propertyValue", event.target.value.slice(0, RULE_TEXT_MAX))}
                     disabled={!operatorNeedsValue(form.propertyOperator)}
                     className="w-full rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs disabled:opacity-50 dark:border-zinc-800 dark:bg-zinc-950"
                   />

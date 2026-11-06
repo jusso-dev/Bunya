@@ -3,6 +3,13 @@ import type { GraphDocument, GraphEdge, GraphNode, ServiceType } from "@/lib/gra
 import { SERVICE_TYPES } from "@/lib/graph/schema";
 import type { Finding, Severity } from "@/lib/rules/schema";
 
+
+// Imported and typed rule text is capped so one rule cannot swamp the panel,
+// findings or toasts.
+export const RULE_NAME_MAX = 80;
+export const RULE_TEXT_MAX = 500;
+export const RULE_KEY_MAX = 128;
+
 export const ORGANISATION_RULES_FORMAT = "bunya-organisation-rules" as const;
 export const ORGANISATION_RULES_VERSION = 1 as const;
 export const ORGANISATION_RULES_EXTENSION = ".bunya-rules.json";
@@ -111,7 +118,7 @@ export function normaliseOrganisationRule(input: unknown, index = 0): Organisati
   const severity = raw.severity === "error" || raw.severity === "warning" || raw.severity === "info"
     ? raw.severity
     : "warning";
-  const id = typeof raw.id === "string" && raw.id.trim() ? raw.id.trim() : `ORG.CUSTOM.${index + 1}`;
+  const id = typeof raw.id === "string" && raw.id.trim() ? raw.id.trim().slice(0, 64) : `ORG.CUSTOM.${index + 1}`;
   const propertyRaw = typeof raw.property === "object" && raw.property !== null
     ? (raw.property as Record<string, unknown>)
     : null;
@@ -120,9 +127,9 @@ export function normaliseOrganisationRule(input: unknown, index = 0): Organisati
     : null;
   const property = propertyRaw && typeof propertyRaw.key === "string" && isPropertyOperator(propertyRaw.operator)
     ? {
-        key: propertyRaw.key,
+        key: propertyRaw.key.slice(0, RULE_KEY_MAX),
         operator: propertyRaw.operator,
-        value: propertyRaw.value,
+        value: typeof propertyRaw.value === "string" ? propertyRaw.value.slice(0, RULE_TEXT_MAX) : propertyRaw.value,
       }
     : undefined;
   const edge = edgeRaw && isEdgeMode(edgeRaw.mode) && isEdgeDirection(edgeRaw.direction)
@@ -141,10 +148,10 @@ export function normaliseOrganisationRule(input: unknown, index = 0): Organisati
 
   return {
     id,
-    name: typeof raw.name === "string" && raw.name.trim() ? raw.name.trim() : id,
+    name: typeof raw.name === "string" && raw.name.trim() ? raw.name.trim().slice(0, RULE_NAME_MAX) : id,
     description:
       typeof raw.description === "string" && raw.description.trim()
-        ? raw.description.trim()
+        ? raw.description.trim().slice(0, RULE_TEXT_MAX)
         : "Organisation-defined deployment rule.",
     severity,
     enabled: raw.enabled !== false,
@@ -153,7 +160,7 @@ export function normaliseOrganisationRule(input: unknown, index = 0): Organisati
     edge,
     message:
       typeof raw.message === "string" && raw.message.trim()
-        ? raw.message.trim()
+        ? raw.message.trim().slice(0, RULE_TEXT_MAX)
         : "Resource violates an organisation deployment rule.",
     source:
       typeof raw.source === "object" && raw.source !== null

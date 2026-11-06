@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test("canvas renders multiple nodes with visible Azure icons", async ({ page }) => {
+  await page.setViewportSize({ width: 1600, height: 900 });
   await page.goto("/");
   await page.getByRole("button", { name: "Properties" }).first().click();
   await page.getByRole("button", { name: "Output" }).first().click();

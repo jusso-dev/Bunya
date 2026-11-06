@@ -6,6 +6,12 @@ import { getServiceDefinition } from "@/lib/catalogue/services";
 import { describeObjectSchema, FieldDescriptor } from "@/lib/catalogue/introspect";
 import { GraphNode } from "@/lib/graph/schema";
 
+// Display names appear on the canvas, in the header and in file names.
+export const DOCUMENT_NAME_MAX = 80;
+const DISPLAY_NAME_MAX = 80;
+// Free text in properties; the exporters' literal limit (validate.ts).
+const PROPERTY_TEXT_MAX = 4096;
+
 export function PropertiesPanel() {
   const document = useGraphStore((s) => s.document);
   const selectedNodeId = useGraphStore((s) => s.selectedNodeId);
@@ -34,9 +40,10 @@ export function PropertiesPanel() {
         </div>
         <label className="space-y-1">
           <span className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">Name</span>
-          <input
+          <RequiredText
             value={document.metadata.name}
-            onChange={(e) => setMetadata({ name: e.target.value })}
+            maxLength={DOCUMENT_NAME_MAX}
+            onCommit={(name) => setMetadata({ name })}
             className="w-full rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 text-sm focus:border-zinc-400 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
           />
         </label>
@@ -71,9 +78,10 @@ export function PropertiesPanel() {
         </label>
         <label className="space-y-1">
           <span className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">Resource Group name</span>
-          <input
+          <RequiredText
             value={document.metadata.resourceGroupName}
-            onChange={(e) => setMetadata({ resourceGroupName: e.target.value })}
+            maxLength={getServiceDefinition("resourceGroup").nameMaxLength}
+            onCommit={(resourceGroupName) => setMetadata({ resourceGroupName })}
             className="w-full rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 text-sm dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
           />
         </label>
@@ -113,19 +121,25 @@ function NodeProperties({ node }: { node: GraphNode }) {
             ›
           </button>
         </div>
-        <input
+        <RequiredText
           aria-label="Node name"
           value={node.name}
-          onChange={(e) => updateNode(node.id, { name: e.target.value })}
+          maxLength={DISPLAY_NAME_MAX}
+          onCommit={(name) => updateNode(node.id, { name })}
           className="w-full rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 text-sm font-semibold dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
         />
         <label className="space-y-1">
           <span className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">Resource name</span>
-          <input
+          <RequiredText
             value={node.resourceName}
-            onChange={(e) => updateNode(node.id, { resourceName: e.target.value })}
+            maxLength={def.nameMaxLength}
+            aria-describedby={`${node.id}-name-limit`}
+            onCommit={(resourceName) => updateNode(node.id, { resourceName })}
             className="w-full rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 font-mono text-xs dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
           />
+          <span id={`${node.id}-name-limit`} className="block text-[10px] text-zinc-500 dark:text-zinc-400">
+            Up to {def.nameMaxLength} characters ({node.resourceName.length} used)
+          </span>
         </label>
       </header>
       <div className="flex flex-col gap-3">
@@ -169,19 +183,7 @@ function Field({
         </label>
       );
     case "number":
-      return (
-        <label className="space-y-1">
-          {label}
-          <input
-            type="number"
-            value={value === undefined || value === null ? "" : String(value)}
-            min={field.min}
-            max={field.max}
-            onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
-            className="w-full rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 text-sm dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
-          />
-        </label>
-      );
+      return <NumberField field={field} value={value} label={label} onChange={onChange} />;
     case "enum":
       return (
         <label className="space-y-1">
@@ -205,12 +207,14 @@ function Field({
           {label}
           <textarea
             value={Array.isArray(value) ? value.join("\n") : ""}
+            maxLength={PROPERTY_TEXT_MAX}
             onChange={(e) =>
               onChange(
                 e.target.value
                   .split("\n")
-                  .map((s) => s.trim())
-                  .filter(Boolean),
+                  .map((s) => s.trim().slice(0, 256))
+                  .filter(Boolean)
+                  .slice(0, 100),
               )
             }
             rows={3}
@@ -228,7 +232,8 @@ function Field({
           {label}
           <input
             value={typeof value === "string" ? value : ""}
-            onChange={(e) => onChange(e.target.value)}
+            maxLength={field.maxLength ?? PROPERTY_TEXT_MAX}
+            onChange={(e) => onChange(e.target.value.slice(0, field.maxLength ?? PROPERTY_TEXT_MAX))}
             className="w-full rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 text-sm dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
           />
         </label>
@@ -236,12 +241,73 @@ function Field({
   }
 }
 
+// A required name: capped at maxLength, and saved only when non-empty, so the
+// field can be cleared while retyping without storing an invalid document.
+function RequiredText({ value, maxLength, onCommit, ...rest }: { value: string; maxLength: number; onCommit: (next: string) => void } & Omit<React.InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "maxLength">) {
+  const [draft, setDraft] = useState<string | null>(null);
+  return (
+    <input
+      {...rest}
+      value={draft ?? value}
+      maxLength={maxLength}
+      onChange={(e) => {
+        const next = e.target.value.slice(0, maxLength);
+        setDraft(next);
+        if (next.trim() !== "") onCommit(next);
+      }}
+      onBlur={() => setDraft(null)}
+    />
+  );
+}
+
+// Typing goes into a draft; only a whole number inside the schema range is
+// stored, so an empty box, "-5" or "3.7" can never reach the saved diagram.
+function NumberField({ field, value, label, onChange }: { field: FieldDescriptor; value: unknown; label: React.ReactNode; onChange: (next: unknown) => void }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const shown = draft ?? (typeof value === "number" ? String(value) : "");
+  const parse = (text: string): number | null => {
+    if (text.trim() === "") return null;
+    const n = Number(text);
+    if (!Number.isFinite(n)) return null;
+    const whole = field.integer ? Math.round(n) : n;
+    return Math.min(field.max ?? Number.MAX_SAFE_INTEGER, Math.max(field.min ?? -Number.MAX_SAFE_INTEGER, whole));
+  };
+  const range = field.min !== undefined && field.max !== undefined ? `${field.min} to ${field.max}` : undefined;
+  return (
+    <label className="space-y-1">
+      {label}
+      <input
+        type="number"
+        inputMode={field.integer ? "numeric" : "decimal"}
+        value={shown}
+        min={field.min}
+        max={field.max}
+        step={field.integer ? 1 : "any"}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          const n = Number(e.target.value);
+          // Store only values that are already valid; out-of-range input is fixed on blur.
+          if (e.target.value.trim() !== "" && Number.isFinite(n) && n === parse(e.target.value)) onChange(n);
+        }}
+        onBlur={() => {
+          if (draft === null) return;
+          const next = parse(draft);
+          if (next !== null) onChange(next);
+          setDraft(null);
+        }}
+        className="w-full rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 text-sm dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+      />
+      {range ? <span className="block text-[10px] text-zinc-500 dark:text-zinc-400">{field.integer ? "Whole number, " : ""}{range}</span> : null}
+    </label>
+  );
+}
+
 function RecordField({ name, value, onChange }: { name: string; value: unknown; onChange: (value: unknown) => void }) {
   const [draft, setDraft] = useState<string | null>(null);
   const [error, setError] = useState(false);
   return <label className="space-y-1">
     <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">{name}</span>
-    <textarea rows={4} value={draft ?? JSON.stringify(value ?? {}, null, 2)} aria-invalid={error}
+    <textarea rows={4} maxLength={PROPERTY_TEXT_MAX} value={draft ?? JSON.stringify(value ?? {}, null, 2)} aria-invalid={error}
       className="w-full rounded-md border border-zinc-300 bg-zinc-50 px-2 py-1 font-mono text-xs dark:bg-zinc-900"
       onChange={(event) => {
         setDraft(event.target.value);

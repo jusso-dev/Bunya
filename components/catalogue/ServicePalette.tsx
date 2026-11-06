@@ -81,7 +81,8 @@ export function ServicePalette() {
         <input
           aria-label="Filter services"
           value={filter}
-          onChange={(e) => setFilter(e.target.value)}
+          maxLength={100}
+          onChange={(e) => setFilter(e.target.value.slice(0, 100))}
           placeholder="Filter services..."
           className="w-full rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1.5 text-sm text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
         />

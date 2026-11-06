@@ -25,9 +25,12 @@ export type GraphStoreState = {
   collapsed: Record<PanelId, boolean>;
   fxAudPerUsd: number;
   organisationRules: OrganisationRule[];
+  // Notes from the most recent import, shown in the Import notes dialog.
+  importNotes: { source: string; notes: string[] } | null;
 };
 
 export type GraphStoreActions = {
+  setImportNotes: (notes: { source: string; notes: string[] } | null) => void;
   addNode: (input: AddNodeInput) => string;
   removeNode: (id: string) => void;
   moveNode: (id: string, position: { x: number; y: number }) => void;
@@ -76,6 +79,9 @@ const graphStoreInitializer: StateCreator<GraphStore> = (set, get) => ({
   collapsed: { palette: false, properties: false, output: false, validation: false },
   fxAudPerUsd: DEFAULT_FX_AUD_PER_USD,
   organisationRules: [],
+  importNotes: null,
+
+  setImportNotes: (importNotes) => set({ importNotes }),
 
   addOrganisationRule: (rule) => {
     set((state) => ({

@@ -16,7 +16,9 @@ export function acceptsChild(parentType: ServiceType, childType: ServiceType): b
 // does not exist when the edge is missing, so generation is blocked.
 const REQUIRES_SUBNET: ReadonlySet<ServiceType> = new Set(["virtualMachineScaleSet"]);
 
-export type TopologyProblem = { nodeIds: string[]; message: string };
+// "azure": Azure itself rejects or cannot run this design.
+// "bunya": the design may run in Azure, but Bunya cannot export it faithfully.
+export type TopologyProblem = { nodeIds: string[]; message: string; kind: "azure" | "bunya" };
 
 type Cidr = { start: number; end: number };
 
@@ -220,24 +222,24 @@ function hostingProblems(document: GraphDocument): TopologyProblem[] {
     const family = planFamily(sku);
     const pair = [site.id, plan.id];
     if (plan.properties.os === "Windows") {
-      problems.push({ nodeIds: pair, message: `${label(site)} is exported as a Linux app, but ${label(plan)} is a Windows plan; set the plan OS to Linux.` });
+      problems.push({ nodeIds: pair, message: `${label(site)} runs on the Windows plan ${label(plan)}. Bunya exports Linux apps only, so it cannot generate code for this app; exclude it, or switch it to Linux if the app supports that.`, kind: "bunya" });
     }
     if (site.type === "appService" && family !== "dedicated") {
-      problems.push({ nodeIds: pair, message: `${label(site)} is a web app, but ${label(plan)} (${sku}) only hosts Function Apps; use a Basic, Standard or Premium plan.` });
+      problems.push({ nodeIds: pair, message: `${label(site)} is a web app, but ${label(plan)} (${sku}) only hosts Function Apps; use a Basic, Standard or Premium plan.`, kind: "azure" });
     }
     if (site.properties.containerImage && (family === "consumption" || family === "flex")) {
-      problems.push({ nodeIds: pair, message: `${label(site)} runs a container image, which ${label(plan)} (${sku}) does not support; use an Elastic Premium or dedicated plan, or clear the image.` });
+      problems.push({ nodeIds: pair, message: `${label(site)} runs a container image, which ${label(plan)} (${sku}) does not support; use an Elastic Premium or dedicated plan, or clear the image.`, kind: "azure" });
     }
     const registry = siteRegistry(document, site);
     if (registry && !hasRegistryPullIdentity(document, site, registry)) {
-      problems.push({ nodeIds: [site.id, registry.id], message: `${label(site)} pulls its image from ${label(registry)} without a managed identity, so the first pull would fail; draw an identity edge from the app (or a user-assigned identity it uses) to the registry so exports grant AcrPull.` });
+      problems.push({ nodeIds: [site.id, registry.id], message: `${label(site)} pulls its image from ${label(registry)} with registry credentials, which Bunya does not export. Draw an identity edge from the app (or a user-assigned identity it uses) to the registry so the exported code pulls with managed identity and grants AcrPull.`, kind: "bunya" });
     }
     if (family === "flex" && site.type === "functionApp") {
       const runtime = String(site.properties.runtime ?? "node");
       const allowed = FLEX_RUNTIME_VERSIONS[runtime] ?? [];
       const version = flexRuntimeVersion(runtime, String(site.properties.runtimeVersion ?? ""));
       if (!allowed.includes(version)) {
-        problems.push({ nodeIds: pair, message: `${label(site)} uses ${runtime} ${String(site.properties.runtimeVersion)}, which Flex Consumption does not run; use ${runtime} ${allowed.join(", ")}.` });
+        problems.push({ nodeIds: pair, message: `${label(site)} uses ${runtime} ${String(site.properties.runtimeVersion)}, which Flex Consumption no longer accepts for new deployments (a running app keeps working); use ${runtime} ${allowed.join(", ")} to export it.`, kind: "bunya" });
       }
     }
     const backingStorage = site.type === "functionApp"
@@ -250,20 +252,20 @@ function hostingProblems(document: GraphDocument): TopologyProblem[] {
       const missing = needed.filter((groupId) => !present.has(groupId) && !unresolved.has(groupId));
       const noDns = needed.filter((groupId) => unresolved.has(groupId));
       if (noDns.length > 0) {
-        problems.push({ nodeIds: [site.id, backingStorage.id], message: `${label(site)} cannot resolve ${label(backingStorage)} privately: link ${noDns.map((groupId) => STORAGE_DNS_ZONES[groupId]).join(", ")} to its ${noDns.join(", ")} Private Endpoint${noDns.length > 1 ? "s" : ""} and to the app's VNet, or set custom DNS servers on the VNet.` });
+        problems.push({ nodeIds: [site.id, backingStorage.id], message: `Bunya cannot see how ${label(site)} resolves ${label(backingStorage)} privately (for example DNS zones in another subscription or a hub VNet): link ${noDns.map((groupId) => STORAGE_DNS_ZONES[groupId]).join(", ")} to its ${noDns.join(", ")} Private Endpoint${noDns.length > 1 ? "s" : ""} and to the app's VNet, or set custom DNS servers on the VNet.`, kind: "bunya" });
       }
       if (missing.length > 0) {
         const how = siteIntegrationSubnet(document, site)
           ? `add ${missing.join(", ")} Private Endpoints to it in the app's VNet`
           : `integrate the app with a VNet that has ${needed.join(", ")} Private Endpoints to it`;
-        problems.push({ nodeIds: [site.id, backingStorage.id], message: `${label(site)} cannot reach ${label(backingStorage)}: its public network access is off, so ${how}, or turn public network access on.${needed.includes("table") ? " Durable Functions also need a queue Private Endpoint." : ""}` });
+        problems.push({ nodeIds: [site.id, backingStorage.id], message: `Bunya cannot see how ${label(site)} reaches ${label(backingStorage)}: its public network access is off and the diagram has no private path (peered hub networks are not modelled), so ${how}, or turn public network access on.${needed.includes("table") ? " Durable Functions also need a queue Private Endpoint." : ""}`, kind: "bunya" });
       }
     }
     if (family === "flex" && site.type === "functionApp" && !document.edges.some((edge) => edge.source === site.id && edge.kind === "data" && byId.get(edge.target)?.type === "storageAccount")) {
-      problems.push({ nodeIds: pair, message: `${label(site)} runs on Flex Consumption, which deploys packages from a storage account; draw a data edge from the app to the Storage Account it should use.` });
+      problems.push({ nodeIds: pair, message: `${label(site)} runs on Flex Consumption, which deploys packages from a storage account that is not in this diagram; draw a data edge from the app to the Storage Account it uses.`, kind: "bunya" });
     }
     if (family === "consumption" && siteIntegrationSubnet(document, site)) {
-      problems.push({ nodeIds: pair, message: `${label(site)} has VNet integration, which the Consumption plan ${label(plan)} (Y1) does not support; use Flex Consumption, Elastic Premium or a dedicated plan.` });
+      problems.push({ nodeIds: pair, message: `${label(site)} has VNet integration, which the Consumption plan ${label(plan)} (Y1) does not support; use Flex Consumption, Elastic Premium or a dedicated plan.`, kind: "azure" });
     }
   }
 
@@ -272,18 +274,18 @@ function hostingProblems(document: GraphDocument): TopologyProblem[] {
     const family = planFamily(sku);
     const sites = sitesByPlan.get(plan.id) ?? [];
     if (family === "flex" && sites.length > 1) {
-      problems.push({ nodeIds: [plan.id, ...sites.map((site) => site.id)], message: `${label(plan)} is a Flex Consumption plan, which hosts one Function App; give each app its own FC1 plan.` });
+      problems.push({ nodeIds: [plan.id, ...sites.map((site) => site.id)], message: `${label(plan)} is a Flex Consumption plan, which hosts one Function App; give each app its own FC1 plan.`, kind: "azure" });
     }
     const capacity = Number(plan.properties.capacity);
     if ((family === "dedicated" || family === "elastic") && capacity < 1) {
-      problems.push({ nodeIds: [plan.id], message: `${label(plan)} (${sku}) needs at least 1 instance; only Consumption and Flex Consumption plans run with 0.` });
+      problems.push({ nodeIds: [plan.id], message: `${label(plan)} (${sku}) needs at least 1 instance; only Consumption and Flex Consumption plans run with 0.`, kind: "azure" });
     }
   }
 
   for (const subnet of document.nodes.filter((node) => node.type === "subnet")) {
     const delegations = subnetDelegations(document, subnet);
     if (delegations.length > 1) {
-      problems.push({ nodeIds: [subnet.id], message: `${label(subnet)} would need several delegations (${delegations.join(", ")}); a subnet can be delegated to one service, so give each plan type its own subnet.` });
+      problems.push({ nodeIds: [subnet.id], message: `${label(subnet)} would need several delegations (${delegations.join(", ")}); a subnet can be delegated to one service, so give each plan type its own subnet.`, kind: "azure" });
     }
     if (delegations.length === 0) continue;
     const others = document.edges
@@ -291,7 +293,7 @@ function hostingProblems(document: GraphDocument): TopologyProblem[] {
       .map((edge) => byId.get(edge.source))
       .filter((source): source is GraphNode => !!source && !isSite(source) && source.type !== "networkSecurityGroup");
     for (const other of others) {
-      problems.push({ nodeIds: [other.id, subnet.id], message: `${label(other)} cannot join ${label(subnet)} because the subnet is delegated to ${delegations.join(", ")} for VNet integration; use a separate subnet.` });
+      problems.push({ nodeIds: [other.id, subnet.id], message: `${label(other)} cannot join ${label(subnet)} because the subnet is delegated to ${delegations.join(", ")} for VNet integration; use a separate subnet.`, kind: "azure" });
     }
   }
 
@@ -305,11 +307,12 @@ export function topologyProblems(document: GraphDocument): TopologyProblem[] {
   for (const node of document.nodes) {
     const parent = node.parentId ? byId.get(node.parentId) : undefined;
     if (node.type === "resourceGroup" && node.parentId) {
-      problems.push({ nodeIds: [node.id], message: `${label(node)}: a Resource Group cannot sit inside another container.` });
+      problems.push({ nodeIds: [node.id], message: `${label(node)}: a Resource Group cannot sit inside another container.`, kind: "azure" });
     } else if (parent && !acceptsChild(parent.type, node.type)) {
       problems.push({
         nodeIds: [node.id, parent.id],
         message: `${label(node)} cannot be placed inside ${label(parent)}; move it to the Resource Group${node.type === "subnet" ? " or a Virtual Network" : ""}.`,
+        kind: "azure",
       });
     }
   }
@@ -318,7 +321,7 @@ export function topologyProblems(document: GraphDocument): TopologyProblem[] {
   for (const subnet of document.nodes.filter((node) => node.type === "subnet")) {
     const vnet = subnetVirtualNetwork(document, subnet);
     if (!vnet) {
-      problems.push({ nodeIds: [subnet.id], message: `${label(subnet)} must belong to a Virtual Network; place it inside one.` });
+      problems.push({ nodeIds: [subnet.id], message: `${label(subnet)} must belong to a Virtual Network; place it inside one.`, kind: "azure" });
       continue;
     }
     const list = subnetsByVnet.get(vnet.id) ?? [];
@@ -328,13 +331,17 @@ export function topologyProblems(document: GraphDocument): TopologyProblem[] {
 
   for (const [vnetId, subnets] of subnetsByVnet) {
     const vnet = byId.get(vnetId)!;
-    const space = parseCidr(vnet.properties.addressSpace);
+    // A subnet may sit in any of the VNet's address ranges.
+    const spaces = [vnet.properties.addressSpace, ...(Array.isArray(vnet.properties.additionalAddressSpaces) ? vnet.properties.additionalAddressSpaces : [])]
+      .map(parseCidr)
+      .filter((space): space is Cidr => space !== null);
     const ranges = subnets.map((subnet) => ({ subnet, range: parseCidr(subnet.properties.addressPrefix) }));
     for (const { subnet, range } of ranges) {
-      if (space && range && (range.start < space.start || range.end > space.end)) {
+      if (spaces.length > 0 && range && !spaces.some((space) => range.start >= space.start && range.end <= space.end)) {
         problems.push({
           nodeIds: [subnet.id, vnet.id],
           message: `${label(subnet)} prefix ${String(subnet.properties.addressPrefix)} is outside ${label(vnet)} address space ${String(vnet.properties.addressSpace)}.`,
+          kind: "azure",
         });
       }
     }
@@ -346,6 +353,7 @@ export function topologyProblems(document: GraphDocument): TopologyProblem[] {
           problems.push({
             nodeIds: [a.subnet.id, b.subnet.id],
             message: `${label(a.subnet)} and ${label(b.subnet)} have overlapping prefixes in ${label(vnet)}.`,
+            kind: "azure",
           });
         }
       }
@@ -357,7 +365,7 @@ export function topologyProblems(document: GraphDocument): TopologyProblem[] {
       (edge) => edge.source === node.id && edge.kind === "network" && byId.get(edge.target)?.type === "subnet",
     );
     if (!joined) {
-      problems.push({ nodeIds: [node.id], message: `${label(node)} must be connected to a subnet with a network edge.` });
+      problems.push({ nodeIds: [node.id], message: `${label(node)} must be connected to a subnet with a network edge.`, kind: "azure" });
     }
   }
 

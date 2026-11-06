@@ -8,6 +8,7 @@ import {
 import { getServiceDefinition } from "@/lib/catalogue/services";
 import { freeSubnetPrefix } from "@/lib/graph/topology";
 import { planFamily } from "@/lib/catalogue/app-service-plans";
+import { storagePublicNetwork } from "@/lib/catalogue/services";
 
 export type ImplicitAddition =
   | { kind: "node"; node: GraphNode; reason: string }
@@ -125,7 +126,8 @@ export function expandImplicits(document: GraphDocument): ExpandedGraph {
   }
 
   const fnNodes = nodes.filter((n) => n.type === "functionApp");
-  let storage = findFirstOfType("storageAccount");
+  // Only reuse an account the app can reach without private networking.
+  let storage = nodes.find((n) => n.type === "storageAccount" && storagePublicNetwork(n.properties));
   for (const fn of fnNodes) {
     if (!hasOutgoing(fn.id, "storageAccount", "data")) {
       if (!storage) {
@@ -157,7 +159,13 @@ export function expandImplicits(document: GraphDocument): ExpandedGraph {
 
   const peNodes = nodes.filter((n) => n.type === "privateEndpoint");
   if (peNodes.length > 0) {
-    let subnet = findFirstOfType("subnet");
+    // A Private Endpoint cannot share a subnet delegated to a service (for
+    // example App Service VNet integration), so never place one there.
+    const usableForEndpoints = (candidate: GraphNode) =>
+      !(Array.isArray(candidate.properties.delegations) && candidate.properties.delegations.length > 0) &&
+      !edges.some((edge) => edge.target === candidate.id && edge.kind === "network" &&
+        ["appService", "functionApp"].includes(nodes.find((n) => n.id === edge.source)?.type ?? ""));
+    let subnet = nodes.find((n) => n.type === "subnet" && usableForEndpoints(n));
     let vnet = findFirstOfType("virtualNetwork");
     for (const pe of peNodes) {
       if (!hasOutgoing(pe.id, "subnet", "network")) {

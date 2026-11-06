@@ -1,4 +1,5 @@
 import { checkImportText, checkObjectDepth } from "./limits";
+import { isExportLiteral, toExportLiteral } from "@/lib/generators/shared/validate";
 import { getServiceDefinition } from "@/lib/catalogue/services";
 import type {
   EdgeKind,
@@ -172,6 +173,8 @@ function flattenResources(
 
 function serviceTypeFor(resource: FlatArmResource): ServiceType | null {
   const lower = resource.type.toLowerCase();
+  // Individual functions inside a Function App are app content, not resources.
+  if (lower === "microsoft.web/sites/functions") return null;
   if (lower === "microsoft.web/sites") {
     const kind = asString(resource.raw.kind)?.toLowerCase() ?? "";
     return kind.includes("functionapp") ? "functionApp" : "appService";
@@ -292,12 +295,18 @@ function baseProperties(type: ServiceType, resource: FlatArmResource, allResourc
       const dnsServers = asArray(asRecord(props.dhcpOptions).dnsServers)
         .map((server) => resolveString(server, parameters, variables))
         .filter((server): server is string => !!server && /^\d+\.\d+\.\d+\.\d+$/.test(server));
-      return { ...defaults, addressSpace: prefixes[0] ?? defaults.addressSpace, dnsServers };
+      return {
+        ...defaults,
+        addressSpace: prefixes[0] ?? defaults.addressSpace,
+        // Further ranges are kept so subnets in them still validate.
+        ...(prefixes.length > 1 ? { additionalAddressSpaces: prefixes.slice(1) } : {}),
+        dnsServers,
+      };
     }
     case "subnet":
       return {
         ...defaults,
-        addressPrefix: asString(props.addressPrefix) ?? defaults.addressPrefix,
+        addressPrefix: asString(props.addressPrefix) ?? asString(asArray(props.addressPrefixes)[0]) ?? defaults.addressPrefix,
         privateEndpointNetworkPolicies:
           asString(props.privateEndpointNetworkPolicies) ?? defaults.privateEndpointNetworkPolicies,
       };
@@ -309,8 +318,9 @@ function baseProperties(type: ServiceType, resource: FlatArmResource, allResourc
         ...defaults,
         sku: skuName ?? defaults.sku,
         os: planOs(resource, defaults.os),
-        // Consumption and Flex plans have no fixed workers.
-        capacity: capacity ?? (family === "consumption" || family === "flex" ? 0 : defaults.capacity),
+        // Consumption and Flex plans have no fixed workers. A dedicated or
+        // Elastic Premium plan reports 0 while stopped; it deploys with 1.
+        capacity: family === "consumption" || family === "flex" ? capacity ?? 0 : Math.max(1, capacity ?? Number(defaults.capacity ?? 1)),
       };
     }
     case "appService":
@@ -484,10 +494,42 @@ function baseProperties(type: ServiceType, resource: FlatArmResource, allResourc
         manualApproval: asArray(props.manualPrivateLinkServiceConnections).length > 0,
       };
     }
+    case "networkSecurityGroup": {
+      const PROTOCOLS = new Set(["Tcp", "Udp", "Icmp", "*"]);
+      const rules = asArray(props.securityRules).flatMap((value) => {
+        const rule = asRecord(value);
+        const p = asRecord(rule.properties);
+        const direction = asString(p.direction);
+        const access = asString(p.access);
+        const priority = asNumber(p.priority);
+        if ((direction !== "Inbound" && direction !== "Outbound") || (access !== "Allow" && access !== "Deny") || priority === undefined) return [];
+        const protocol = asString(p.protocol) ?? "*";
+        return [{
+          name: asString(rule.name) ?? `rule-${priority}`,
+          priority: Math.min(4096, Math.max(100, Math.round(priority))),
+          direction,
+          access,
+          protocol: PROTOCOLS.has(protocol) ? protocol : "*",
+          sourceAddressPrefix: asString(p.sourceAddressPrefix) ?? asString(asArray(p.sourceAddressPrefixes)[0]) ?? "*",
+          destinationAddressPrefix: asString(p.destinationAddressPrefix) ?? asString(asArray(p.destinationAddressPrefixes)[0]) ?? "*",
+          destinationPortRange: asString(p.destinationPortRange) ?? asString(asArray(p.destinationPortRanges)[0]) ?? "*",
+        }];
+      });
+      if (rules.length > 0) {
+        warnings.push(`Network Security Group ${resource.name}: its ${rules.length} rule${rules.length === 1 ? " is" : "s are"} shown in the inspector, but deployment exports do not emit NSG rules yet, so they stay blocked while the NSG has rules or subnets.`);
+      }
+      return {
+        ...defaults,
+        // Azure's built-in default rules always apply; Bunya's "defaultDeny"
+        // means extra deny-all rules, which a portal export does not contain.
+        defaultDeny: false,
+        inboundRules: rules.filter((rule) => rule.direction === "Inbound"),
+        outboundRules: rules.filter((rule) => rule.direction === "Outbound"),
+      };
+    }
     case "frontDoor":
     case "applicationGateway":
     case "apiManagement":
-    case "networkSecurityGroup":
     case "userAssignedIdentity":
     default:
       warnings.push(`${def.label} ${resource.name}: ARM configuration is not mapped; Bunya defaults were used.`);
@@ -495,7 +537,40 @@ function baseProperties(type: ServiceType, resource: FlatArmResource, allResourc
   }
 }
 
+// Exporters only emit plain literal strings (no quotes, ampersands or
+// expressions). Replace other characters at import and say so, instead of
+// letting every export fail later.
+function exportableStrings(value: unknown, path: string, changes: string[]): unknown {
+  if (typeof value === "string") {
+    if (isExportLiteral(value)) return value;
+    const next = toExportLiteral(value);
+    changes.push(`${path} "${value.slice(0, 60)}" became "${next.slice(0, 60)}"`);
+    return next;
+  }
+  if (Array.isArray(value)) return value.map((item, index) => exportableStrings(item, `${path}[${index}]`, changes));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => {
+        if ((key === "email" || key === "publisherEmail") && typeof item === "string") return [key, item];
+        const safeKey = isExportLiteral(key) ? key : toExportLiteral(key);
+        if (safeKey !== key) changes.push(`${path} key "${key.slice(0, 60)}" became "${safeKey.slice(0, 60)}"`);
+        return [safeKey, exportableStrings(item, `${path}.${safeKey}`, changes)];
+      }),
+    );
+  }
+  return value;
+}
+
 function validatedProperties(type: ServiceType, resource: FlatArmResource, properties: Record<string, unknown>, warnings: string[]): Record<string, unknown> {
+  const changes: string[] = [];
+  const safe = exportableStrings(properties, "setting", changes) as Record<string, unknown>;
+  if (changes.length > 0) {
+    warnings.push(`${getServiceDefinition(type).label} ${resource.name}: replaced characters exports cannot write (such as & ' ! #) with "-": ${changes.slice(0, 5).join("; ")}${changes.length > 5 ? `; and ${changes.length - 5} more` : ""}.`);
+  }
+  return validatedPropertiesInner(type, resource, safe, warnings);
+}
+
+function validatedPropertiesInner(type: ServiceType, resource: FlatArmResource, properties: Record<string, unknown>, warnings: string[]): Record<string, unknown> {
   const definition = getServiceDefinition(type);
   const result = definition.propertiesSchema.safeParse(properties);
   if (result.success) return result.data as Record<string, unknown>;
@@ -656,8 +731,11 @@ function inferRoleAssignmentEdges(
   if (item.node.type !== "roleAssignment") return;
   const props = asRecord(item.flat.raw.properties);
   const scope = (item.flat.raw as { scope?: unknown }).scope ?? props.scope;
-  addEdge(edges, item.node, findReferencedNode(scope, resources), "identity");
+  const scopeNode = findReferencedNode(scope, resources);
+  addEdge(edges, item.node, scopeNode, "identity");
   for (const dep of asArray(item.flat.raw.dependsOn)) {
+    // dependsOn also lists the scope; that resource is the target, not the
+    // principal (treating it as both would form a cycle).
     const principal = findReferencedNode(dep, resources, [
       "appService",
       "functionApp",
@@ -665,7 +743,7 @@ function inferRoleAssignmentEdges(
       "virtualMachineScaleSet",
       "userAssignedIdentity",
     ]);
-    if (principal) addEdge(edges, principal, item.node, "identity");
+    if (principal && principal !== scopeNode) addEdge(edges, principal, item.node, "identity");
   }
 }
 

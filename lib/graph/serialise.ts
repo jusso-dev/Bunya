@@ -3,6 +3,9 @@ import { MAX_IMPORT_BYTES, checkImportText, checkObjectDepth } from "./limits";
 import { migrate } from "./migrate";
 
 const STORAGE_KEY = "bunya.document.v1";
+// The last diagram that loaded cleanly. A save that fails validation never
+// overwrites it, so one bad edit cannot cost the user their work.
+const BACKUP_KEY = "bunya.document.v1.backup";
 const URL_PREFIX = "bunya1:";
 
 function base64UrlEncode(bytes: Uint8Array): string {
@@ -86,27 +89,57 @@ export function shareUrlFromFragment(fragment: string, base?: string): string {
   return `${base ?? "https://bunya.example"}#${fragment}`;
 }
 
+function parseStored(raw: string): GraphDocument {
+  checkImportText(raw);
+  const parsed = JSON.parse(raw);
+  checkObjectDepth(parsed);
+  return GraphDocumentSchema.parse(migrate(parsed));
+}
+
+// Saves only documents that will load again; the previous good copy is kept
+// as a backup. Returns false when the document cannot be saved.
 export function saveToLocalStorage(document: GraphDocument): boolean {
   try {
     if (typeof localStorage === "undefined") return false;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(document));
+    const raw = JSON.stringify(document);
+    parseStored(raw);
+    const previous = localStorage.getItem(STORAGE_KEY);
+    if (previous && previous !== raw) localStorage.setItem(BACKUP_KEY, previous);
+    localStorage.setItem(STORAGE_KEY, raw);
     return true;
   } catch { return false; }
 }
 
-export function loadFromLocalStorage(): GraphDocument | null {
+export type StoredLoad =
+  | { status: "empty" }
+  | { status: "ok"; document: GraphDocument }
+  // The saved diagram did not load; the backup did. The broken copy is left
+  // in storage untouched.
+  | { status: "recovered"; document: GraphDocument }
+  | { status: "unreadable" };
+
+export function loadStoredDocument(): StoredLoad {
   try {
-    if (typeof localStorage === "undefined") return null;
+    if (typeof localStorage === "undefined") return { status: "empty" };
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    checkImportText(raw);
-    const parsed = JSON.parse(raw);
-    checkObjectDepth(parsed);
-    const migrated = migrate(parsed);
-    return GraphDocumentSchema.parse(migrated);
+    if (!raw) return { status: "empty" };
+    try {
+      return { status: "ok", document: parseStored(raw) };
+    } catch {
+      const backup = localStorage.getItem(BACKUP_KEY);
+      if (backup) {
+        try { return { status: "recovered", document: parseStored(backup) }; } catch { /* fall through */ }
+      }
+      return { status: "unreadable" };
+    }
   } catch {
-    return null;
+    return { status: "empty" };
   }
+}
+
+export function loadFromLocalStorage(): GraphDocument | null {
+  const result = loadStoredDocument();
+  return result.status === "ok" || result.status === "recovered" ? result.document : null;
 }
 
 export function clearLocalStorage(): void {

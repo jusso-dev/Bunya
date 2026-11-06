@@ -89,7 +89,7 @@ describe("topologyProblems", () => {
     const graph = doc([rg(), node("snet-loose", "subnet", "rg-topology")]);
     const result = generateTerraform(graph);
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reason).toContain("Bunya cannot generate deployment code for this diagram until these are fixed");
+    if (!result.ok) expect(result.reason).toContain("Bunya cannot generate deployment code for this diagram yet");
   });
 });
 
@@ -138,7 +138,7 @@ describe("starter templates", () => {
         node("web2", "appService", "win"),
       ]);
       expect(messages(document)).toContain('"web" is a web app, but App Service Plan "flex" (FC1) only hosts Function Apps');
-      expect(messages(document)).toContain('"web2" is exported as a Linux app, but App Service Plan "win" is a Windows plan');
+      expect(messages(document)).toContain('"web2" runs on the Windows plan App Service Plan "win". Bunya exports Linux apps only');
     });
 
     it("allows one Function App per Flex plan and no container images on serverless plans", () => {

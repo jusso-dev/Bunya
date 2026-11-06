@@ -1,6 +1,8 @@
 import { expect, test } from "@playwright/test";
 
 test("Cost tab renders a non-zero total for a non-empty graph", async ({ page }) => {
+  // Output starts collapsed below 1440px; use a wide window for the Cost tab.
+  await page.setViewportSize({ width: 1600, height: 900 });
   await page.goto("/");
   await page.getByRole("button", { name: "Properties" }).first().click();
 
@@ -18,6 +20,8 @@ test("Cost tab renders a non-zero total for a non-empty graph", async ({ page })
 });
 
 test("Cost tab caveats are always visible", async ({ page }) => {
+  // Output starts collapsed below 1440px; use a wide window for the Cost tab.
+  await page.setViewportSize({ width: 1600, height: 900 });
   await page.goto("/");
   await page.getByRole("button", { name: "Properties" }).first().click();
   await page.getByRole("button", { name: "Cost" }).click();

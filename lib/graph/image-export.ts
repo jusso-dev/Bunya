@@ -2,6 +2,7 @@
 // JPEG or PNG in the browser. Nothing is uploaded; the image is downloaded.
 import { toJpeg, toPng } from "html-to-image";
 import { getRectOfNodes, getTransformForBounds, type Node } from "reactflow";
+import { fileStem } from "./filename";
 
 export type ImageFormat = "jpeg" | "png";
 
@@ -13,8 +14,7 @@ const SCALE = 2; // sharp on high-density screens and in documents
 const EXCLUDED_CLASSES = ["react-flow__minimap", "react-flow__controls", "react-flow__panel", "react-flow__attribution"];
 
 export function imageFilename(name: string, format: ImageFormat): string {
-  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "bunya-diagram";
-  return `${slug}.${format === "jpeg" ? "jpg" : "png"}`;
+  return `${fileStem(name)}.${format === "jpeg" ? "jpg" : "png"}`;
 }
 
 // Size of the exported image and the viewport transform that fits every node.

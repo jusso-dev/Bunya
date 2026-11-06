@@ -1,6 +1,7 @@
 "use client";
 
 import { toast } from "sonner";
+import { announceImport, IMPORT_NOTES_EVENT, ImportNotesDialog } from "@/components/ImportNotes";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useGraphStore } from "@/lib/graph/store";
 import { STARTER_TEMPLATES, getTemplateById } from "@/lib/catalogue/templates";
@@ -8,7 +9,7 @@ import {
   FRAGMENT_SIZE_WARNING_BYTES,
   fragmentByteLength,
   saveToLocalStorage,
-  loadFromLocalStorage,
+  loadStoredDocument,
   serialiseToFragment,
   deserialiseFromFragment,
   shareUrlFromFragment,
@@ -45,7 +46,7 @@ function PanelToggles() {
           onClick={() => togglePanel(it.id)}
           className={`rounded-md border px-2 py-1 text-xs font-medium ${
             collapsed[it.id]
-              ? "border-zinc-200 bg-zinc-100 text-zinc-500 dark:text-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400"
+              ? "border-zinc-200 bg-zinc-100 text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400"
               : "border-zinc-300 bg-white text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
           }`}
           title={collapsed[it.id] ? `Show ${it.label}` : `Hide ${it.label}`}
@@ -55,13 +56,6 @@ function PanelToggles() {
       ))}
     </div>
   );
-}
-
-// Import notes can be long, so they stay open until dismissed.
-function importedToast(source: string, nodes: number, notes: string | undefined) {
-  const title = `Imported ${source} (${nodes} node${nodes === 1 ? "" : "s"}).`;
-  if (notes) toast.warning(title, { description: `Import notes:\n${notes}`, duration: Infinity });
-  else toast.success(title);
 }
 
 export function Toolbar() {
@@ -76,6 +70,14 @@ export function Toolbar() {
   const [saveFailed, setSaveFailed] = useState(false);
   const [templateOpen, setTemplateOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [notesOpen, setNotesOpen] = useState(false);
+  const hasImportNotes = useGraphStore((s) => s.importNotes !== null);
+
+  useEffect(() => {
+    const open = () => setNotesOpen(true);
+    window.addEventListener(IMPORT_NOTES_EVENT, open);
+    return () => window.removeEventListener(IMPORT_NOTES_EVENT, open);
+  }, []);
   const [importMessage, setImportMessage] = useState<string | null>(null);
   const [importText, setImportText] = useState("");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -84,11 +86,18 @@ export function Toolbar() {
     let cancelled = false;
     const restore = async () => {
       const hash = window.location.hash.slice(1);
-      const stored = loadFromLocalStorage();
+      const storedLoad = loadStoredDocument();
+      const stored = storedLoad.status === "ok" || storedLoad.status === "recovered" ? storedLoad.document : null;
       const shared = hash.startsWith("bunya1:") ? await deserialiseFromFragment(hash) : null;
       if (cancelled) return;
       if (shared) replaceDocument(shared);
       else if (stored) replaceDocument(stored);
+      if (!shared && storedLoad.status === "recovered") {
+        toast.warning("Your last change could not be loaded, so Bunya restored the previous saved version of this diagram.", { id: "storage-recovery" });
+      }
+      if (!shared && storedLoad.status === "unreadable") {
+        toast.error("Your saved diagram could not be loaded. It has been kept in this browser; import a recent export to continue.", { id: "storage-recovery", duration: Infinity });
+      }
       if (hash.startsWith("bunya1:") && !shared) toast.warning("Shared diagram is invalid or too large. Restored your saved diagram.");
       try {
         const fx = Number(localStorage.getItem("bunya.settings.fxAudPerUsd"));
@@ -109,19 +118,19 @@ export function Toolbar() {
   const onShare = useCallback(async () => {
     let fragment: string;
     try { fragment = await serialiseToFragment(document); }
-    catch { toast.error("Could not create share link. Export your diagram instead."); return; }
+    catch { toast.error("Could not create share link. Export your diagram instead.", { id: "share" }); return; }
     const size = fragmentByteLength(fragment);
     if (size > FRAGMENT_SIZE_WARNING_BYTES) {
-      toast.warning(`Share link is ${size} bytes, which some browsers truncate. Export the diagram instead.`);
+      toast.warning(`Share link is ${size} bytes, which some browsers truncate. Export the diagram instead.`, { id: "share" });
       return;
     }
     const url = shareUrlFromFragment(fragment);
     if (typeof window !== "undefined") window.history.replaceState(null, "", `#${fragment}`);
     try {
       await navigator.clipboard.writeText(url);
-      toast.success("Share URL copied to clipboard.");
+      toast.success("Share URL copied to clipboard.", { id: "share" });
     } catch {
-      toast.info("Copy the share URL", { description: url, duration: Infinity });
+      toast.info("Copy the share URL", { id: "share", description: url, duration: 30000 });
     }
   }, [document]);
 
@@ -129,11 +138,13 @@ export function Toolbar() {
     const template = getTemplateById(id);
     if (!template) return;
     replaceDocument(template.document);
+    useGraphStore.getState().setImportNotes(null);
     setTemplateOpen(false);
   };
 
   const onNew = () => {
     replaceDocument(emptyGraph("untitled"));
+    useGraphStore.getState().setImportNotes(null);
     toast.success("New diagram created.", {
       description: "Undo restores your previous diagram.",
       action: { label: "Undo", onClick: () => useGraphStore.getState().undo() },
@@ -153,7 +164,7 @@ export function Toolbar() {
     if (blob.size > MAX_IMPORT_BYTES) {
       toast.warning(`Exported ${a.download}.`, { description: "This file exceeds the 1 MiB import limit and cannot be reimported without reducing its size." });
     } else {
-      toast.success(`Exported ${a.download}.`);
+      toast.success(`Exported ${a.download}.`, { id: "export" });
     }
   }, [document]);
 
@@ -175,7 +186,7 @@ export function Toolbar() {
       }
       replaceDocument(result.document);
       if (typeof window !== "undefined") window.history.replaceState(null, "", "#");
-      importedToast(file.name, result.document.nodes.length, result.warning);
+      announceImport(file.name, result.document.nodes.length, result.warning);
       setImportMessage(null);
       setImportOpen(false);
     },
@@ -200,7 +211,7 @@ export function Toolbar() {
     setImportText("");
     setImportMessage(null);
     setImportOpen(false);
-    importedToast("pasted JSON", result.document.nodes.length, result.warning);
+    announceImport("pasted JSON", result.document.nodes.length, result.warning);
   }, [importText, replaceDocument]);
 
   const onFileChange = useCallback(
@@ -214,10 +225,13 @@ export function Toolbar() {
 
   return (
     <header className="relative z-30 flex shrink-0 flex-wrap items-center gap-2 border-b border-zinc-200 bg-white px-4 py-2 dark:border-zinc-800 dark:bg-zinc-950">
-      <div className="flex items-center gap-1.5">
-        <h1 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Bunya</h1>
+      <div className="flex min-w-0 flex-1 items-center gap-1.5">
+        <h1 className="shrink-0 text-sm font-semibold text-zinc-900 dark:text-zinc-50">Bunya</h1>
         <span className="text-xs text-zinc-500 dark:text-zinc-400">|</span>
-        <span className="text-xs text-zinc-500 dark:text-zinc-400">
+        <span
+          className="min-w-0 max-w-[40ch] truncate text-xs text-zinc-500 dark:text-zinc-400"
+          title={`${document.metadata.name} - ${document.metadata.environment} - ${document.metadata.region}`}
+        >
           {document.metadata.name} - {document.metadata.environment} - {document.metadata.region}
         </span>
       </div>
@@ -337,6 +351,16 @@ export function Toolbar() {
             </Dialog>
           ) : null}
         </div>
+        {hasImportNotes ? (
+          <button
+            type="button"
+            onClick={() => setNotesOpen(true)}
+            className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-900 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100 dark:hover:bg-amber-900/40"
+          >
+            Import notes
+          </button>
+        ) : null}
+        {notesOpen ? <ImportNotesDialog onClose={() => setNotesOpen(false)} /> : null}
         <OrganisationRulesPanel />
         <button
           type="button"

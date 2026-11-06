@@ -26,11 +26,12 @@ function ContainerNodeInner({ data, selected }: NodeProps<ContainerNodeData>) {
     >
       <Handle type="target" position={Position.Left} className="!bg-zinc-400" />
       <header
-        className={`absolute -top-3 left-3 flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[11px] font-semibold ${theme.tile} ${theme.tileText}`}
+        className={`absolute -top-3 left-3 flex max-w-[calc(100%-1.5rem)] min-w-0 items-center gap-1.5 rounded-md px-2 py-0.5 text-[11px] font-semibold ${theme.tile} ${theme.tileText}`}
+        title={`${data.name} - ${data.resourceName}`}
       >
         <ServiceIcon type={data.serviceType} size={14} strokeWidth={2} aria-hidden />
-        <span>{data.name}</span>
-        <span className="font-mono text-[10px] opacity-70">- {data.resourceName}</span>
+        <span className="min-w-0 truncate">{data.name}</span>
+        <span className="min-w-0 truncate font-mono text-[10px] opacity-70">- {data.resourceName}</span>
       </header>
       <Handle type="source" position={Position.Right} className="!bg-zinc-400" />
     </div>

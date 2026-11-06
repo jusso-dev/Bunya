@@ -16,6 +16,7 @@ import {
 import { GeneratorResult, GeneratedFile } from "./types";
 import { contentShareName, siteHosting, type SiteHosting } from "./shared/hosting";
 import { roleAssignmentsFor } from "./shared/roles";
+import { quote } from "./shared/quote";
 import { privateEndpointTarget, subnetDelegations } from "@/lib/graph/topology";
 import { storagePublicNetwork } from "@/lib/catalogue/services";
 import { planFamily } from "@/lib/catalogue/app-service-plans";
@@ -65,7 +66,7 @@ function emitVirtualNetwork(node: GraphNode, ctx: GeneratorContext): string {
     `  name                = "${ctx.resourceNames.get(node.id)}"`,
     `  resource_group_name = ${rgRef(ctx, node)}.name`,
     `  location            = ${rgRef(ctx, node)}.location`,
-    `  address_space       = ["${address}"]`,
+    `  address_space       = [${[address, ...((node.properties.additionalAddressSpaces as string[] | undefined) ?? [])].map((space) => `"${space}"`).join(", ")}]`,
     ...dnsServersLine(node, "  dns_servers         = "),
     tagsBlock(ctx, node),
     `}`,
@@ -798,7 +799,7 @@ function emitApiManagement(node: GraphNode, ctx: GeneratorContext): string {
     `  resource_group_name = ${rgRef(ctx, node)}.name`,
     `  location            = ${rgRef(ctx, node)}.location`,
     `  publisher_name      = "${name}"`,
-    `  publisher_email     = "${email}"`,
+    `  publisher_email     = ${quote.hcl(email)}`,
     `  sku_name            = "${sku}_0"`,
     tagsBlock(ctx, node),
     `}`,
@@ -873,7 +874,7 @@ function emitActionGroup(node: GraphNode, ctx: GeneratorContext): string {
     ``,
     `  email_receiver {`,
     `    name                    = "ops"`,
-    `    email_address           = "${(node.properties.email as string) ?? "ops@example.com"}"`,
+    `    email_address           = ${quote.hcl((node.properties.email as string) ?? "ops@example.com")}`,
     `    use_common_alert_schema = true`,
     `  }`,
     tagsBlock(ctx, node),

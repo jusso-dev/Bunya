@@ -1,3 +1,4 @@
+import { fileStem } from "./filename";
 import { MAX_IMPORT_BYTES, checkImportText, checkObjectDepth } from "./limits";
 import { GraphDocument } from "./schema";
 import { migrate } from "./migrate";
@@ -32,12 +33,7 @@ export function envelopeToBlob(envelope: PortableEnvelope): Blob {
 }
 
 export function suggestedFilename(document: GraphDocument): string {
-  const slug = document.metadata.name
-    .toLowerCase()
-    .replace(/[^a-z0-9-]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    || "untitled";
-  return `${slug}${PORTABLE_EXTENSION}`;
+  return `${fileStem(document.metadata.name, "untitled")}${PORTABLE_EXTENSION}`;
 }
 
 export type ImportResult =

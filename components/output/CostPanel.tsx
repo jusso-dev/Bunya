@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import type { GraphDocument } from "@/lib/graph/schema";
 import { estimateCost, formatMoney } from "@/lib/pricing/estimate";
-import { DEFAULT_FX_AUD_PER_USD, type Currency } from "@/lib/pricing/data";
+import { DEFAULT_FX_AUD_PER_USD, type Currency, clampFxRate } from "@/lib/pricing/data";
 import { useGraphStore } from "@/lib/graph/store";
 
 export function CostPanel({ document }: { document: GraphDocument }) {
@@ -30,8 +30,9 @@ export function CostPanel({ document }: { document: GraphDocument }) {
       setFxDraft(String(fxAudPerUsd));
       return;
     }
+    // The store clamps the rate; show the value actually used.
     setFxAudPerUsd(next);
-    setFxDraft(String(next));
+    setFxDraft(String(clampFxRate(next)));
   };
 
   const onFxReset = () => {

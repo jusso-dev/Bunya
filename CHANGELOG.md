@@ -6,6 +6,42 @@ project follows [Conventional Commits](https://www.conventionalcommits.org/).
 
 ## [Unreleased]
 
+### Robustness audit: imports, inputs, toasts and saved work
+
+- A single invalid value (a 300-character name, a negative plan capacity) no
+  longer wipes the diagram on reload. Bunya only saves diagrams that load
+  again, keeps the previous good copy as a backup, restores it if the latest
+  copy cannot load, and says so.
+- Every field has a sensible limit: diagram and node names 80 characters,
+  resource names their Azure maximum (storage and Key Vault 24, web and
+  function apps 60, resource groups 90, and so on, with a counter), rule text
+  500, property text 4,096. Number fields accept only whole numbers inside
+  their range and correct themselves on leaving the field.
+- Long names are truncated in the header and container labels; downloads use a
+  safe file name of at most 80 characters.
+- Toasts stay small and in the corner: at most three, each capped in height,
+  and repeated actions replace their toast. A large import shows one short
+  toast; the notes open in a scrollable Import notes dialog that is also
+  available from the toolbar.
+- Generation errors are a readable list, separated into what Azure would
+  reject and what Bunya cannot export yet ("these can still run in Azure"),
+  instead of one red block or raw schema JSON.
+- ARM import no longer blocks real portal exports for Bunya's own reasons: NSG
+  rules are read (an NSG without rules exports), `Microsoft.Web/sites/functions`
+  are no longer turned into extra Function Apps, every VNet address range and
+  subnet `addressPrefixes` are read, a stopped plan's capacity 0 imports as 1,
+  role assignments scoped to an app no longer form a cycle, characters Azure
+  allows but exports cannot write (such as & and !) are replaced with a note,
+  and email addresses keep apostrophes. Implicit wiring never attaches a
+  Function App to a private storage account or a Private Endpoint to a
+  delegated subnet.
+- `BUNYA.NET.013` now covers only what Azure itself rejects; new
+  `BUNYA.EXP.001` warns about designs that run in Azure but Bunya cannot export
+  yet (Windows apps, registry-credential pulls, older runtimes, private
+  networking outside the diagram).
+- Output starts collapsed below 1440px so the canvas has room; the collapsed
+  panel toggles meet WCAG AA contrast.
+
 ### Image export and toast notifications
 
 - The canvas has **Image: JPEG / PNG** buttons that download the whole

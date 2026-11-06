@@ -8,6 +8,10 @@ export type FieldDescriptor = {
   options?: string[];
   min?: number;
   max?: number;
+  // Whole numbers only (z.number().int()).
+  integer?: boolean;
+  // Longest string accepted (z.string().max()).
+  maxLength?: number;
   optional: boolean;
   defaultValue: unknown;
 };
@@ -116,7 +120,19 @@ export function describeObjectSchema(schema: z.ZodObject<z.ZodRawShape>): FieldD
     }
 
     const { min, max } = readChecks(inner);
-    descriptors.push({ name, kind, options, min, max, optional, defaultValue });
+    const integer = kind === "number" && (inner as unknown as { isInt?: boolean }).isInt === true;
+    const maxLength = kind === "string" ? (inner as unknown as { maxLength?: number | null }).maxLength ?? undefined : undefined;
+    descriptors.push({
+      name,
+      kind,
+      options,
+      min: kind === "string" ? undefined : min,
+      max: kind === "string" ? undefined : max,
+      ...(integer ? { integer } : {}),
+      ...(maxLength ? { maxLength } : {}),
+      optional,
+      defaultValue,
+    });
   }
   return descriptors;
 }
