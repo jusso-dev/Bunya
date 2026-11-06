@@ -21,10 +21,6 @@ in `lib/catalogue/services.ts`), the predicate is set to `() => false` and the
 message is prefixed with `[advisory]` so the rule is still surfaced in
 documentation but is never auto-flagged.
 
-The `expansion-app-service-plan` bundle is intentionally isolated from
-`lib/rules/registry.ts` so it can be wired in via a follow-up PR alongside the
-graph-rules bundle in `lib/rules/graph-rules/expansion-app-service-plan.ts`.
-
-- Pinned upstream revision: see `pinned.json`.
-- Generator metadata: see `generated.meta.json`.
-- Importer entry point: `import.ts` (`importExpansionAppServicePlan`).
+The rules, including the graph-level ones that look at the apps on a plan, live
+in `rules.ts` and are curated by hand. The bundle is listed in
+`lib/rules/registry.ts`.

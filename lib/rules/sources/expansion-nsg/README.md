@@ -10,7 +10,7 @@ model rather than being permanently advisory.
 - PSRule for Azure: <https://github.com/Azure/PSRule.Rules.Azure> (MIT)
 - Checkov:          <https://github.com/bridgecrewio/checkov> (Apache-2.0)
 - Azure Policy:     <https://learn.microsoft.com/en-us/azure/governance/policy/samples/built-in-policies> (MIT)
-- Pinned commits / tags: see `pinned.json`
+- Upstream versions: cited per rule on `source.version`
 
 Each rule cites its upstream rule ID and canonical doc URL. Rules whose
 predicate depends on properties Bunya does not yet model are marked

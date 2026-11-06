@@ -1,10 +1,24 @@
 import { graphRule } from "@/lib/rules/builders";
+import { getServiceDefinition } from "@/lib/catalogue/services";
+import type { GraphDocument, ServiceType } from "@/lib/graph/schema";
 import type { Autofix, RuleEntry } from "@/lib/rules/schema";
 
 const MS_LEARN = "Microsoft Learn";
 
+const UAI_TARGETS: ReadonlySet<ServiceType> = new Set(getServiceDefinition("userAssignedIdentity").allowedEdgeTargets);
+
+/** Identity edges from a user-assigned identity to a type the catalogue does not let it target. */
+export function uaiUnsupportedTargetEdges(graph: GraphDocument): Array<{ nodeIds: string[]; edgeIds: string[] }> {
+  const byId = new Map(graph.nodes.map((node) => [node.id, node]));
+  return graph.edges.flatMap((edge) => {
+    const source = byId.get(edge.source);
+    const target = byId.get(edge.target);
+    if (edge.kind !== "identity" || source?.type !== "userAssignedIdentity" || !target || UAI_TARGETS.has(target.type)) return [];
+    return [{ edgeIds: [edge.id], nodeIds: [source.id, target.id] }];
+  });
+}
+
 export const identityRules: RuleEntry[] = [
-  // BUNYA.IDN.001 — Edge to Key Vault must be an identity edge (or diagnostic)
   graphRule({
     id: "BUNYA.IDN.001",
     source: {
@@ -31,7 +45,6 @@ export const identityRules: RuleEntry[] = [
     },
   }),
 
-  // BUNYA.IDN.002 — Orphan User-Assigned Managed Identity
   graphRule({
     id: "BUNYA.IDN.002",
     source: {
@@ -61,7 +74,6 @@ export const identityRules: RuleEntry[] = [
     },
   }),
 
-  // BUNYA.IDN.003 — App/Function -> Key Vault must be identity edge
   graphRule({
     id: "BUNYA.IDN.003",
     source: {
@@ -107,7 +119,6 @@ export const identityRules: RuleEntry[] = [
     },
   }),
 
-  // BUNYA.IDN.004 — UMI pointing at a service that does not honour MI
   graphRule({
     id: "BUNYA.IDN.004",
     source: {
@@ -122,28 +133,9 @@ export const identityRules: RuleEntry[] = [
     longExplanation:
       "Only a defined list of Azure resource types accept Entra ID tokens issued to a managed identity (storage, Key Vault, SQL, Cosmos DB, ACR, and so on). Pointing a UMI at a network resource such as a VNet, subnet, NSG, or at a Log Analytics workspace produces a meaningless role assignment that will never be exercised at runtime. Reattach the identity to a service that actually supports MI auth.",
     tags: ["bunya", "managed-identity", "rbac", "compatibility"],
-    predicate: (graph) => {
-      const unsupported = new Set([
-        "logAnalytics",
-        "virtualNetwork",
-        "subnet",
-        "networkSecurityGroup",
-      ]);
-      const findings: Array<{ nodeIds?: string[]; edgeIds?: string[] }> = [];
-      for (const e of graph.edges) {
-        if (e.kind !== "identity") continue;
-        const src = graph.nodes.find((n) => n.id === e.source);
-        const tgt = graph.nodes.find((n) => n.id === e.target);
-        if (!src || !tgt) continue;
-        if (src.type !== "userAssignedIdentity") continue;
-        if (!unsupported.has(tgt.type)) continue;
-        findings.push({ edgeIds: [e.id], nodeIds: [src.id, tgt.id] });
-      }
-      return findings;
-    },
+    predicate: uaiUnsupportedTargetEdges,
   }),
 
-  // BUNYA.IDN.005 — ACR pulled by compute without an MI edge
   graphRule({
     id: "BUNYA.IDN.005",
     source: {

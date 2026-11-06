@@ -1,15 +1,15 @@
-// Generated from the Checkov (Azure) ruleset, pinned at v3.2.0.
-// This file is hand-curated but lives behind the same `import.ts` stub that the
-// fetcher script will overwrite when run online. Do not edit individual rules
-// here — re-run the generator if you need to refresh the set.
-import { nodeRule } from "@/lib/rules/builders";
+// Hand-curated subset of Checkov's CKV_AZURE_* checks.
+// Rules prefixed [advisory] document controls Bunya's property model cannot
+// evaluate; their predicates never fire.
+import { nodeRule, getProp } from "@/lib/rules/builders";
 import { storagePublicNetwork } from "@/lib/catalogue/services";
 import type { RuleEntry } from "@/lib/rules/schema";
 
+export const CHECKOV_VERSION = "v3.2.0";
 const CHECKOV_BASE = {
   name: "Checkov",
   license: "Apache-2.0",
-  version: "v3.2.0",
+  version: CHECKOV_VERSION,
 } as const;
 
 function checkovSrc(ruleId: string) {
@@ -20,15 +20,7 @@ function checkovSrc(ruleId: string) {
   };
 }
 
-function getProp<T = unknown>(
-  node: { properties: Record<string, unknown> },
-  key: string,
-): T | undefined {
-  return node.properties[key] as T | undefined;
-}
-
 export const CHECKOV_RULES: RuleEntry[] = [
-  // 1. CKV_AZURE_1 — App Service authentication enabled (advisory; closest property is httpsOnly)
   nodeRule({
     id: "CHECKOV.AZURE.1",
     source: checkovSrc("CKV_AZURE_1"),
@@ -43,7 +35,6 @@ export const CHECKOV_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 2. CKV_AZURE_2 — Storage min TLS 1.2
   nodeRule({
     id: "CHECKOV.AZURE.2",
     source: checkovSrc("CKV_AZURE_2"),
@@ -57,7 +48,6 @@ export const CHECKOV_RULES: RuleEntry[] = [
     predicate: (n) => getProp<string>(n, "minTlsVersion") !== "1.2",
   }),
 
-  // 3. CKV_AZURE_3 — Storage supportsHttpsTrafficOnly (advisory; not modelled)
   nodeRule({
     id: "CHECKOV.AZURE.3",
     source: checkovSrc("CKV_AZURE_3"),
@@ -72,7 +62,6 @@ export const CHECKOV_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 4. CKV_AZURE_4 — Storage default network deny (allowPublicAccess false)
   nodeRule({
     id: "CHECKOV.AZURE.4",
     source: checkovSrc("CKV_AZURE_4"),
@@ -86,7 +75,6 @@ export const CHECKOV_RULES: RuleEntry[] = [
     predicate: (n) => storagePublicNetwork(n.properties),
   }),
 
-  // 5. CKV_AZURE_5 — SQL Defender enabled (advisory)
   nodeRule({
     id: "CHECKOV.AZURE.5",
     source: checkovSrc("CKV_AZURE_5"),
@@ -101,7 +89,6 @@ export const CHECKOV_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 6. CKV_AZURE_9 — SQL auditing enabled (advisory)
   nodeRule({
     id: "CHECKOV.AZURE.9",
     source: checkovSrc("CKV_AZURE_9"),
@@ -115,7 +102,6 @@ export const CHECKOV_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 7. CKV_AZURE_10 — SQL auditing retention ≥90 days (advisory)
   nodeRule({
     id: "CHECKOV.AZURE.10",
     source: checkovSrc("CKV_AZURE_10"),
@@ -130,7 +116,6 @@ export const CHECKOV_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 8. CKV_AZURE_13 — App Service authentication enabled (advisory; duplicate of CKV_AZURE_1)
   nodeRule({
     id: "CHECKOV.AZURE.13",
     source: checkovSrc("CKV_AZURE_13"),
@@ -145,7 +130,6 @@ export const CHECKOV_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 9. CKV_AZURE_14 — App Service HTTPS only
   nodeRule({
     id: "CHECKOV.AZURE.14",
     source: checkovSrc("CKV_AZURE_14"),
@@ -159,7 +143,6 @@ export const CHECKOV_RULES: RuleEntry[] = [
     predicate: (n) => getProp<boolean>(n, "httpsOnly") === false,
   }),
 
-  // 10. CKV_AZURE_15 — App Service latest TLS
   nodeRule({
     id: "CHECKOV.AZURE.15",
     source: checkovSrc("CKV_AZURE_15"),
@@ -174,7 +157,6 @@ export const CHECKOV_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 11. CKV_AZURE_17 — App Service client certificates enabled (advisory)
   nodeRule({
     id: "CHECKOV.AZURE.17",
     source: checkovSrc("CKV_AZURE_17"),
@@ -189,7 +171,6 @@ export const CHECKOV_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 12. CKV_AZURE_18 — App Service HTTP Version (advisory)
   nodeRule({
     id: "CHECKOV.AZURE.18",
     source: checkovSrc("CKV_AZURE_18"),
@@ -204,7 +185,6 @@ export const CHECKOV_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 13. CKV_AZURE_23 — SQL public access disabled (advisory)
   nodeRule({
     id: "CHECKOV.AZURE.23",
     source: checkovSrc("CKV_AZURE_23"),
@@ -219,7 +199,6 @@ export const CHECKOV_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 14. CKV_AZURE_28 — Function App HTTPS Only
   nodeRule({
     id: "CHECKOV.AZURE.28",
     source: checkovSrc("CKV_AZURE_28"),
@@ -233,7 +212,6 @@ export const CHECKOV_RULES: RuleEntry[] = [
     predicate: (n) => getProp<boolean>(n, "httpsOnly") === false,
   }),
 
-  // 15. CKV_AZURE_33 — Storage queue logging (advisory)
   nodeRule({
     id: "CHECKOV.AZURE.33",
     source: checkovSrc("CKV_AZURE_33"),
@@ -248,7 +226,6 @@ export const CHECKOV_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 16. CKV_AZURE_35 — Storage default network deny (alias of CKV_AZURE_4)
   nodeRule({
     id: "CHECKOV.AZURE.35",
     source: checkovSrc("CKV_AZURE_35"),
@@ -263,7 +240,6 @@ export const CHECKOV_RULES: RuleEntry[] = [
     predicate: (n) => storagePublicNetwork(n.properties),
   }),
 
-  // 17. CKV_AZURE_36 — Storage trusted services bypass (advisory)
   nodeRule({
     id: "CHECKOV.AZURE.36",
     source: checkovSrc("CKV_AZURE_36"),
@@ -278,7 +254,6 @@ export const CHECKOV_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 18. CKV_AZURE_42 — Key Vault purge protection
   nodeRule({
     id: "CHECKOV.AZURE.42",
     source: checkovSrc("CKV_AZURE_42"),
@@ -292,7 +267,6 @@ export const CHECKOV_RULES: RuleEntry[] = [
     predicate: (n) => getProp<boolean>(n, "purgeProtection") === false,
   }),
 
-  // 19. CKV_AZURE_43 — Storage secure transfer (covered by CKV_AZURE_3 — advisory)
   nodeRule({
     id: "CHECKOV.AZURE.43",
     source: checkovSrc("CKV_AZURE_43"),
@@ -307,7 +281,6 @@ export const CHECKOV_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 20. CKV_AZURE_44 — Storage latest TLS (alias of CKV_AZURE_2)
   nodeRule({
     id: "CHECKOV.AZURE.44",
     source: checkovSrc("CKV_AZURE_44"),
@@ -322,7 +295,6 @@ export const CHECKOV_RULES: RuleEntry[] = [
     predicate: (n) => getProp<string>(n, "minTlsVersion") !== "1.2",
   }),
 
-  // 21. CKV_AZURE_50 — Function App authentication (advisory)
   nodeRule({
     id: "CHECKOV.AZURE.50",
     source: checkovSrc("CKV_AZURE_50"),
@@ -336,7 +308,6 @@ export const CHECKOV_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 22. CKV_AZURE_56 — Function App HTTP version (advisory)
   nodeRule({
     id: "CHECKOV.AZURE.56",
     source: checkovSrc("CKV_AZURE_56"),
@@ -351,7 +322,6 @@ export const CHECKOV_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 23. CKV_AZURE_71 — App Service managed identity enabled (advisory; Bunya always sets system-assigned)
   nodeRule({
     id: "CHECKOV.AZURE.71",
     source: checkovSrc("CKV_AZURE_71"),
@@ -366,7 +336,6 @@ export const CHECKOV_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 24. CKV_AZURE_88 — App Service network access restriction
   nodeRule({
     id: "CHECKOV.AZURE.88",
     source: checkovSrc("CKV_AZURE_88"),
@@ -385,7 +354,6 @@ export const CHECKOV_RULES: RuleEntry[] = [
     },
   }),
 
-  // 25. CKV_AZURE_94 — API Management public access (advisory)
   nodeRule({
     id: "CHECKOV.AZURE.94",
     source: checkovSrc("CKV_AZURE_94"),
@@ -400,7 +368,6 @@ export const CHECKOV_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 26. CKV_AZURE_109 — Key Vault public network access disabled
   nodeRule({
     id: "CHECKOV.AZURE.109",
     source: checkovSrc("CKV_AZURE_109"),
@@ -414,7 +381,6 @@ export const CHECKOV_RULES: RuleEntry[] = [
     predicate: (n) => getProp<boolean>(n, "publicNetworkAccess") === true,
   }),
 
-  // 27. CKV_AZURE_110 — Key Vault purge protection (duplicate of CKV_AZURE_42; encoded for traceability)
   nodeRule({
     id: "CHECKOV.AZURE.110",
     source: checkovSrc("CKV_AZURE_110"),
@@ -429,7 +395,6 @@ export const CHECKOV_RULES: RuleEntry[] = [
     predicate: (n) => getProp<boolean>(n, "purgeProtection") === false,
   }),
 
-  // 28. CKV_AZURE_137 — ACR admin user disabled
   nodeRule({
     id: "CHECKOV.AZURE.137",
     source: checkovSrc("CKV_AZURE_137"),
@@ -443,7 +408,6 @@ export const CHECKOV_RULES: RuleEntry[] = [
     predicate: (n) => getProp<boolean>(n, "adminUserEnabled") === true,
   }),
 
-  // 29. CKV_AZURE_138 — ACR retention policy (advisory)
   nodeRule({
     id: "CHECKOV.AZURE.138",
     source: checkovSrc("CKV_AZURE_138"),
@@ -458,7 +422,6 @@ export const CHECKOV_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 30. CKV_AZURE_139 — ACR public network access disabled
   nodeRule({
     id: "CHECKOV.AZURE.139",
     source: checkovSrc("CKV_AZURE_139"),
@@ -472,7 +435,6 @@ export const CHECKOV_RULES: RuleEntry[] = [
     predicate: (n) => getProp<boolean>(n, "publicNetworkAccess") === true,
   }),
 
-  // 31. CKV_AZURE_140 — Cosmos firewall (publicNetworkAccess false advisory)
   nodeRule({
     id: "CHECKOV.AZURE.140",
     source: checkovSrc("CKV_AZURE_140"),

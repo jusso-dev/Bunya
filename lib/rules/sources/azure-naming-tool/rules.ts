@@ -1,24 +1,22 @@
-// Generated from mspnp/AzureNamingTool@v3.4.0 (src/repository/resourcetypes.json).
-// Each entry encodes a single naming constraint (length / charset / case)
-// against GraphNode.resourceName. Do not hand-edit; rerun the importer.
+// Naming constraints from mspnp/AzureNamingTool (src/repository/resourcetypes.json),
+// curated by hand against GraphNode.resourceName.
 import { nodeRule } from "@/lib/rules/builders";
 import type { RuleEntry } from "@/lib/rules/schema";
 
+export const NAMING_TOOL_VERSION = "v3.4.0";
 const NAMING_BASE = {
   name: "Azure Naming Tool",
   license: "MIT",
-  version: "v3.4.0",
+  version: NAMING_TOOL_VERSION,
   url: "https://github.com/mspnp/AzureNamingTool/blob/main/src/repository/resourcetypes.json",
 } as const;
 
-// Helpers — kept tiny so each predicate stays a single readable expression.
 const lenOutside = (s: string, min: number, max: number): boolean =>
   s.length < min || s.length > max;
 
 const matchesNot = (s: string, re: RegExp): boolean => !re.test(s);
 
 export const NAMING_RULES: RuleEntry[] = [
-  // 1. storageAccount — length 3-24
   nodeRule({
     id: "NAMING.STORAGEACCOUNT.LENGTH",
     source: { ...NAMING_BASE, ruleId: "Microsoft.Storage/storageAccounts.length" },
@@ -32,7 +30,6 @@ export const NAMING_RULES: RuleEntry[] = [
     predicate: (n) => lenOutside(n.resourceName, 3, 24),
   }),
 
-  // 2. storageAccount — charset [a-z0-9]
   nodeRule({
     id: "NAMING.STORAGEACCOUNT.CHARSET",
     source: { ...NAMING_BASE, ruleId: "Microsoft.Storage/storageAccounts.charset" },
@@ -46,7 +43,6 @@ export const NAMING_RULES: RuleEntry[] = [
     predicate: (n) => matchesNot(n.resourceName, /^[a-z0-9]+$/),
   }),
 
-  // 3. keyVault — length 3-24
   nodeRule({
     id: "NAMING.KEYVAULT.LENGTH",
     source: { ...NAMING_BASE, ruleId: "Microsoft.KeyVault/vaults.length" },
@@ -60,7 +56,6 @@ export const NAMING_RULES: RuleEntry[] = [
     predicate: (n) => lenOutside(n.resourceName, 3, 24),
   }),
 
-  // 4. keyVault — charset [a-zA-Z0-9-], no leading/trailing dash, no consecutive dashes
   nodeRule({
     id: "NAMING.KEYVAULT.CHARSET",
     source: { ...NAMING_BASE, ruleId: "Microsoft.KeyVault/vaults.charset" },
@@ -74,7 +69,6 @@ export const NAMING_RULES: RuleEntry[] = [
     predicate: (n) => matchesNot(n.resourceName, /^[A-Za-z][A-Za-z0-9-]*[A-Za-z0-9]$/),
   }),
 
-  // 5. containerRegistry — length 5-50
   nodeRule({
     id: "NAMING.CONTAINERREGISTRY.LENGTH",
     source: { ...NAMING_BASE, ruleId: "Microsoft.ContainerRegistry/registries.length" },
@@ -88,7 +82,6 @@ export const NAMING_RULES: RuleEntry[] = [
     predicate: (n) => lenOutside(n.resourceName, 5, 50),
   }),
 
-  // 6. containerRegistry — charset [a-zA-Z0-9]
   nodeRule({
     id: "NAMING.CONTAINERREGISTRY.CHARSET",
     source: { ...NAMING_BASE, ruleId: "Microsoft.ContainerRegistry/registries.charset" },
@@ -102,7 +95,6 @@ export const NAMING_RULES: RuleEntry[] = [
     predicate: (n) => matchesNot(n.resourceName, /^[A-Za-z0-9]+$/),
   }),
 
-  // 7. appService — length 2-60
   nodeRule({
     id: "NAMING.APPSERVICE.LENGTH",
     source: { ...NAMING_BASE, ruleId: "Microsoft.Web/sites.length" },
@@ -116,7 +108,6 @@ export const NAMING_RULES: RuleEntry[] = [
     predicate: (n) => lenOutside(n.resourceName, 2, 60),
   }),
 
-  // 8. appService — charset [a-zA-Z0-9-], cannot end with dash
   nodeRule({
     id: "NAMING.APPSERVICE.CHARSET",
     source: { ...NAMING_BASE, ruleId: "Microsoft.Web/sites.charset" },
@@ -130,7 +121,6 @@ export const NAMING_RULES: RuleEntry[] = [
     predicate: (n) => matchesNot(n.resourceName, /^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$/),
   }),
 
-  // 9. functionApp — length 2-60
   nodeRule({
     id: "NAMING.FUNCTIONAPP.LENGTH",
     source: { ...NAMING_BASE, ruleId: "Microsoft.Web/sites.functions.length" },
@@ -144,7 +134,6 @@ export const NAMING_RULES: RuleEntry[] = [
     predicate: (n) => lenOutside(n.resourceName, 2, 60),
   }),
 
-  // 10. functionApp — charset [a-zA-Z0-9-], cannot end with dash
   nodeRule({
     id: "NAMING.FUNCTIONAPP.CHARSET",
     source: { ...NAMING_BASE, ruleId: "Microsoft.Web/sites.functions.charset" },
@@ -158,7 +147,6 @@ export const NAMING_RULES: RuleEntry[] = [
     predicate: (n) => matchesNot(n.resourceName, /^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$/),
   }),
 
-  // 11. resourceGroup — length 1-90
   nodeRule({
     id: "NAMING.RESOURCEGROUP.LENGTH",
     source: { ...NAMING_BASE, ruleId: "Microsoft.Resources/resourceGroups.length" },
@@ -172,7 +160,6 @@ export const NAMING_RULES: RuleEntry[] = [
     predicate: (n) => lenOutside(n.resourceName, 1, 90),
   }),
 
-  // 12. resourceGroup — charset [A-Za-z0-9._()-], cannot end with period
   nodeRule({
     id: "NAMING.RESOURCEGROUP.CHARSET",
     source: { ...NAMING_BASE, ruleId: "Microsoft.Resources/resourceGroups.charset" },
@@ -187,7 +174,6 @@ export const NAMING_RULES: RuleEntry[] = [
       matchesNot(n.resourceName, /^[A-Za-z0-9._()-]+$/) || n.resourceName.endsWith("."),
   }),
 
-  // 13. virtualNetwork — length 2-64
   nodeRule({
     id: "NAMING.VIRTUALNETWORK.LENGTH",
     source: { ...NAMING_BASE, ruleId: "Microsoft.Network/virtualNetworks.length" },
@@ -201,7 +187,6 @@ export const NAMING_RULES: RuleEntry[] = [
     predicate: (n) => lenOutside(n.resourceName, 2, 64),
   }),
 
-  // 14. virtualNetwork — charset [A-Za-z0-9._-]
   nodeRule({
     id: "NAMING.VIRTUALNETWORK.CHARSET",
     source: { ...NAMING_BASE, ruleId: "Microsoft.Network/virtualNetworks.charset" },
@@ -216,7 +201,6 @@ export const NAMING_RULES: RuleEntry[] = [
       matchesNot(n.resourceName, /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9_])?$/),
   }),
 
-  // 15. subnet — length 1-80
   nodeRule({
     id: "NAMING.SUBNET.LENGTH",
     source: { ...NAMING_BASE, ruleId: "Microsoft.Network/virtualNetworks/subnets.length" },
@@ -230,7 +214,6 @@ export const NAMING_RULES: RuleEntry[] = [
     predicate: (n) => lenOutside(n.resourceName, 1, 80),
   }),
 
-  // 16. subnet — charset [A-Za-z0-9._-]
   nodeRule({
     id: "NAMING.SUBNET.CHARSET",
     source: { ...NAMING_BASE, ruleId: "Microsoft.Network/virtualNetworks/subnets.charset" },
@@ -245,7 +228,6 @@ export const NAMING_RULES: RuleEntry[] = [
       matchesNot(n.resourceName, /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9_])?$/),
   }),
 
-  // 17. cosmosDb — length 3-44
   nodeRule({
     id: "NAMING.COSMOSDB.LENGTH",
     source: { ...NAMING_BASE, ruleId: "Microsoft.DocumentDB/databaseAccounts.length" },
@@ -259,7 +241,6 @@ export const NAMING_RULES: RuleEntry[] = [
     predicate: (n) => lenOutside(n.resourceName, 3, 44),
   }),
 
-  // 18. cosmosDb — lowercase (and dashes/digits)
   nodeRule({
     id: "NAMING.COSMOSDB.LOWERCASE",
     source: { ...NAMING_BASE, ruleId: "Microsoft.DocumentDB/databaseAccounts.charset" },
@@ -273,7 +254,6 @@ export const NAMING_RULES: RuleEntry[] = [
     predicate: (n) => matchesNot(n.resourceName, /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/),
   }),
 
-  // 19. apiManagement — length 1-50
   nodeRule({
     id: "NAMING.APIMANAGEMENT.LENGTH",
     source: { ...NAMING_BASE, ruleId: "Microsoft.ApiManagement/service.length" },
@@ -287,7 +267,6 @@ export const NAMING_RULES: RuleEntry[] = [
     predicate: (n) => lenOutside(n.resourceName, 1, 50),
   }),
 
-  // 20. frontDoor — length 5-64
   nodeRule({
     id: "NAMING.FRONTDOOR.LENGTH",
     source: { ...NAMING_BASE, ruleId: "Microsoft.Cdn/profiles.length" },
@@ -301,7 +280,6 @@ export const NAMING_RULES: RuleEntry[] = [
     predicate: (n) => lenOutside(n.resourceName, 5, 64),
   }),
 
-  // 21. applicationGateway — length 1-80 (bonus)
   nodeRule({
     id: "NAMING.APPLICATIONGATEWAY.LENGTH",
     source: { ...NAMING_BASE, ruleId: "Microsoft.Network/applicationGateways.length" },
@@ -315,7 +293,6 @@ export const NAMING_RULES: RuleEntry[] = [
     predicate: (n) => lenOutside(n.resourceName, 1, 80),
   }),
 
-  // 22. userAssignedIdentity — length 3-128 (bonus)
   nodeRule({
     id: "NAMING.USERASSIGNEDIDENTITY.LENGTH",
     source: {

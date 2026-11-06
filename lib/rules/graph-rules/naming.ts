@@ -1,5 +1,9 @@
 import { nodeRule } from "@/lib/rules/builders";
 import type { RuleEntry } from "@/lib/rules/schema";
+import { getServiceDefinition } from "@/lib/catalogue/services";
+import type { ServiceType } from "@/lib/graph/schema";
+
+const nameMax = (type: ServiceType) => getServiceDefinition(type).nameMaxLength;
 
 const AZURE_NAMING_SOURCE = {
   name: "Azure resource name rules",
@@ -22,7 +26,7 @@ const CAF_ABBREVIATION_SOURCE = {
 // CAF-recommended abbreviation prefixes per resource type. Keep this conservative —
 // the rule is informational and only fires when the resource name does not start with
 // one of the listed prefixes for that service type.
-const CAF_PREFIXES: Partial<Record<string, string[]>> = {
+const CAF_PREFIXES: Partial<Record<ServiceType, string[]>> = {
   resourceGroup: ["rg-", "rg"],
   virtualNetwork: ["vnet-", "vnet"],
   subnet: ["snet-", "snet"],
@@ -118,7 +122,7 @@ export const namingRules: RuleEntry[] = [
     tags: ["bunya", "naming", "resource-group"],
     predicate: (n) => {
       const v = n.resourceName;
-      if (v.length < 1 || v.length > 90) return true;
+      if (v.length < 1 || v.length > nameMax(n.type)) return true;
       if (!/^[A-Za-z0-9._()-]+$/.test(v)) return true;
       if (v.endsWith(".")) return true;
       return false;
@@ -198,13 +202,13 @@ export const namingRules: RuleEntry[] = [
     severity: "error",
     serviceTypes: ["virtualNetwork", "subnet"],
     message:
-      "Virtual Network / Subnet name must be 1-80 chars, start with a letter or number, and not end with hyphen or period.",
+      "Virtual Network (1-64 chars) / Subnet (1-80 chars) name must start with a letter or number, and not end with hyphen or period.",
     longExplanation:
-      "VNet and Subnet names live in the Microsoft.Network namespace which requires 1 to 80 characters, must start with a letter or digit, may contain letters, digits, underscores, periods or hyphens, and must end with a letter, digit or underscore.",
+      "VNet and Subnet names live in the Microsoft.Network namespace. Virtual Network names allow up to 64 characters and subnet names up to 80; both must start with a letter or digit, may contain letters, digits, underscores, periods or hyphens, and must end with a letter, digit or underscore.",
     tags: ["bunya", "naming", "network"],
     predicate: (n) => {
       const v = n.resourceName;
-      if (v.length < 1 || v.length > 80) return true;
+      if (v.length < 1 || v.length > nameMax(n.type)) return true;
       return !/^[A-Za-z0-9][A-Za-z0-9._-]{0,78}[A-Za-z0-9_]$|^[A-Za-z0-9]$/.test(v);
     },
   }),

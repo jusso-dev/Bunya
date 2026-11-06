@@ -7,7 +7,7 @@ Centre (ACSC), translated into Bunya's `RuleEntry` shape.
 
 - Source: <https://www.cyber.gov.au/resources-business-and-government/essential-cyber-security/essential-eight>
 - Publisher: Australian Signals Directorate — Australian Cyber Security Centre
-- Pinned release: see `pinned.json`
+- Pin: see this bundle's entry in `lib/rules/registry.ts`
 - Licence: **Commonwealth of Australia copyright** — reproduced here in
   paraphrased form with attribution back to cyber.gov.au. No verbatim ACSC prose
   is included.

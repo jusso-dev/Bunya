@@ -7,7 +7,7 @@ the specific FAQ anchor it derives from so that reviewers can trace a finding
 back to the upstream answer.
 
 - Source: <https://learn.microsoft.com/en-us/azure/private-link/private-link-faq>
-- Revision pin: see `pinned.json`
+- Pin: see this bundle's entry in `lib/rules/registry.ts`
 - Licence: **CC-BY-4.0** (Microsoft Learn documentation; attribution preserved
   in `RuleSource.url` on every rule)
 

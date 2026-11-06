@@ -7,7 +7,7 @@ upstream tool encodes the canonical Azure resource name rules (length, charset,
 case-sensitivity, allowed punctuation) for every Azure resource provider.
 
 - Source: <https://github.com/mspnp/AzureNamingTool>
-- Pinned commit / tag: see `pinned.json`
+- Pin: see this bundle's entry in `lib/rules/registry.ts`
 - Licence: **MIT** (compatible with redistribution; attribution preserved in
   `RuleSource.url` on every rule)
 

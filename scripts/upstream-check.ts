@@ -2,7 +2,7 @@
  * Entry point for `pnpm upstream:check`.
  *
  * Read-only drift report for the things Bunya pins or depends on upstream:
- *   - rule sources with releases newer than their pinned.json
+ *   - rule sources with releases newer than their pin in lib/rules/registry.ts
  *   - an AzureRM provider major version newer than the Terraform generator's
  *     constraint
  *   - Azure retirement notices that mention a service Bunya models
@@ -19,36 +19,12 @@
  * Set GITHUB_TOKEN to avoid GitHub API rate limits.
  */
 import { promises as fs } from "node:fs";
-import * as path from "node:path";
-import { fileURLToPath } from "node:url";
+import { RULE_BUNDLES } from "@/lib/rules/registry";
+import { arg, run } from "./lib";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PROJECT_ROOT = path.resolve(__dirname, "..");
-const SOURCES_DIR = path.join(PROJECT_ROOT, "lib", "rules", "sources");
 const AZURE_UPDATES_RSS = "https://www.microsoft.com/releasecommunications/api/v2/azure/rss";
 const TERRAFORM_AZURERM_MAJOR = 4;
 const MANUAL_REVIEW_DAYS = 180;
-
-function arg(name: string): string | undefined {
-  const index = process.argv.indexOf(`--${name}`);
-  return index >= 0 ? process.argv[index + 1] : undefined;
-}
-
-type Release = { repo: string; folder: string; key?: string };
-
-const RELEASE_PINS: Release[] = [
-  { repo: "Azure/PSRule.Rules.Azure", folder: "psrule-azure" },
-  { repo: "bridgecrewio/checkov", folder: "checkov-azure" },
-  { repo: "mspnp/AzureNamingTool", folder: "azure-naming-tool" },
-];
-
-// Hand-curated sources whose upstream has no machine-readable release feed.
-const MANUAL_PINS: { folder: string; label: string; field: string }[] = [
-  { folder: "ism", label: "Australian ISM", field: "release" },
-  { folder: "essential-eight", label: "Essential Eight Maturity Model", field: "release" },
-  { folder: "private-link-faq", label: "Azure Private Link FAQ", field: "revision" },
-  { folder: "well-known-patterns", label: "Azure Architecture Center patterns", field: "revision" },
-];
 
 // Azure Updates product categories and title keywords for each modelled service.
 const SERVICE_KEYWORDS = [
@@ -104,20 +80,17 @@ function newer(latest: string, pinned: string): boolean {
   return false;
 }
 
-async function pinned(folder: string): Promise<Record<string, unknown>> {
-  return JSON.parse(await fs.readFile(path.join(SOURCES_DIR, folder, "pinned.json"), "utf8")) as Record<string, unknown>;
-}
-
 async function checkReleases(lines: string[], errors: string[]): Promise<void> {
-  for (const pin of RELEASE_PINS) {
+  for (const { slug, pin } of RULE_BUNDLES) {
+    if (pin?.watch?.kind !== "github-release") continue;
+    const { repo } = pin.watch;
     try {
-      const current = String((await pinned(pin.folder)).commit ?? "");
-      const release = (await github(`/repos/${pin.repo}/releases/latest`)) as { tag_name: string; html_url: string };
-      if (newer(release.tag_name, current)) {
-        lines.push(`- **${pin.repo}** ${release.tag_name} is available; \`lib/rules/sources/${pin.folder}\` is pinned to ${current}. Review the [release notes](${release.html_url}) for new or changed Azure rules.`);
+      const release = (await github(`/repos/${repo}/releases/latest`)) as { tag_name: string; html_url: string };
+      if (newer(release.tag_name, pin.version)) {
+        lines.push(`- **${repo}** ${release.tag_name} is available; \`lib/rules/sources/${slug}\` is pinned to ${pin.version}. Review the [release notes](${release.html_url}) for new or changed Azure rules.`);
       }
     } catch (error) {
-      errors.push(`${pin.repo}: ${(error as Error).message}`);
+      errors.push(`${repo}: ${(error as Error).message}`);
     }
   }
 }
@@ -188,14 +161,12 @@ async function previousRetirements(file: string | undefined): Promise<string[]> 
 
 const updateId = (line: string) => /updates\?id=(\d+)/.exec(line)?.[1] ?? line;
 
-async function checkManual(lines: string[]): Promise<void> {
-  for (const pin of MANUAL_PINS) {
-    const data = await pinned(pin.folder);
-    const fetchedAt = Date.parse(String(data.fetched_at ?? ""));
-    if (Number.isNaN(fetchedAt)) continue;
-    const age = Math.floor((Date.now() - fetchedAt) / (24 * 60 * 60 * 1000));
+function checkManual(lines: string[]): void {
+  for (const { slug, label, pin } of RULE_BUNDLES) {
+    if (pin?.watch?.kind !== "manual-review") continue;
+    const age = Math.floor((Date.now() - Date.parse(pin.reviewedAt)) / (24 * 60 * 60 * 1000));
     if (age > MANUAL_REVIEW_DAYS) {
-      lines.push(`- **${pin.label}** (\`${String(data[pin.field] ?? "unpinned")}\`) was last reviewed ${age} days ago. Check for a newer publication and update \`lib/rules/sources/${pin.folder}/pinned.json\`.`);
+      lines.push(`- **${label}** (\`${pin.version}\`) was last reviewed ${age} days ago. Check for a newer publication and update its pin in \`lib/rules/registry.ts\` (\`${slug}\`).`);
     }
   }
 }
@@ -216,7 +187,7 @@ async function main(): Promise<void> {
     if (!seen.has(updateId(line))) retirements.push(line);
     seen.add(updateId(line));
   }
-  await checkManual(manual);
+  checkManual(manual);
 
   const section = (title: string, items: string[], empty: string) => [`#### ${title}`, "", ...(items.length > 0 ? items : [`- ${empty}`]), ""];
   const body = [
@@ -242,7 +213,4 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err) => {
-  console.error("[upstream] crashed:", err);
-  process.exit(1);
-});
+run("upstream", main);

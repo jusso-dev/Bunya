@@ -61,6 +61,21 @@ export type RuleEntry = {
   autofixes?: Record<string, Autofix>;
 };
 
+// The upstream publication a bundle was curated against, and how
+// `pnpm upstream:check` watches it for newer versions.
+export type RulePin = {
+  version: string;
+  reviewedAt: string;
+  watch?: { kind: "github-release"; repo: string } | { kind: "manual-review" };
+};
+
+export type RuleBundle = {
+  slug: string;
+  label: string;
+  pin?: RulePin;
+  rules: RuleEntry[];
+};
+
 export type Finding = {
   ruleId: string;
   rule: Rule;

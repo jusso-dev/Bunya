@@ -1,23 +1,17 @@
-import { graphRule, nodeRule } from "@/lib/rules/builders";
+import { graphRule, nodeRule, getProp } from "@/lib/rules/builders";
 import { storagePublicNetwork } from "@/lib/catalogue/services";
 import type { RuleEntry } from "@/lib/rules/schema";
-import type { GraphDocument } from "@/lib/graph/schema";
+import type { GraphDocument, GraphNode } from "@/lib/graph/schema";
 import { topologyProblems } from "@/lib/graph/topology";
 import { PRIVATE_LINK_TARGETS, privateDnsZoneFor } from "@/lib/catalogue/azure";
 
 const MS_LEARN = "Microsoft Learn";
 
-function getProp<T = unknown>(node: { properties: Record<string, unknown> }, key: string): T | undefined {
-  return node.properties[key] as T | undefined;
-}
-
-function publicNetworkDisabled(node: { properties: Record<string, unknown> }): boolean {
-  const pna = getProp<boolean | string>(node, "publicNetworkAccess");
-  return pna === false || pna === "Disabled";
+function publicNetworkDisabled(node: GraphNode): boolean {
+  return node.type === "storageAccount" ? !storagePublicNetwork(node.properties) : node.properties.publicNetworkAccess === false;
 }
 
 export const networkRules: RuleEntry[] = [
-  // BUNYA.NET.001 — PE subnet must not be delegated to Microsoft.Web/serverFarms
   nodeRule({
     id: "BUNYA.NET.001",
     source: {
@@ -48,7 +42,6 @@ export const networkRules: RuleEntry[] = [
   // BUNYA.NET.002 retired: Enabled applies NSG/UDR controls to private endpoints.
   // Never auto-disable an operator's network security policy.
 
-  // BUNYA.NET.003 — App Service VNet integration subnet vs PE subnet conflict
   nodeRule({
     id: "BUNYA.NET.003",
     source: {
@@ -79,7 +72,6 @@ export const networkRules: RuleEntry[] = [
     },
   }),
 
-  // BUNYA.NET.004 — PE design without public ingress hop
   graphRule({
     id: "BUNYA.NET.004",
     source: {
@@ -102,7 +94,6 @@ export const networkRules: RuleEntry[] = [
       const ingressTypes = new Set(["frontDoor", "applicationGateway", "apiManagement"]);
       const hasIngress = graph.nodes.some((n) => ingressTypes.has(n.type));
       if (hasIngress) return [];
-      // Target the PE-protected services for the finding nodeIds.
       const protectedTargets = new Set<string>();
       for (const pe of pes) {
         for (const e of graph.edges) {
@@ -116,7 +107,6 @@ export const networkRules: RuleEntry[] = [
     },
   }),
 
-  // BUNYA.NET.005 — Public Storage in VNet-bearing graph without PE
   nodeRule({
     id: "BUNYA.NET.005",
     source: {
@@ -145,7 +135,6 @@ export const networkRules: RuleEntry[] = [
     },
   }),
 
-  // BUNYA.NET.006 — Subnet missing NSG association
   nodeRule({
     id: "BUNYA.NET.006",
     source: {
@@ -165,12 +154,10 @@ export const networkRules: RuleEntry[] = [
       if (!hasVnet) return false;
       const hasNsg = graph.edges.some((e) => {
         if (e.kind !== "network") return false;
-        // Subnet -> NSG association
         if (e.source === node.id) {
           const tgt = graph.nodes.find((n) => n.id === e.target);
           if (tgt?.type === "networkSecurityGroup") return true;
         }
-        // Or NSG -> Subnet association
         if (e.target === node.id) {
           const src = graph.nodes.find((n) => n.id === e.source);
           if (src?.type === "networkSecurityGroup") return true;
@@ -181,7 +168,6 @@ export const networkRules: RuleEntry[] = [
     },
   }),
 
-  // BUNYA.NET.007 — AppGw points at private backend but is not joined to a subnet
   nodeRule({
     id: "BUNYA.NET.007",
     source: {
@@ -204,19 +190,16 @@ export const networkRules: RuleEntry[] = [
         return tgt?.type === "subnet";
       });
       if (joinedToSubnet) return false;
-      // Look for any backend (appService/functionApp) wired from this AGW with publicNetworkAccess false
       return graph.edges.some((e) => {
         if (e.source !== node.id) return false;
         const tgt = graph.nodes.find((n) => n.id === e.target);
         if (!tgt) return false;
         if (tgt.type !== "appService" && tgt.type !== "functionApp") return false;
-        const pna = getProp<boolean | string>(tgt, "publicNetworkAccess");
-        return pna === false || pna === "Disabled";
+        return publicNetworkDisabled(tgt);
       });
     },
   }),
 
-  // BUNYA.NET.008 — Front Door origin is private but no Private Link origin configured
   nodeRule({
     id: "BUNYA.NET.008",
     source: {
@@ -238,9 +221,7 @@ export const networkRules: RuleEntry[] = [
         const tgt = graph.nodes.find((n) => n.id === e.target);
         if (!tgt) continue;
         if (tgt.type !== "appService" && tgt.type !== "functionApp") continue;
-        const pna = getProp<boolean | string>(tgt, "publicNetworkAccess");
-        const isPrivate = pna === false || pna === "Disabled";
-        if (!isPrivate) continue;
+        if (!publicNetworkDisabled(tgt)) continue;
         const hasPe = graph.edges.some((pe) => {
           if (pe.target !== tgt.id) return false;
           const src = graph.nodes.find((n) => n.id === pe.source);
@@ -252,7 +233,6 @@ export const networkRules: RuleEntry[] = [
     },
   }),
 
-  // BUNYA.NET.009 — Virtual Network with no subnet
   nodeRule({
     id: "BUNYA.NET.009",
     source: {
@@ -277,7 +257,6 @@ export const networkRules: RuleEntry[] = [
     },
   }),
 
-  // BUNYA.NET.010 — Two PEs to the same target with the same groupId
   graphRule({
     id: "BUNYA.NET.010",
     source: {
@@ -294,7 +273,6 @@ export const networkRules: RuleEntry[] = [
     tags: ["bunya", "private-link", "group-id", "duplication"],
     predicate: (graph: GraphDocument) => {
       const pes = graph.nodes.filter((n) => n.type === "privateEndpoint");
-      // For every target, collect (peId, groupId)
       const byTarget = new Map<string, Array<{ peId: string; groupId: string | undefined }>>();
       for (const pe of pes) {
         // Only the Private Link target counts; subnets and DNS zones are shared.
@@ -314,7 +292,6 @@ export const networkRules: RuleEntry[] = [
       const findings: ReturnType<Parameters<typeof graphRule>[0]["predicate"]> = [];
       for (const [targetId, entries] of byTarget) {
         if (entries.length < 2) continue;
-        // Group by groupId to find collisions
         const seen = new Map<string, string[]>();
         for (const ent of entries) {
           const key = ent.groupId ?? "__undefined__";
@@ -443,7 +420,6 @@ export const networkRules: RuleEntry[] = [
     },
   }),
 
-  // BUNYA.NET.013 — diagrams Azure cannot deploy; exporters block on these too
   graphRule({
     id: "BUNYA.NET.013",
     source: {
@@ -463,7 +439,6 @@ export const networkRules: RuleEntry[] = [
         .map((problem) => ({ nodeIds: problem.nodeIds, message: problem.message })),
   }),
 
-  // BUNYA.EXP.001 — valid in Azure, but Bunya cannot export it yet
   graphRule({
     id: "BUNYA.EXP.001",
     source: {

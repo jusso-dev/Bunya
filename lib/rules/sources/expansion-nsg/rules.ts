@@ -1,43 +1,28 @@
-// Expansion ruleset: Network Security Groups.
-// Re-encodes a curated subset of PSRule for Azure, Checkov and Azure Policy
-// built-in NSG controls against Bunya's *extended* nsgSchema (inboundRules /
-// outboundRules arrays in lib/catalogue/services.ts).
-//
-// Each rule cites its upstream rule ID and canonical doc URL. Predicates that
-// rely on properties Bunya does not yet model are marked [advisory] and have
-// a `() => false` predicate. Predicates that rely on `inboundRules` short-
-// circuit when the array is empty/undefined so legacy graphs (pre-extension)
-// surface no false positives.
-
-import { nodeRule } from "@/lib/rules/builders";
+import { graphRule, nodeRule } from "@/lib/rules/builders";
 import type { RuleEntry } from "@/lib/rules/schema";
-import type { GraphNode } from "@/lib/graph/schema";
+import type { GraphDocument, GraphNode } from "@/lib/graph/schema";
+import type { nsgSchema } from "@/lib/catalogue/services";
+import type { z } from "zod";
 
-type NsgRule = {
-  name?: string;
-  priority?: number;
-  direction?: "Inbound" | "Outbound";
-  access?: "Allow" | "Deny";
-  protocol?: "Tcp" | "Udp" | "Icmp" | "*";
-  sourceAddressPrefix?: string;
-  destinationAddressPrefix?: string;
-  destinationPortRange?: string;
-};
+// Rules drawn before NSGs carried inboundRules/outboundRules have neither, so
+// every field is optional and a missing list reads as empty.
+type NsgRule = Partial<z.infer<typeof nsgSchema>["inboundRules"][number]>;
 
-function inboundRulesOf(node: GraphNode): NsgRule[] {
-  const raw = node.properties.inboundRules as unknown;
+function rulesOf(node: GraphNode, key: "inboundRules" | "outboundRules"): NsgRule[] {
+  const raw = node.properties[key];
   return Array.isArray(raw) ? (raw as NsgRule[]) : [];
 }
+
+const inboundRulesOf = (node: GraphNode) => rulesOf(node, "inboundRules");
+const outboundRulesOf = (node: GraphNode) => rulesOf(node, "outboundRules");
 
 function portMatches(range: string | undefined, port: string): boolean {
   if (range === undefined) return false;
   if (range === "*") return true;
   if (range === port) return true;
-  // Comma-separated list (e.g. "22,3389").
   if (range.includes(",")) {
     return range.split(",").map((s) => s.trim()).includes(port);
   }
-  // Range form (e.g. "20-25").
   if (range.includes("-")) {
     const [lo, hi] = range.split("-").map((s) => Number(s.trim()));
     const p = Number(port);
@@ -52,8 +37,23 @@ function isInternetSource(prefix: string | undefined): boolean {
   return prefix === "*" || prefix === "Internet" || prefix === "0.0.0.0/0" || prefix === "::/0";
 }
 
+function coversGatewayPorts(range: string | undefined): boolean {
+  if (range === "*") return true;
+  const intervals = (range ?? "").split(",").map((part) => {
+    const [low, high = low] = part.trim().split("-").map(Number);
+    return [low, high];
+  }).filter(([low, high]) => Number.isInteger(low) && Number.isInteger(high) && low <= high)
+    .sort((a, b) => a[0] - b[0]);
+  let next = 65200;
+  for (const [low, high] of intervals) {
+    if (low > next) break;
+    if (high >= next) next = high + 1;
+    if (next > 65535) return true;
+  }
+  return false;
+}
+
 export const EXPANSION_NSG_RULES: RuleEntry[] = [
-  // 1. PSRULE.NSG.ANY-INBOUND-V2 — No Allow rule with `*` source on `*` port.
   nodeRule({
     id: "PSRULE.NSG.ANY-INBOUND-V2",
     source: {
@@ -81,7 +81,6 @@ export const EXPANSION_NSG_RULES: RuleEntry[] = [
     },
   }),
 
-  // 2. PSRULE.NSG.NO-INTERNET-RDP — No inbound Allow on TCP 3389 from Internet/*.
   nodeRule({
     id: "PSRULE.NSG.NO-INTERNET-RDP",
     source: {
@@ -110,7 +109,6 @@ export const EXPANSION_NSG_RULES: RuleEntry[] = [
     },
   }),
 
-  // 3. PSRULE.NSG.NO-INTERNET-SSH — No inbound Allow on TCP 22 from Internet/*.
   nodeRule({
     id: "PSRULE.NSG.NO-INTERNET-SSH",
     source: {
@@ -139,7 +137,6 @@ export const EXPANSION_NSG_RULES: RuleEntry[] = [
     },
   }),
 
-  // 4. PSRULE.NSG.LATERAL-TRAVERSAL — No inbound Allow on SMB (445) or NetBIOS (137-139).
   nodeRule({
     id: "PSRULE.NSG.LATERAL-TRAVERSAL",
     source: {
@@ -172,7 +169,6 @@ export const EXPANSION_NSG_RULES: RuleEntry[] = [
     },
   }),
 
-  // 5. CHECKOV.AZURE.160 — Disable forwarding inbound from internet.
   nodeRule({
     id: "CHECKOV.AZURE.160",
     source: {
@@ -198,7 +194,6 @@ export const EXPANSION_NSG_RULES: RuleEntry[] = [
     },
   }),
 
-  // 6. AZPOL.NSG.FLOW-LOGS — Flow logs configured (advisory; property not modelled).
   nodeRule({
     id: "AZPOL.NSG.FLOW-LOGS",
     source: {
@@ -217,5 +212,132 @@ export const EXPANSION_NSG_RULES: RuleEntry[] = [
       "Flow logs let traffic through an NSG be audited and replayed during incident response. Microsoft has retired the creation of new NSG flow logs and recommends virtual network flow logs instead; the Azure Policy built-in *Audit flow logs configuration for every virtual network* checks that each virtual network has one. Bunya does not currently model the flow log resource, so this rule is advisory: confirm in your IaC or policy assignment that virtual network flow logs are enabled, with traffic analytics where appropriate.",
     tags: ["bunya", "azure-policy", "nsg", "flow-logs", "observability", "advisory"],
     predicate: () => false,
+  }),
+
+  graphRule({
+    id: "BUNYA.NET.NSG-UNATTACHED",
+    source: {
+      name: "Microsoft Learn",
+      license: "CC-BY-4.0",
+      url: "https://learn.microsoft.com/en-us/azure/virtual-network/network-security-groups-overview",
+    },
+    category: "network",
+    severity: "info",
+    message: "NSG is not attached to any subnet — it has no effect.",
+    longExplanation:
+      "An NSG only enforces rules when it is associated with a subnet (or a NIC). An NSG with no incoming `network` edge from any subnet is an orphan: its rules are evaluated against zero traffic and any control intent encoded in it is silently dropped. Either attach it to the subnet(s) it was authored for, or delete it to avoid drift between the diagram and reality.",
+    tags: ["bunya", "network", "nsg", "orphan"],
+    predicate: (graph: GraphDocument) => {
+      const nsgs = graph.nodes.filter((n) => n.type === "networkSecurityGroup");
+      const findings: Array<{ nodeIds: string[] }> = [];
+      for (const nsg of nsgs) {
+        const attached = graph.edges.some((e) => {
+          if (e.kind !== "network") return false;
+          if (e.target === nsg.id) {
+            const src = graph.nodes.find((n) => n.id === e.source);
+            if (src?.type === "subnet") return true;
+          }
+          if (e.source === nsg.id) {
+            const tgt = graph.nodes.find((n) => n.id === e.target);
+            if (tgt?.type === "subnet") return true;
+          }
+          return false;
+        });
+        if (!attached) findings.push({ nodeIds: [nsg.id] });
+      }
+      return findings;
+    },
+  }),
+
+  graphRule({
+    id: "BUNYA.NET.NSG-AGW-SUBNET-GATEWAYMANAGER",
+    source: {
+      name: "Microsoft Learn",
+      license: "CC-BY-4.0",
+      url: "https://learn.microsoft.com/en-us/azure/application-gateway/configuration-infrastructure#network-security-groups",
+    },
+    category: "network",
+    severity: "warning",
+    message:
+      "[advisory] Application Gateway subnet's NSG should allow inbound 65200-65535 from the GatewayManager service tag.",
+    longExplanation:
+      "Application Gateway v2 receives health and management traffic from Azure on TCP ports 65200-65535, sourced from the `GatewayManager` service tag. If the NSG attached to the AGW subnet does not include an Allow rule covering that port range and source, the gateway can fail health probes or fall into a misconfigured state. This rule walks `applicationGateway -> subnet -> NSG` and checks the NSG's `inboundRules`; it stays silent if `inboundRules` is empty (legacy diagrams) to avoid noise.",
+    tags: ["bunya", "network", "nsg", "application-gateway", "gateway-manager"],
+    predicate: (graph: GraphDocument) => {
+      const findings: Array<{ nodeIds: string[] }> = [];
+      const agws = graph.nodes.filter((n) => n.type === "applicationGateway");
+      for (const agw of agws) {
+        const subnetIds = graph.edges
+          .filter((e) => e.source === agw.id && e.kind === "network")
+          .map((e) => e.target)
+          .filter((tid) => {
+            const tgt = graph.nodes.find((n) => n.id === tid);
+            return tgt?.type === "subnet";
+          });
+        if (subnetIds.length === 0) continue;
+        for (const subnetId of subnetIds) {
+          const nsgIds = new Set<string>();
+          for (const e of graph.edges) {
+            if (e.kind !== "network") continue;
+            if (e.source === subnetId) {
+              const tgt = graph.nodes.find((n) => n.id === e.target);
+              if (tgt?.type === "networkSecurityGroup") nsgIds.add(tgt.id);
+            } else if (e.target === subnetId) {
+              const src = graph.nodes.find((n) => n.id === e.source);
+              if (src?.type === "networkSecurityGroup") nsgIds.add(src.id);
+            }
+          }
+          for (const nsgId of nsgIds) {
+            const nsg = graph.nodes.find((n) => n.id === nsgId);
+            if (!nsg) continue;
+            const rules = inboundRulesOf(nsg);
+            if (rules.length === 0) continue; // advisory tone — skip when not modelled
+            const ok = rules.some(
+              (r) =>
+                r.access === "Allow" &&
+                r.sourceAddressPrefix === "GatewayManager" &&
+                (r.protocol === "Tcp" || r.protocol === "*") &&
+                coversGatewayPorts(r.destinationPortRange),
+            );
+            if (!ok) {
+              findings.push({ nodeIds: [nsg.id, subnetId, agw.id] });
+            }
+          }
+        }
+      }
+      return findings;
+    },
+  }),
+
+  graphRule({
+    id: "BUNYA.NET.NSG-OUTBOUND-INTERNET-WIDE-OPEN",
+    source: {
+      name: "Microsoft Learn",
+      license: "CC-BY-4.0",
+      url: "https://learn.microsoft.com/en-us/azure/virtual-network/security-overview",
+    },
+    category: "network",
+    severity: "info",
+    message:
+      "NSG outbound Allow rule with `*` destination is overly permissive — narrow the destination service tag or CIDR.",
+    longExplanation:
+      "A wide-open outbound Allow rule (destination `*` or `Internet`) lets compromised workloads exfiltrate data to anywhere on the public internet. Microsoft Learn recommends narrowing egress to specific service tags (`Storage`, `Sql`, `AzureMonitor`, the relevant region) or to known partner CIDRs, and routing remaining internet egress through Azure Firewall or a managed proxy. Replace `*`-destination Allows with a least-privilege set of service-tag rules.",
+    tags: ["bunya", "network", "nsg", "egress", "data-exfiltration"],
+    predicate: (graph: GraphDocument) => {
+      const findings: Array<{ nodeIds: string[] }> = [];
+      const nsgs = graph.nodes.filter((n) => n.type === "networkSecurityGroup");
+      for (const nsg of nsgs) {
+        const rules = outboundRulesOf(nsg);
+        const offending = rules.some(
+          (r) =>
+            r.access === "Allow" &&
+            (r.destinationAddressPrefix === "*" ||
+              r.destinationAddressPrefix === "Internet" ||
+              r.destinationAddressPrefix === "0.0.0.0/0"),
+        );
+        if (offending) findings.push({ nodeIds: [nsg.id] });
+      }
+      return findings;
+    },
   }),
 ];

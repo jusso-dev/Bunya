@@ -1,15 +1,11 @@
-// Curated Application Insights rule expansion, re-encoded for Bunya.
-// Upstream sources cited per-rule (Azure Policy built-ins, PSRule for Azure,
-// Microsoft Cloud Security Benchmark). Each entry pins the canonical doc URL on
-// `source.url` and, where applicable, the upstream `ruleId`. Advisory rules
-// whose check cannot run against Bunya's property model are marked [advisory]
-// and use `predicate: () => false` (node) or `predicate: () => []` (graph).
-
+// Application Insights rules curated from Azure Policy built-ins, PSRule for
+// Azure and the Microsoft Cloud Security Benchmark.
+// Rules prefixed [advisory] document controls Bunya's property model cannot
+// evaluate; their predicates never fire.
 import { graphRule, nodeRule } from "@/lib/rules/builders";
 import type { RuleEntry } from "@/lib/rules/schema";
 
 export const EXPANSION_APP_INSIGHTS_RULES: RuleEntry[] = [
-  // 1. AZPOL.APPINSIGHTS.LOCAL-AUTH — Disable local authentication (advisory)
   nodeRule({
     id: "AZPOL.APPINSIGHTS.LOCAL-AUTH",
     source: {
@@ -31,7 +27,6 @@ export const EXPANSION_APP_INSIGHTS_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 2. PSRULE.APPINSIGHTS.NAME — Resource name compliance
   nodeRule({
     id: "PSRULE.APPINSIGHTS.NAME",
     source: {
@@ -51,7 +46,6 @@ export const EXPANSION_APP_INSIGHTS_RULES: RuleEntry[] = [
     predicate: (n) => !/^[a-zA-Z0-9._()-]{1,260}$/.test(n.resourceName),
   }),
 
-  // 3. PSRULE.APPINSIGHTS.WORKSPACE-V2 — Must be workspace-based (graph rule)
   graphRule({
     id: "PSRULE.APPINSIGHTS.WORKSPACE-V2",
     source: {
@@ -84,7 +78,6 @@ export const EXPANSION_APP_INSIGHTS_RULES: RuleEntry[] = [
     },
   }),
 
-  // 4. MCSB.APPINSIGHTS.LT-3 — Enable logging for cloud-native investigation
   graphRule({
     id: "MCSB.APPINSIGHTS.LT-3",
     source: {
@@ -116,7 +109,6 @@ export const EXPANSION_APP_INSIGHTS_RULES: RuleEntry[] = [
     },
   }),
 
-  // 5. BUNYA.OBS.AI-SAMPLING-PROD — Sampling below 100% in production
   nodeRule({
     id: "BUNYA.OBS.AI-SAMPLING-PROD",
     source: {
@@ -139,7 +131,6 @@ export const EXPANSION_APP_INSIGHTS_RULES: RuleEntry[] = [
     },
   }),
 
-  // 6. BUNYA.COMP.AI-CMK — Customer-managed keys for App Insights (advisory)
   nodeRule({
     id: "BUNYA.COMP.AI-CMK",
     source: {
@@ -156,5 +147,50 @@ export const EXPANSION_APP_INSIGHTS_RULES: RuleEntry[] = [
       "Azure Monitor supports customer-managed keys (CMK) so that the Log Analytics workspace backing an Application Insights component encrypts ingested telemetry with a key in your own Key Vault. CMK is a common control for ISM PROTECTED workloads and FSI compliance regimes. Bunya does not yet model the workspace-level CMK property, so this rule is advisory and never auto-flags; it documents the gap so reviewers see the expectation.",
     tags: ["bunya", "compliance", "app-insights", "encryption-at-rest", "cmk"],
     predicate: () => false,
+  }),
+
+  graphRule({
+    id: "BUNYA.OBS.AI-WORKSPACE-WRONG-REGION",
+    source: {
+      name: "Design a Log Analytics workspace architecture",
+      license: "CC-BY-4.0",
+      url: "https://learn.microsoft.com/en-us/azure/azure-monitor/logs/workspace-design",
+    },
+    category: "sovereignty",
+    severity: "warning",
+    message:
+      "[advisory] Application Insights and its Log Analytics workspace may be in different regions (cross-region telemetry, sovereignty risk).",
+    longExplanation:
+      "When Application Insights is workspace-based, telemetry physically lands in the region of the backing Log Analytics workspace. Splitting the component and its workspace across regions introduces cross-region egress, latency, and — for Australian sovereign workloads — moves data outside the chosen jurisdiction. Bunya only stores a single region per document (no per-node region property), so this rule cannot be evaluated against the current model and is emitted as documentation only.",
+    tags: ["bunya", "sovereignty", "app-insights", "log-analytics", "region"],
+    appliesToServices: ["applicationInsights"],
+    predicate: () => [],
+  }),
+
+  graphRule({
+    id: "BUNYA.OBS.AI-NO-SOURCE",
+    source: {
+      name: "Monitor Azure App Service with Application Insights",
+      license: "CC-BY-4.0",
+      url: "https://learn.microsoft.com/en-us/azure/azure-monitor/app/azure-web-apps",
+    },
+    category: "observability",
+    severity: "info",
+    message:
+      "Application Insights component has no incoming diagnostic edge from any compute resource.",
+    longExplanation:
+      "An Application Insights component with no compute source attached is dead telemetry plumbing: it costs nothing meaningful but it also receives nothing meaningful. App Services, Function Apps, and other workloads should declare a diagnostic edge targeting the component so APM data actually flows. This rule emits one finding per orphaned applicationInsights node and is informational rather than a hard error because some teams attach SDK-only clients that Bunya does not model as graph nodes.",
+    tags: ["bunya", "observability", "app-insights", "orphan", "diagnostics"],
+    appliesToServices: ["applicationInsights"],
+    predicate: (graph) => {
+      const partials: Array<{ nodeIds?: string[] }> = [];
+      for (const ai of graph.nodes.filter((n) => n.type === "applicationInsights")) {
+        const hasIncoming = graph.edges.some(
+          (e) => e.target === ai.id && e.kind === "diagnostic",
+        );
+        if (!hasIncoming) partials.push({ nodeIds: [ai.id] });
+      }
+      return partials;
+    },
   }),
 ];

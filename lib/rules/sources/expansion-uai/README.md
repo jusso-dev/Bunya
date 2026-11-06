@@ -18,8 +18,7 @@ are re-encoded into Bunya's `RuleEntry` shape from these upstream authorities:
   <https://www.cyber.gov.au/resources-business-and-government/essential-cyber-security/ism>
   — Privileged access logging requirements (ISM-0457).
 
-Pinned snapshot details live in `pinned.json`. The generator metadata is in
-`generated.meta.json`. Each `RuleEntry` carries the upstream `ruleId` (where it
+The rules live in `rules.ts` and are curated by hand. Each `RuleEntry` carries the upstream `ruleId` (where it
 exists) and the canonical doc URL on `source`, so attribution is preserved at
 runtime.
 

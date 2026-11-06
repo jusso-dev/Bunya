@@ -1,15 +1,15 @@
 import { graphRule, nodeRule, nodesOfType } from "@/lib/rules/builders";
 import type { RuleEntry } from "@/lib/rules/schema";
 
+export const E8_RELEASE = "ML-2023";
 const E8_BASE = {
   name: "Essential Eight Maturity Model",
   license: "Commonwealth of Australia copyright; reproduced with attribution",
   url: "https://www.cyber.gov.au/resources-business-and-government/essential-cyber-security/essential-eight",
-  version: "ML-2023",
+  version: E8_RELEASE,
 } as const;
 
 export const ESSENTIAL_EIGHT_RULES: RuleEntry[] = [
-  // 1. Application Control — runtime allow-listing of executables.
   nodeRule({
     id: "E8.APP-CONTROL",
     source: { ...E8_BASE, ruleId: "E8-APP-CONTROL" },
@@ -24,7 +24,6 @@ export const ESSENTIAL_EIGHT_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 2. Patch Applications — runtime version is pinned (not empty / not "latest").
   nodeRule({
     id: "E8.PATCH-APPS",
     source: { ...E8_BASE, ruleId: "E8-PATCH-APPS" },
@@ -44,7 +43,6 @@ export const ESSENTIAL_EIGHT_RULES: RuleEntry[] = [
     },
   }),
 
-  // 3. Configure Microsoft Office Macro Settings — not in scope for cloud IaC.
   nodeRule({
     id: "E8.OFFICE-MACROS",
     source: { ...E8_BASE, ruleId: "E8-OFFICE-MACROS" },
@@ -59,7 +57,6 @@ export const ESSENTIAL_EIGHT_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 4. User Application Hardening — endpoint-side, not graph-observable.
   nodeRule({
     id: "E8.USER-APP-HARDENING",
     source: { ...E8_BASE, ruleId: "E8-USER-APP-HARDENING" },
@@ -74,7 +71,6 @@ export const ESSENTIAL_EIGHT_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 5. Restrict Administrative Privileges — Key Vault must use RBAC, not legacy access policies.
   nodeRule({
     id: "E8.RESTRICT-ADMIN",
     source: { ...E8_BASE, ruleId: "E8-RESTRICT-ADMIN" },
@@ -92,7 +88,6 @@ export const ESSENTIAL_EIGHT_RULES: RuleEntry[] = [
     },
   }),
 
-  // 6. Patch Operating Systems — App Service Plan SKU not on a v3 generation.
   nodeRule({
     id: "E8.PATCH-OS",
     source: { ...E8_BASE, ruleId: "E8-PATCH-OS" },
@@ -111,7 +106,6 @@ export const ESSENTIAL_EIGHT_RULES: RuleEntry[] = [
     },
   }),
 
-  // 7. Multi-factor Authentication — Entra-side, not graph-observable.
   nodeRule({
     id: "E8.MFA",
     source: { ...E8_BASE, ruleId: "E8-MFA" },
@@ -126,7 +120,6 @@ export const ESSENTIAL_EIGHT_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 8. Regular Backups — flag LRS storage in prod environments.
   graphRule({
     id: "E8.BACKUPS",
     source: { ...E8_BASE, ruleId: "E8-BACKUPS" },

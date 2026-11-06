@@ -1,30 +1,17 @@
-// Generated from Microsoft Learn — Azure Architecture Center + Well-Architected
-// Framework (revision 2026-04-01). Each entry encodes one reference pattern as
-// a Bunya RuleEntry that fires when the graph claims a pattern but is missing a
-// required complement. Do not hand-edit; rerun the importer.
-import { graphRule, nodeRule } from "@/lib/rules/builders";
+// Azure Architecture Center and Well-Architected reference patterns: each rule
+// fires when the graph uses a pattern but lacks a required complement.
+import { graphRule, nodeRule, getProp, nodesOfType } from "@/lib/rules/builders";
 import type { RuleEntry } from "@/lib/rules/schema";
-import type { GraphDocument, GraphNode } from "@/lib/graph/schema";
+import type { GraphNode } from "@/lib/graph/schema";
 
+export const PATTERNS_REVISION = "2026-04-01";
 const PATTERN_BASE = {
   name: "Microsoft Learn — Azure Architecture Center",
   license: "CC-BY-4.0",
-  version: "2026-04-01",
+  version: PATTERNS_REVISION,
 } as const;
 
-function getProp<T = unknown>(
-  node: { properties: Record<string, unknown> },
-  key: string,
-): T | undefined {
-  return node.properties[key] as T | undefined;
-}
-
-function nodesOfTypeLocal(graph: GraphDocument, type: GraphNode["type"]): GraphNode[] {
-  return graph.nodes.filter((n) => n.type === type);
-}
-
 export const WELL_KNOWN_PATTERN_RULES: RuleEntry[] = [
-  // 1. PATTERN.WEB-APP-MISSING-CDN — Prod App Service without Front Door / CDN.
   graphRule({
     id: "PATTERN.WEB-APP-MISSING-CDN",
     source: {
@@ -41,15 +28,14 @@ export const WELL_KNOWN_PATTERN_RULES: RuleEntry[] = [
     tags: ["well-architected", "architecture-center", "web-app", "front-door"],
     predicate: (graph) => {
       if (graph.metadata.environment !== "prod") return [];
-      const apps = nodesOfTypeLocal(graph, "appService");
+      const apps = nodesOfType(graph, "appService");
       if (apps.length === 0) return [];
-      const hasFrontDoor = nodesOfTypeLocal(graph, "frontDoor").length > 0;
+      const hasFrontDoor = nodesOfType(graph, "frontDoor").length > 0;
       if (hasFrontDoor) return [];
       return [{ nodeIds: apps.map((a) => a.id) }];
     },
   }),
 
-  // 2. PATTERN.HUB-SPOKE-MISSING-NSG — VNet present but no NSG anywhere.
   graphRule({
     id: "PATTERN.HUB-SPOKE-MISSING-NSG",
     source: {
@@ -65,15 +51,14 @@ export const WELL_KNOWN_PATTERN_RULES: RuleEntry[] = [
       "Every variant of the hub-spoke reference architecture relies on Network Security Groups as the per-subnet stateful firewall and the primary control for east-west traffic. A graph that introduces a Virtual Network without defining a single NSG defaults to permissive platform rules and cannot satisfy the segmentation guidance from the docs. Add at least one NSG and associate it with the workload subnets.",
     tags: ["well-architected", "architecture-center", "hub-spoke", "nsg"],
     predicate: (graph) => {
-      const vnets = nodesOfTypeLocal(graph, "virtualNetwork");
+      const vnets = nodesOfType(graph, "virtualNetwork");
       if (vnets.length === 0) return [];
-      const nsgs = nodesOfTypeLocal(graph, "networkSecurityGroup");
+      const nsgs = nodesOfType(graph, "networkSecurityGroup");
       if (nsgs.length > 0) return [];
       return [{ nodeIds: vnets.map((v) => v.id) }];
     },
   }),
 
-  // 3. PATTERN.FUNCTION-WITHOUT-APP-INSIGHTS — Function App without App Insights edge.
   graphRule({
     id: "PATTERN.FUNCTION-WITHOUT-APP-INSIGHTS",
     source: {
@@ -89,7 +74,7 @@ export const WELL_KNOWN_PATTERN_RULES: RuleEntry[] = [
       "The Azure Functions monitoring guide treats Application Insights as the default telemetry sink for invocations, dependencies, exceptions and live metrics. A Function App without an Application Insights connection has no first-class way to surface cold-start latency, failed bindings or unhandled exceptions in production, which makes incidents difficult to diagnose. Wire the Function App to an Application Insights component.",
     tags: ["well-architected", "architecture-center", "functions", "observability"],
     predicate: (graph) => {
-      const fns = nodesOfTypeLocal(graph, "functionApp");
+      const fns = nodesOfType(graph, "functionApp");
       if (fns.length === 0) return [];
       const findings: Array<{ nodeIds?: string[] }> = [];
       for (const fn of fns) {
@@ -104,7 +89,6 @@ export const WELL_KNOWN_PATTERN_RULES: RuleEntry[] = [
     },
   }),
 
-  // 4. PATTERN.STATIC-API-MISSING-FUNCTION — SWA without managed Function backend.
   graphRule({
     id: "PATTERN.STATIC-API-MISSING-FUNCTION",
     source: {
@@ -120,7 +104,7 @@ export const WELL_KNOWN_PATTERN_RULES: RuleEntry[] = [
       "The Static Web Apps APIs overview documents the managed-Functions backend as the recommended way to add server logic to a SWA. A Static Web App without any Function App linked through a depends_on edge either has no server-side logic (which is fine for a pure marketing site) or is reaching out to an unmodelled API. Add a Function App and depends_on edge to make the API surface explicit in the design.",
     tags: ["well-architected", "architecture-center", "static-web-apps"],
     predicate: (graph) => {
-      const swas = nodesOfTypeLocal(graph, "staticWebApp");
+      const swas = nodesOfType(graph, "staticWebApp");
       if (swas.length === 0) return [];
       const findings: Array<{ nodeIds?: string[] }> = [];
       for (const swa of swas) {
@@ -135,7 +119,6 @@ export const WELL_KNOWN_PATTERN_RULES: RuleEntry[] = [
     },
   }),
 
-  // 5. PATTERN.SQL-WITHOUT-PRIVATE-ENDPOINT — SQL + VNet but no PE on SQL.
   graphRule({
     id: "PATTERN.SQL-WITHOUT-PRIVATE-ENDPOINT",
     source: {
@@ -151,9 +134,9 @@ export const WELL_KNOWN_PATTERN_RULES: RuleEntry[] = [
       "The Azure SQL Private Endpoint guide treats Private Link as the recommended path for any SQL workload that has a Virtual Network in scope. A graph that includes both Azure SQL and a VNet but no Private Endpoint targeting the SQL server leaves the database reachable through its public endpoint, contradicting the design intent implied by the VNet. Attach a Private Endpoint with a SQL or sqlServer groupId, or document why public access is required.",
     tags: ["well-architected", "architecture-center", "sql", "private-link"],
     predicate: (graph) => {
-      const sqls = nodesOfTypeLocal(graph, "sqlDatabase");
+      const sqls = nodesOfType(graph, "sqlDatabase");
       if (sqls.length === 0) return [];
-      const hasVnet = nodesOfTypeLocal(graph, "virtualNetwork").length > 0;
+      const hasVnet = nodesOfType(graph, "virtualNetwork").length > 0;
       if (!hasVnet) return [];
       const findings: Array<{ nodeIds?: string[] }> = [];
       for (const sql of sqls) {
@@ -168,7 +151,6 @@ export const WELL_KNOWN_PATTERN_RULES: RuleEntry[] = [
     },
   }),
 
-  // 6. PATTERN.KEYVAULT-WITHOUT-LOGGING — KV without diagnostic edge to Log Analytics.
   graphRule({
     id: "PATTERN.KEYVAULT-WITHOUT-LOGGING",
     source: {
@@ -184,7 +166,7 @@ export const WELL_KNOWN_PATTERN_RULES: RuleEntry[] = [
       "The Key Vault logging guide states that AuditEvent logs (every secret, key and certificate access) are only retained when diagnostic settings forward them to a sink such as Log Analytics. A Key Vault without a diagnostic edge therefore loses the audit trail required for incident response and most compliance regimes. Add a diagnostic edge from the Key Vault to a Log Analytics workspace.",
     tags: ["well-architected", "architecture-center", "key-vault", "logging"],
     predicate: (graph) => {
-      const kvs = nodesOfTypeLocal(graph, "keyVault");
+      const kvs = nodesOfType(graph, "keyVault");
       if (kvs.length === 0) return [];
       const findings: Array<{ nodeIds?: string[] }> = [];
       for (const kv of kvs) {
@@ -199,7 +181,6 @@ export const WELL_KNOWN_PATTERN_RULES: RuleEntry[] = [
     },
   }),
 
-  // 7. PATTERN.NO-MANAGED-IDENTITY — Compute -> data path with no identity edge anywhere.
   graphRule({
     id: "PATTERN.NO-MANAGED-IDENTITY",
     source: {
@@ -242,7 +223,6 @@ export const WELL_KNOWN_PATTERN_RULES: RuleEntry[] = [
     },
   }),
 
-  // 8. PATTERN.WAF-MISSING — App Gateway present but SKU is not WAF_v2.
   nodeRule({
     id: "PATTERN.WAF-MISSING",
     source: {
@@ -264,7 +244,6 @@ export const WELL_KNOWN_PATTERN_RULES: RuleEntry[] = [
     },
   }),
 
-  // 9. PATTERN.AVAILABILITY-ZONE-MISSING — Premium SKUs in prod without zone redundancy.
   graphRule({
     id: "PATTERN.AVAILABILITY-ZONE-MISSING",
     source: {
@@ -282,22 +261,20 @@ export const WELL_KNOWN_PATTERN_RULES: RuleEntry[] = [
     predicate: (graph) => {
       if (graph.metadata.environment !== "prod") return [];
       const findings: Array<{ nodeIds?: string[] }> = [];
-      // App Service Plan: P*v3 SKUs imply premium tier.
-      for (const plan of nodesOfTypeLocal(graph, "appServicePlan")) {
+      for (const plan of nodesOfType(graph, "appServicePlan")) {
         const sku = getProp<string>(plan, "sku") ?? "";
         const isPremium = /^P\d+v3$/.test(sku);
         const zoneRedundant = getProp<boolean>(plan, "zoneRedundant");
         if (isPremium && zoneRedundant !== true) findings.push({ nodeIds: [plan.id] });
       }
-      // SQL Database: GP_* SKUs.
-      for (const sql of nodesOfTypeLocal(graph, "sqlDatabase")) {
+      for (const sql of nodesOfType(graph, "sqlDatabase")) {
         const sku = getProp<string>(sql, "sku") ?? "";
         const isPremium = sku.startsWith("GP_");
         const zoneRedundant = getProp<boolean>(sql, "zoneRedundant");
         if (isPremium && zoneRedundant !== true) findings.push({ nodeIds: [sql.id] });
       }
       // Cosmos DB: any Cosmos in prod without explicit zone-redundant write region.
-      for (const cos of nodesOfTypeLocal(graph, "cosmosDb")) {
+      for (const cos of nodesOfType(graph, "cosmosDb")) {
         const zoneRedundant = getProp<boolean>(cos, "zoneRedundant");
         if (zoneRedundant !== true) findings.push({ nodeIds: [cos.id] });
       }
@@ -305,7 +282,6 @@ export const WELL_KNOWN_PATTERN_RULES: RuleEntry[] = [
     },
   }),
 
-  // 10. PATTERN.PROD-LRS — Standard_LRS storage in a prod environment.
   nodeRule({
     id: "PATTERN.PROD-LRS",
     source: {

@@ -8,7 +8,7 @@ it encodes enums, required properties, and value ranges for every Azure resource
 provider apiVersion.
 
 - Source: <https://github.com/Azure/bicep-types-az>
-- Pinned commit / tag: see `pinned.json`
+- Pin: see this bundle's entry in `lib/rules/registry.ts`
 - Licence: **MIT** (compatible with redistribution; attribution preserved in
   `RuleSource.url` on every rule)
 
