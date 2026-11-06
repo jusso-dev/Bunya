@@ -13,12 +13,12 @@ describe("describeObjectSchema", () => {
     expect(byName.containers.kind).toBe("stringArray");
   });
 
-  it("captures Key Vault numeric retention with min/max", () => {
-    const fields = describeObjectSchema(keyVaultSchema);
-    const retention = fields.find((f) => f.name === "softDeleteRetentionDays");
-    expect(retention?.kind).toBe("number");
-    expect(retention?.min).toBe(7);
-    expect(retention?.max).toBe(90);
+  it("reports the numeric range the schema accepts", () => {
+    const retention = describeObjectSchema(keyVaultSchema).find((f) => f.name === "softDeleteRetentionDays")!;
+    const accepts = (value: number) => keyVaultSchema.shape.softDeleteRetentionDays.safeParse(value).success;
+    expect(retention.kind).toBe("number");
+    expect(retention.integer).toBe(true);
+    expect([accepts(retention.min! - 1), accepts(retention.min!), accepts(retention.max!), accepts(retention.max! + 1)]).toEqual([false, true, true, false]);
   });
 
   it("handles enum + boolean mixes for App Service", () => {

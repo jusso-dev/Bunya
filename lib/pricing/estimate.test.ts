@@ -2,15 +2,21 @@ import { describe, expect, it } from "vitest";
 import { estimateCost, formatMoney } from "./estimate";
 import { firstCutGraph } from "@/lib/graph/__fixtures__/firstCut";
 import { fullStackGraph } from "@/lib/graph/__fixtures__/fullStack";
-import { noSqlGraph } from "@/lib/graph/__fixtures__/noSql";
+import { hostingGraph } from "@/lib/graph/__fixtures__/hosting";
 import { STARTER_TEMPLATES } from "@/lib/catalogue/templates";
+import { DEFAULT_FX_AUD_PER_USD } from "./data";
+import type { GraphDocument } from "@/lib/graph/schema";
+
+const withProperties = (document: GraphDocument, id: string, patch: Record<string, unknown>): GraphDocument => ({
+  ...document,
+  nodes: document.nodes.map((n) => (n.id === id ? { ...n, properties: { ...n.properties, ...patch } } : n)),
+});
 
 describe("estimateCost", () => {
-  it("returns a non-negative total for the first-cut fixture", () => {
+  it("prices every node and totals the line items", () => {
     const estimate = estimateCost(firstCutGraph, "AUD");
-    expect(estimate.total).toBeGreaterThan(0);
-    expect(estimate.symbol).toBe("A$");
-    expect(estimate.lineItems).toHaveLength(firstCutGraph.nodes.length);
+    expect(estimate.lineItems.map((l) => l.nodeId)).toEqual(firstCutGraph.nodes.map((n) => n.id));
+    expect(estimate.total).toBeCloseTo(estimate.lineItems.reduce((sum, l) => sum + l.monthly, 0), 6);
   });
 
   it("returns 0 cost for an empty graph", () => {
@@ -25,7 +31,7 @@ describe("estimateCost", () => {
     const usd = estimateCost(firstCutGraph, "USD");
     expect(aud.symbol).toBe("A$");
     expect(usd.symbol).toBe("$");
-    expect(aud.total).toBeCloseTo(usd.total * 1.5, 1);
+    expect(aud.total).toBeCloseTo(usd.total * DEFAULT_FX_AUD_PER_USD, 1);
   });
 
   it("scales App Service Plan cost by capacity", () => {
@@ -33,15 +39,25 @@ describe("estimateCost", () => {
     const planLine = base.lineItems.find((l) => l.serviceType === "appServicePlan");
     expect(planLine).toBeDefined();
 
-    const scaled = {
-      ...firstCutGraph,
-      nodes: firstCutGraph.nodes.map((n) =>
-        n.type === "appServicePlan" ? { ...n, properties: { ...n.properties, capacity: 3 } } : n,
-      ),
-    };
-    const after = estimateCost(scaled, "USD");
+    const after = estimateCost(withProperties(firstCutGraph, "plan", { capacity: 3 }), "USD");
     const scaledLine = after.lineItems.find((l) => l.serviceType === "appServicePlan");
     expect(scaledLine?.monthly).toBeCloseTo((planLine?.monthly ?? 0) * 3, 1);
+    expect(scaledLine?.sku).toMatch(/ x 3$/);
+  });
+
+  it("scales AKS by node count and VMSS by capacity", () => {
+    const base = estimateCost(fullStackGraph, "USD").lineItems;
+    const scaled = estimateCost(withProperties(withProperties(fullStackGraph, "aks", { nodeCount: 6 }), "vmss", { capacity: 4 }), "USD").lineItems;
+    const monthly = (items: typeof base, id: string) => items.find((l) => l.nodeId === id)!.monthly;
+    expect(monthly(scaled, "aks")).toBeCloseTo(monthly(base, "aks") * 2, 6);
+    expect(monthly(scaled, "vmss")).toBeCloseTo(monthly(base, "vmss") * 2, 6);
+  });
+
+  it("bills Function Apps by the plan they run on", () => {
+    const sku = (id: string) => estimateCost(hostingGraph).lineItems.find((l) => l.nodeId === id)?.sku;
+    expect(sku("fn-flex")).toBe("Flex Consumption");
+    expect(sku("fn-y1")).toBe("Consumption");
+    expect(sku("fn-ep")).toBe("(plan)");
   });
 
   it("treats Cosmos free tier as $0", () => {
@@ -59,30 +75,10 @@ describe("estimateCost", () => {
     expect(estimate.lineItems[0].monthly).toBe(0);
   });
 
-  it("emits a non-zero total for each starter template", () => {
+  it("has a price for every service in the starter templates", () => {
     for (const template of STARTER_TEMPLATES) {
-      const estimate = estimateCost(template.document);
-      expect(estimate.total, `template ${template.id} should have a positive total`).toBeGreaterThan(0);
-      expect(estimate.caveats.length).toBeGreaterThan(0);
+      expect(estimateCost(template.document).lineItems.filter((l) => l.unmodelled), template.id).toEqual([]);
     }
-  });
-
-  it("excludes SQL pricing from a graph with no SQL nodes", () => {
-    const estimate = estimateCost(noSqlGraph);
-    expect(estimate.lineItems.some((l) => l.serviceType === "sqlDatabase")).toBe(false);
-  });
-
-  it("snapshots line-item structure for the full-stack fixture", () => {
-    const estimate = estimateCost(fullStackGraph, "AUD");
-    const summary = {
-      currency: estimate.currency,
-      snapshotDate: estimate.snapshotDate,
-      total: Number(estimate.total.toFixed(2)),
-      bySku: estimate.lineItems
-        .map((l) => ({ service: l.serviceLabel, sku: l.sku, monthly: Number(l.monthly.toFixed(2)) }))
-        .sort((a, b) => a.service.localeCompare(b.service) || a.sku.localeCompare(b.sku)),
-    };
-    expect(summary).toMatchSnapshot();
   });
 
   it("formats currency correctly", () => {

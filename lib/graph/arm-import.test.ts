@@ -1,13 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_CONTAINER_SIZE, type GraphNode, isContainerType } from "./schema";
+import { nodeSize as sizeOf } from "./schema";
 import { parseArmTemplate } from "./arm-import";
 import { generateTerraform } from "@/lib/generators/terraform";
-
-function sizeOf(node: GraphNode): { width: number; height: number } {
-  if (node.size) return node.size;
-  if (isContainerType(node.type)) return DEFAULT_CONTAINER_SIZE[node.type];
-  return { width: 220, height: 50 };
-}
 
 describe("parseArmTemplate", () => {
   it("imports AKS and VMSS resources with inferred subnet and workspace edges", () => {
