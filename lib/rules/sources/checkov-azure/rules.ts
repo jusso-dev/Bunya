@@ -2,14 +2,15 @@
 // This file is hand-curated but lives behind the same `import.ts` stub that the
 // fetcher script will overwrite when run online. Do not edit individual rules
 // here — re-run the generator if you need to refresh the set.
-import { nodeRule } from "@/lib/rules/builders";
+import { nodeRule, getProp } from "@/lib/rules/builders";
 import { storagePublicNetwork } from "@/lib/catalogue/services";
 import type { RuleEntry } from "@/lib/rules/schema";
 
+export const CHECKOV_VERSION = "v3.2.0";
 const CHECKOV_BASE = {
   name: "Checkov",
   license: "Apache-2.0",
-  version: "v3.2.0",
+  version: CHECKOV_VERSION,
 } as const;
 
 function checkovSrc(ruleId: string) {
@@ -18,13 +19,6 @@ function checkovSrc(ruleId: string) {
     ruleId,
     url: `https://docs.bridgecrew.io/docs/${ruleId.toLowerCase().replace(/_/g, "-")}`,
   };
-}
-
-function getProp<T = unknown>(
-  node: { properties: Record<string, unknown> },
-  key: string,
-): T | undefined {
-  return node.properties[key] as T | undefined;
 }
 
 export const CHECKOV_RULES: RuleEntry[] = [

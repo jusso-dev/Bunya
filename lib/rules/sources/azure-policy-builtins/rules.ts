@@ -3,7 +3,7 @@
 // `import.ts` stub that the fetcher script will overwrite when run online. Do
 // not edit individual rules here — re-run the generator if you need to refresh
 // the set.
-import { graphRule, nodeRule } from "@/lib/rules/builders";
+import { graphRule, nodeRule, getProp } from "@/lib/rules/builders";
 import { storagePublicNetwork } from "@/lib/catalogue/services";
 import type { RuleEntry } from "@/lib/rules/schema";
 
@@ -18,13 +18,6 @@ function policySrc(displayName: string) {
     ruleId: displayName,
     version: "2026-04-01",
   } as const;
-}
-
-function getProp<T = unknown>(
-  node: { properties: Record<string, unknown> },
-  key: string,
-): T | undefined {
-  return node.properties[key] as T | undefined;
 }
 
 export const AZURE_POLICY_RULES: RuleEntry[] = [

@@ -1,4 +1,4 @@
-import type { GraphDocument, GraphEdge, GraphNode, ServiceType } from "@/lib/graph/schema";
+import type { GraphDocument, GraphNode, ServiceType } from "@/lib/graph/schema";
 import {
   Autofix,
   Check,
@@ -80,21 +80,10 @@ export function graphRule(input: GraphRuleInput): RuleEntry {
   return { rule, check, autofixes: input.autofixes };
 }
 
-export function hasEdge(
-  graph: GraphDocument,
-  predicate: (e: GraphEdge, source: GraphNode | undefined, target: GraphNode | undefined) => boolean,
-): boolean {
-  return graph.edges.some((e) => {
-    const s = graph.nodes.find((n) => n.id === e.source);
-    const t = graph.nodes.find((n) => n.id === e.target);
-    return predicate(e, s, t);
-  });
-}
-
 export function nodesOfType(graph: GraphDocument, type: ServiceType): GraphNode[] {
   return graph.nodes.filter((n) => n.type === type);
 }
 
-export function findNodeById(graph: GraphDocument, id: string): GraphNode | undefined {
-  return graph.nodes.find((n) => n.id === id);
+export function getProp<T = unknown>(node: { properties: Record<string, unknown> }, key: string): T | undefined {
+  return node.properties[key] as T | undefined;
 }

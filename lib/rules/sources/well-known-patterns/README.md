@@ -9,7 +9,7 @@ shape but is missing a required complement.
 
 - Source: <https://learn.microsoft.com/en-us/azure/architecture/> and
   <https://learn.microsoft.com/en-us/azure/well-architected/>
-- Revision pin: see `pinned.json`
+- Pin: see this bundle's entry in `lib/rules/registry.ts`
 - Licence: **CC-BY-4.0** (Microsoft Learn documentation; attribution
   preserved in `RuleSource.url` on every rule)
 

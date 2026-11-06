@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { REGISTRY, SOURCE_BUNDLES } from "@/lib/rules/registry";
+import { REGISTRY } from "@/lib/rules/registry";
 import {
   COMPLIANCE_FRAMEWORKS,
   POLICY_ALIGNMENTS,
   POLICY_METADATA,
   alignmentLabel,
   ruleAlignments,
+  withAlignmentTags,
 } from "@/lib/rules/compliance";
+import type { RuleEntry } from "@/lib/rules/schema";
 
 describe("compliance alignment", () => {
   const ruleIds = new Set(REGISTRY.map((entry) => entry.rule.id));
@@ -38,9 +40,23 @@ describe("compliance alignment", () => {
     expect(alignment.policyDisplayName).toBe(POLICY_METADATA["fe83a0eb-a853-422d-aac2-1bffd182c5d0"].displayName);
   });
 
-  it("does not mutate the source bundles", () => {
-    const raw = SOURCE_BUNDLES.psrule.find((entry) => entry.rule.id === "PSRULE.STORAGE.MINTLS")!;
-    expect(raw.rule.tags.some((tag) => tag.startsWith("cis-azure"))).toBe(false);
+  it("adds alignment tags without mutating the entry it was given", () => {
+    const entry: RuleEntry = {
+      rule: {
+        id: "PSRULE.STORAGE.MINTLS",
+        source: { name: "test", url: "https://example.test" },
+        category: "data-protection",
+        severity: "error",
+        appliesTo: ["storageAccount"],
+        message: "test",
+        longExplanation: "test",
+        tags: ["test"],
+      },
+      check: () => [],
+    };
+    const [tagged] = withAlignmentTags([entry]);
+    expect(tagged.rule.tags).toContain("cis-azure-v3.0.0:4.15");
+    expect(entry.rule.tags).toEqual(["test"]);
   });
 
   it("does not claim alignment for rules without an equivalent policy", () => {

@@ -1,27 +1,17 @@
 // Generated from Microsoft Learn — Azure Private Link FAQ (revision 2026-04-01).
 // Each entry encodes one FAQ answer as a Bunya RuleEntry. Do not hand-edit;
 // rerun the importer.
-import { graphRule, nodeRule } from "@/lib/rules/builders";
+import { graphRule, nodeRule, getProp, nodesOfType } from "@/lib/rules/builders";
 import type { RuleEntry } from "@/lib/rules/schema";
-import type { GraphDocument, GraphNode } from "@/lib/graph/schema";
+import type { GraphNode } from "@/lib/graph/schema";
 
+export const PRIVATE_LINK_FAQ_REVISION = "2026-04-01";
 const FAQ_BASE = {
   name: "Azure Private Link FAQ",
   license: "CC-BY-4.0",
   url: "https://learn.microsoft.com/en-us/azure/private-link/private-link-faq",
-  version: "2026-04-01",
+  version: PRIVATE_LINK_FAQ_REVISION,
 } as const;
-
-function getProp<T = unknown>(
-  node: { properties: Record<string, unknown> },
-  key: string,
-): T | undefined {
-  return node.properties[key] as T | undefined;
-}
-
-function nodesOfTypeLocal(graph: GraphDocument, type: GraphNode["type"]): GraphNode[] {
-  return graph.nodes.filter((n) => n.type === type);
-}
 
 export const PRIVATE_LINK_RULES: RuleEntry[] = [
   // 1. FAQ.PE-NO-PUBLIC-INGRESS — Private Endpoint cannot accept public ingress directly.
@@ -41,7 +31,7 @@ export const PRIVATE_LINK_RULES: RuleEntry[] = [
       "The Private Link FAQ states that a Private Endpoint exposes its target service only on a private IP inside the VNet. Public clients therefore have no path to a PE-fronted resource unless the design includes a public ingress hop such as Front Door (with a Private Link origin), Application Gateway or API Management. A graph with Private Endpoints but no ingress resource will not be reachable from the internet.",
     tags: ["private-link", "faq", "ingress"],
     predicate: (graph) => {
-      const pes = nodesOfTypeLocal(graph, "privateEndpoint");
+      const pes = nodesOfType(graph, "privateEndpoint");
       if (pes.length === 0) return [];
       const ingressTypes = new Set<GraphNode["type"]>([
         "frontDoor",
@@ -91,7 +81,7 @@ export const PRIVATE_LINK_RULES: RuleEntry[] = [
     predicate: (graph) => {
       const docRegion = graph.metadata.region;
       const findings: Array<{ nodeIds?: string[] }> = [];
-      const pes = nodesOfTypeLocal(graph, "privateEndpoint");
+      const pes = nodesOfType(graph, "privateEndpoint");
       for (const pe of pes) {
         const peRegion = getProp<string>(pe, "region");
         if (peRegion && peRegion !== docRegion) {
@@ -205,7 +195,7 @@ export const PRIVATE_LINK_RULES: RuleEntry[] = [
       "The FAQ notes that every Private Endpoint is billed per provisioned hour plus per GB of inbound and outbound data processed. The unit cost is small, but it compounds quickly across regions, environments and sub-resources (a Storage Account alone often needs blob, file, queue and table PEs). When a single design crosses five or more PEs the cost line item is worth budgeting explicitly rather than treating it as zero.",
     tags: ["private-link", "faq", "cost"],
     predicate: (graph) => {
-      const pes = nodesOfTypeLocal(graph, "privateEndpoint");
+      const pes = nodesOfType(graph, "privateEndpoint");
       if (pes.length < 5) return [];
       return [{ nodeIds: pes.map((p) => p.id) }];
     },

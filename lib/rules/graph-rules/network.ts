@@ -1,4 +1,4 @@
-import { graphRule, nodeRule } from "@/lib/rules/builders";
+import { graphRule, nodeRule, getProp } from "@/lib/rules/builders";
 import { storagePublicNetwork } from "@/lib/catalogue/services";
 import type { RuleEntry } from "@/lib/rules/schema";
 import type { GraphDocument } from "@/lib/graph/schema";
@@ -6,10 +6,6 @@ import { topologyProblems } from "@/lib/graph/topology";
 import { PRIVATE_LINK_TARGETS, privateDnsZoneFor } from "@/lib/catalogue/azure";
 
 const MS_LEARN = "Microsoft Learn";
-
-function getProp<T = unknown>(node: { properties: Record<string, unknown> }, key: string): T | undefined {
-  return node.properties[key] as T | undefined;
-}
 
 function publicNetworkDisabled(node: { properties: Record<string, unknown> }): boolean {
   const pna = getProp<boolean | string>(node, "publicNetworkAccess");

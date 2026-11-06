@@ -4,10 +4,11 @@
 import { nodeRule } from "@/lib/rules/builders";
 import type { RuleEntry } from "@/lib/rules/schema";
 
+export const NAMING_TOOL_VERSION = "v3.4.0";
 const NAMING_BASE = {
   name: "Azure Naming Tool",
   license: "MIT",
-  version: "v3.4.0",
+  version: NAMING_TOOL_VERSION,
   url: "https://github.com/mspnp/AzureNamingTool/blob/main/src/repository/resourcetypes.json",
 } as const;
 

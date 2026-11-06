@@ -5,12 +5,13 @@
 // Advisory rules whose check cannot run on Bunya's property model are
 // marked [advisory] in the message and have a `() => false` predicate.
 
-import { nodeRule, graphRule } from "@/lib/rules/builders";
+import { nodeRule, graphRule, getProp } from "@/lib/rules/builders";
 import { storagePublicNetwork } from "@/lib/catalogue/services";
 import type { Autofix, RuleEntry } from "@/lib/rules/schema";
 import type { GraphDocument, GraphNode } from "@/lib/graph/schema";
 
-const BASE = { name: "PSRule for Azure", license: "MIT", version: "v1.42.0" } as const;
+export const PSRULE_VERSION = "v1.42.0";
+const BASE = { name: "PSRule for Azure", license: "MIT", version: PSRULE_VERSION } as const;
 
 function source(ruleId: string) {
   return {
@@ -18,10 +19,6 @@ function source(ruleId: string) {
     ruleId,
     url: `https://azure.github.io/PSRule.Rules.Azure/en/rules/${ruleId}/`,
   };
-}
-
-function getProp<T = unknown>(node: GraphNode, key: string): T | undefined {
-  return node.properties[key] as T | undefined;
 }
 
 function mapNodeProps(

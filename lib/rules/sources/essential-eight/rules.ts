@@ -1,11 +1,12 @@
 import { graphRule, nodeRule, nodesOfType } from "@/lib/rules/builders";
 import type { RuleEntry } from "@/lib/rules/schema";
 
+export const E8_RELEASE = "ML-2023";
 const E8_BASE = {
   name: "Essential Eight Maturity Model",
   license: "Commonwealth of Australia copyright; reproduced with attribution",
   url: "https://www.cyber.gov.au/resources-business-and-government/essential-cyber-security/essential-eight",
-  version: "ML-2023",
+  version: E8_RELEASE,
 } as const;
 
 export const ESSENTIAL_EIGHT_RULES: RuleEntry[] = [

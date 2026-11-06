@@ -1,11 +1,12 @@
 import { graphRule, nodeRule, nodesOfType } from "@/lib/rules/builders";
 import type { RuleEntry } from "@/lib/rules/schema";
 
+export const ISM_RELEASE = "ISM-March-2024";
 const ISM_BASE = {
   name: "Australian Government Information Security Manual",
   license: "Commonwealth of Australia copyright; reproduced with attribution",
   url: "https://www.cyber.gov.au/resources-business-and-government/essential-cyber-security/ism",
-  version: "ISM-March-2024",
+  version: ISM_RELEASE,
 } as const;
 
 const DEFAULT_SQL_ADMINS = new Set(["sa", "admin", "sqladmin", "bunyaadmin"]);

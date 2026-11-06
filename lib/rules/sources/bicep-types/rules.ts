@@ -2,9 +2,8 @@
 // enum / required-property / value-range constraint encoded in the upstream
 // type schema (generated/<provider>) into a Bunya RuleEntry whose predicate
 // inspects GraphNode.properties. Do not hand-edit; rerun the importer.
-import { nodeRule } from "@/lib/rules/builders";
+import { nodeRule, getProp } from "@/lib/rules/builders";
 import type { RuleEntry } from "@/lib/rules/schema";
-import type { GraphNode } from "@/lib/graph/schema";
 
 const BICEP_BASE = {
   name: "Bicep types",
@@ -18,12 +17,6 @@ function bicepSource(provider: string, ruleId: string) {
     url: `https://github.com/Azure/bicep-types-az/tree/main/generated/${provider}`,
     ruleId,
   };
-}
-
-// Read a property tolerantly. Missing properties don't fire a violation —
-// the rule only flags an explicitly-set out-of-enum / out-of-range value.
-function getProp<T = unknown>(node: GraphNode, key: string): T | undefined {
-  return node.properties[key] as T | undefined;
 }
 
 const STG_SKUS = [

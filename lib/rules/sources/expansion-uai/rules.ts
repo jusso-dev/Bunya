@@ -6,8 +6,11 @@
 // model (UAI only exposes `notes`) are marked [advisory] and use
 // `predicate: () => false`.
 
-import { nodeRule } from "@/lib/rules/builders";
+import { graphRule, nodeRule } from "@/lib/rules/builders";
+import { uaiUnsupportedTargetEdges } from "@/lib/rules/graph-rules/identity";
 import type { RuleEntry } from "@/lib/rules/schema";
+
+const MS_LEARN = "Microsoft Learn";
 
 export const EXPANSION_UAI_RULES: RuleEntry[] = [
   // 1. BUNYA.NAM.UAI — Resource name must match the ARM charset/length pattern
@@ -112,5 +115,95 @@ export const EXPANSION_UAI_RULES: RuleEntry[] = [
       "Australian ISM control 0457 requires that the use of privileged access is logged centrally so that administrative actions can be reconstructed during an incident. Managed identity sign-ins, token issuance, and role-elevated calls fall under this control and should be routed to a tenant Log Analytics workspace or SIEM via Entra ID diagnostic settings. Bunya does not model tenant-level diagnostic configuration, so this rule is advisory and documents the expectation alongside the resource.",
     tags: ["bunya", "uai", "ism", "compliance", "logging"],
     predicate: () => false,
+  }),
+
+  // 1. BUNYA.IDN.UAI-UNSUPPORTED-TARGET — UAI -> unsupported resource type
+  graphRule({
+    id: "BUNYA.IDN.UAI-UNSUPPORTED-TARGET",
+    source: {
+      name: MS_LEARN,
+      license: "CC-BY-4.0",
+      version: "2026-05-19",
+      url: "https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/services-id-authentication-support",
+    },
+    category: "identity",
+    severity: "warning",
+    message:
+      "User-Assigned Managed Identity targets a resource type that does not honour managed identity authentication.",
+    longExplanation:
+      "Microsoft Entra publishes a fixed list of Azure services that accept managed identity tokens. Pointing a UAI at a network primitive (VNet, subnet, NSG), a logging endpoint (Log Analytics, Application Insights), or a resource-group scope produces no role assignment at deploy time and the relationship silently no-ops. Reattach the identity to a service that supports MI auth (Key Vault, Storage, SQL, Cosmos DB, ACR) or remove the edge entirely.",
+    tags: ["bunya", "uai", "identity", "wiring", "managed-identity"],
+    predicate: uaiUnsupportedTargetEdges,
+  }),
+
+  // 2. BUNYA.IDN.UAI-DUPLICATE-EDGE — Duplicate identity edges to same target
+  graphRule({
+    id: "BUNYA.IDN.UAI-DUPLICATE-EDGE",
+    source: {
+      name: MS_LEARN,
+      license: "CC-BY-4.0",
+      version: "2026-05-19",
+      url: "https://learn.microsoft.com/en-us/azure/role-based-access-control/role-assignments",
+    },
+    category: "identity",
+    severity: "info",
+    message:
+      "User-Assigned Managed Identity has more than one identity edge to the same target.",
+    longExplanation:
+      "Azure RBAC treats role assignments as unique tuples of (principal, role, scope). Modelling more than one identity edge from a single UAI to the same target resource implies duplicate role assignments and produces noisy IaC, redundant audit entries, and confusing access reviews. Collapse the duplicates into a single edge (and, if multiple roles are required, model that through annotation rather than edge multiplicity).",
+    tags: ["bunya", "uai", "identity", "rbac", "duplicate"],
+    predicate: (graph) => {
+      const partials: { nodeIds?: string[]; edgeIds?: string[] }[] = [];
+      const groups = new Map<string, string[]>();
+      for (const edge of graph.edges) {
+        if (edge.kind !== "identity") continue;
+        const source = graph.nodes.find((n) => n.id === edge.source);
+        if (!source || source.type !== "userAssignedIdentity") continue;
+        const key = `${edge.source}->${edge.target}`;
+        const bucket = groups.get(key) ?? [];
+        bucket.push(edge.id);
+        groups.set(key, bucket);
+      }
+      for (const [key, edgeIds] of groups) {
+        if (edgeIds.length <= 1) continue;
+        const [sourceId, targetId] = key.split("->");
+        partials.push({ edgeIds, nodeIds: [sourceId, targetId] });
+      }
+      return partials;
+    },
+  }),
+
+  // 3. BUNYA.IDN.UAI-NO-COMPUTE-USING — UAI not attached by any compute resource
+  graphRule({
+    id: "BUNYA.IDN.UAI-NO-COMPUTE-USING",
+    source: {
+      name: MS_LEARN,
+      license: "CC-BY-4.0",
+      version: "2026-05-19",
+      url: "https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/managed-identity-best-practice-recommendations",
+    },
+    category: "identity",
+    severity: "info",
+    message:
+      "User-Assigned Managed Identity has no compute resource (App Service / Function App) attaching it.",
+    longExplanation:
+      "A user-assigned managed identity only delivers value when a compute resource attaches it so the workload can mint Entra ID tokens at runtime. Microsoft Entra documentation recommends deleting unused UAIs to keep the principal inventory clean and reduce the role-assignment review surface. This rule detects UAIs with zero incoming identity edges from `appService` or `functionApp` nodes; either attach the identity to compute or remove it from the design.",
+    tags: ["bunya", "uai", "identity", "orphan", "best-practice"],
+    predicate: (graph) => {
+      const partials: { nodeIds?: string[] }[] = [];
+      const uais = graph.nodes.filter((n) => n.type === "userAssignedIdentity");
+      for (const uai of uais) {
+        const hasComputeAttachment = graph.edges.some((edge) => {
+          if (edge.kind !== "identity") return false;
+          if (edge.target !== uai.id) return false;
+          const source = graph.nodes.find((n) => n.id === edge.source);
+          return source?.type === "appService" || source?.type === "functionApp";
+        });
+        if (!hasComputeAttachment) {
+          partials.push({ nodeIds: [uai.id] });
+        }
+      }
+      return partials;
+    },
   }),
 ];

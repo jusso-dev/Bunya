@@ -8,7 +8,7 @@ Built-in** and form the basis of regulatory initiatives such as Microsoft Cloud
 Security Benchmark and the Australian Government ISM PROTECTED initiative.
 
 - Source / catalogue: <https://learn.microsoft.com/en-us/azure/governance/policy/samples/built-in-policies>
-- Pinned snapshot date: see `pinned.json` (`commit` is the snapshot date)
+- Pin: see this bundle's entry in `lib/rules/registry.ts`
 - Licence: **MIT** for the policy JSON in the samples repo; attribution
   preserved in `RuleSource.url` on every rule
 
