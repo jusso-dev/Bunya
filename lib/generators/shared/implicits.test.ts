@@ -35,7 +35,7 @@ describe("expandImplicits", () => {
     expect(types).toContain("resourceGroup");
     expect(types).toContain("appServicePlan");
     expect(types).toContain("storageAccount");
-    expect(result.additions.length).toBeGreaterThan(0);
+    expect(result.autoNodeIds.size).toBe(3);
   });
 
   it("inserts a Subnet + VNet when a Private Endpoint is alone", () => {

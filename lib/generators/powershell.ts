@@ -1,18 +1,16 @@
-import { generatePrivateDeployment } from "./shell-template";
-import { validateGeneration } from "./shared/validate";
-import { GraphDocument, GraphNode } from "@/lib/graph/schema";
-import {
-  GeneratorContext,
-  buildGeneratorContext,
-  outgoingOf,
-  resolveAppServicePlan,
-  resolveVirtualNetwork,
-} from "./shared/context";
+import { GraphDocument, GraphNode, ServiceType } from "@/lib/graph/schema";
+import { GeneratorContext, dnsZoneName, prepareGeneration, sqlServerName, subnetVnet, targetOfType } from "./shared/context";
 import { GeneratorResult } from "./types";
-import { needsTemplateDeployment } from "./shared/hosting";
+import { templateDeployment } from "./shell-template";
 import { quote } from "./shared/quote";
 import { storagePublicNetwork } from "@/lib/catalogue/services";
+import { tlsVersionToArm } from "@/lib/catalogue/azure";
 import { powerShellPlanSku } from "@/lib/catalogue/app-service-plans";
+import { sitePlan } from "@/lib/graph/topology";
+
+// New-AzWebApp, New-AzFunctionApp and New-AzContainerRegistry cannot turn
+// public network access off.
+const NO_PRIVATE_CREATE: ReadonlySet<ServiceType> = new Set(["appService", "functionApp", "containerRegistry"]);
 
 function header(document: GraphDocument, includeSqlAdmin: boolean): string[] {
   const lines = [
@@ -43,7 +41,7 @@ function header(document: GraphDocument, includeSqlAdmin: boolean): string[] {
 }
 
 function emitNode(node: GraphNode, ctx: GeneratorContext): string[] {
-  const name = ctx.resourceNames.get(node.id)!;
+  const name = ctx.name(node.id);
   const region = ctx.document.metadata.region;
   switch (node.type) {
     case "resourceGroup":
@@ -63,17 +61,16 @@ function emitNode(node: GraphNode, ctx: GeneratorContext): string[] {
         `    ResourceGroupName = $ResourceGroupName`,
         `    Name              = '${name}'`,
         `    Location          = $Location`,
-        `    AddressPrefix     = @(${[(node.properties.addressSpace as string) ?? "10.0.0.0/16", ...((node.properties.additionalAddressSpaces as string[] | undefined) ?? [])].map((space) => `'${space}'`).join(", ")})`,
+        `    AddressPrefix     = @(${[String(node.properties.addressSpace), ...((node.properties.additionalAddressSpaces as string[]))].map((space) => `'${space}'`).join(", ")})`,
         `}`,
         `New-AzVirtualNetwork @vnetParams -Force | Out-Null`,
       ];
     case "subnet": {
-      const vnet = resolveVirtualNetwork(ctx, node);
-      const vnetName = vnet ? ctx.resourceNames.get(vnet.id)! : "main-vnet";
+      const vnetName = ctx.name(subnetVnet(ctx, node).id);
       return [
         `# Subnet ${name}`,
         `$vnet = Get-AzVirtualNetwork -ResourceGroupName $ResourceGroupName -Name '${vnetName}'`,
-        `Add-AzVirtualNetworkSubnetConfig -Name '${name}' -VirtualNetwork $vnet -AddressPrefix '${(node.properties.addressPrefix as string) ?? "10.0.1.0/24"}' -PrivateEndpointNetworkPoliciesFlag '${(node.properties.privateEndpointNetworkPolicies as string) ?? "Disabled"}' | Out-Null`,
+        `Add-AzVirtualNetworkSubnetConfig -Name '${name}' -VirtualNetwork $vnet -AddressPrefix '${String(node.properties.addressPrefix)}' -PrivateEndpointNetworkPoliciesFlag '${String(node.properties.privateEndpointNetworkPolicies)}' | Out-Null`,
         `$vnet | Set-AzVirtualNetwork | Out-Null`,
       ];
     }
@@ -96,12 +93,12 @@ function emitNode(node: GraphNode, ctx: GeneratorContext): string[] {
     case "privateDnsZone":
       return [
         `# Private DNS Zone ${name}`,
-        `New-AzPrivateDnsZone -ResourceGroupName $ResourceGroupName -Name '${(node.properties.zoneName as string) ?? name}' | Out-Null`,
+        `New-AzPrivateDnsZone -ResourceGroupName $ResourceGroupName -Name '${dnsZoneName(node)}' | Out-Null`,
       ];
     case "appServicePlan": {
-      const sku = (node.properties.sku as string) ?? "B1";
-      // validateGeneration blocks non-dedicated SKUs before this runs.
-      const plan = powerShellPlanSku(sku) ?? { tier: "Basic", workerSize: "Small" };
+      const sku = String(node.properties.sku);
+      // Non-dedicated plans go through the ARM template instead.
+      const plan = powerShellPlanSku(sku)!;
       const lines = [
         `# App Service Plan ${name} (${sku})`,
         `$planParams = @{`,
@@ -109,7 +106,7 @@ function emitNode(node: GraphNode, ctx: GeneratorContext): string[] {
         `    Name              = '${name}'`,
         `    Location          = $Location`,
         `    Tier              = '${plan.tier}'`,
-        `    NumberofWorkers   = ${(node.properties.capacity as number) ?? 1}`,
+        `    NumberofWorkers   = ${Number(node.properties.capacity)}`,
         `    WorkerSize        = '${plan.workerSize}'`,
         `}`,
       ];
@@ -117,8 +114,7 @@ function emitNode(node: GraphNode, ctx: GeneratorContext): string[] {
       return [...lines, `New-AzAppServicePlan @planParams${(node.properties.os as string) === "Linux" ? " -Linux" : ""} | Out-Null`];
     }
     case "appService": {
-      const plan = resolveAppServicePlan(ctx, node);
-      const planName = plan ? ctx.resourceNames.get(plan.id)! : "main-plan";
+      const planName = ctx.name(sitePlan(ctx.document, node)!.id);
       return [
         `# App Service ${name}`,
         `$appParams = @{`,
@@ -132,12 +128,8 @@ function emitNode(node: GraphNode, ctx: GeneratorContext): string[] {
       ];
     }
     case "functionApp": {
-      const stEdge = outgoingOf(ctx, node.id, "data").find(
-        (e) => ctx.nodesById.get(e.target)?.type === "storageAccount",
-      );
-      const plan = resolveAppServicePlan(ctx, node);
-      const planName = plan ? ctx.resourceNames.get(plan.id)! : "main-plan";
-      const stName = stEdge ? ctx.resourceNames.get(stEdge.target)! : "mainstorage";
+      const planName = ctx.name(sitePlan(ctx.document, node)!.id);
+      const stName = ctx.name(targetOfType(ctx, node.id, "data", "storageAccount")!.id);
       return [
         `# Function App ${name}`,
         `$fnParams = @{`,
@@ -146,8 +138,8 @@ function emitNode(node: GraphNode, ctx: GeneratorContext): string[] {
         `    Location              = $Location`,
         `    PlanName              = '${planName}'`,
         `    StorageAccountName    = '${stName}'`,
-        `    Runtime               = '${(node.properties.runtime as string) ?? "node"}'`,
-        `    RuntimeVersion        = '${(node.properties.runtimeVersion as string) ?? "22"}'`,
+        `    Runtime               = '${String(node.properties.runtime)}'`,
+        `    RuntimeVersion        = '${String(node.properties.runtimeVersion)}'`,
         `    FunctionsVersion      = '4'`,
         `    IdentityType          = 'SystemAssigned'`,
         `}`,
@@ -161,7 +153,7 @@ function emitNode(node: GraphNode, ctx: GeneratorContext): string[] {
         `    ResourceGroupName = $ResourceGroupName`,
         `    Name              = '${name}'`,
         `    Location          = $Location`,
-        `    SkuName           = '${(node.properties.sku as string) ?? "Standard"}'`,
+        `    SkuName           = '${String(node.properties.sku)}'`,
         `}`,
         `New-AzStaticWebApp @swaParams | Out-Null`,
       ];
@@ -182,21 +174,21 @@ function emitNode(node: GraphNode, ctx: GeneratorContext): string[] {
         `    ResourceGroupName     = $ResourceGroupName`,
         `    Name                  = '${name}'`,
         `    Location              = $Location`,
-        `    SkuName               = '${(node.properties.sku as string) ?? "Standard_LRS"}'`,
-        `    Kind                  = '${(node.properties.kind as string) ?? "StorageV2"}'`,
-        `    MinimumTlsVersion     = 'TLS1_${((node.properties.minTlsVersion as string) ?? "1.2").split(".")[1]}'`,
+        `    SkuName               = '${String(node.properties.sku)}'`,
+        `    Kind                  = '${String(node.properties.kind)}'`,
+        `    MinimumTlsVersion     = '${tlsVersionToArm(String(node.properties.minTlsVersion))}'`,
         `    AllowBlobPublicAccess = $${node.properties.allowPublicAccess === true}`,
         `    PublicNetworkAccess   = '${storagePublicNetwork(node.properties) ? "Enabled" : "Disabled"}'`,
         `}`,
         `New-AzStorageAccount @stgParams | Out-Null`,
       ];
     case "sqlDatabase": {
-      const adminLogin = (node.properties.adminLogin as string) ?? "bunyaadmin";
+      const adminLogin = String(node.properties.adminLogin);
       return [
         `# Azure SQL ${name}`,
         `$srvParams = @{`,
         `    ResourceGroupName             = $ResourceGroupName`,
-        `    ServerName                    = '${name}-srv'`,
+        `    ServerName                    = '${sqlServerName(ctx, node)}'`,
         `    Location                      = $Location`,
         `    SqlAdministratorCredentials   = (New-Object System.Management.Automation.PSCredential('${adminLogin}', $SqlAdminPassword))`,
         `    MinimalTlsVersion             = '1.2'`,
@@ -205,9 +197,9 @@ function emitNode(node: GraphNode, ctx: GeneratorContext): string[] {
         `New-AzSqlServer @srvParams | Out-Null`,
         `$dbParams = @{`,
         `    ResourceGroupName = $ResourceGroupName`,
-        `    ServerName        = '${name}-srv'`,
+        `    ServerName        = '${sqlServerName(ctx, node)}'`,
         `    DatabaseName      = '${name}'`,
-        `    RequestedServiceObjectiveName = '${(node.properties.sku as string) ?? "S0"}'`,
+        `    RequestedServiceObjectiveName = '${String(node.properties.sku)}'`,
         `}`,
         `New-AzSqlDatabase @dbParams | Out-Null`,
       ];
@@ -219,7 +211,7 @@ function emitNode(node: GraphNode, ctx: GeneratorContext): string[] {
         `    ResourceGroupName = $ResourceGroupName`,
         `    Name              = '${name}'`,
         `    Location          = @($Location)`,
-        `    DefaultConsistencyLevel = '${(node.properties.consistency as string) ?? "Session"}'`,
+        `    DefaultConsistencyLevel = '${String(node.properties.consistency)}'`,
         `    EnableFreeTier    = $${node.properties.freeTier === true}`,
         `}`,
         `New-AzCosmosDBAccount @cosParams | Out-Null`,
@@ -231,19 +223,16 @@ function emitNode(node: GraphNode, ctx: GeneratorContext): string[] {
         `    ResourceGroupName            = $ResourceGroupName`,
         `    VaultName                    = '${name}'`,
         `    Location                     = $Location`,
-        `    Sku                          = '${(node.properties.sku as string) ?? "standard"}'`,
+        `    Sku                          = '${String(node.properties.sku)}'`,
         `    EnablePurgeProtection        = $${node.properties.purgeProtection !== false}`,
-        `    SoftDeleteRetentionInDays    = ${(node.properties.softDeleteRetentionDays as number) ?? 7}`,
+        `    SoftDeleteRetentionInDays    = ${Number(node.properties.softDeleteRetentionDays)}`,
         `    EnableRbacAuthorization      = $${node.properties.rbacAuthorization !== false}`,
         `    PublicNetworkAccess          = '${node.properties.publicNetworkAccess === true ? "Enabled" : "Disabled"}'`,
         `}`,
         `New-AzKeyVault @kvParams | Out-Null`,
       ];
     case "applicationInsights": {
-      const wsEdge = outgoingOf(ctx, node.id, "depends_on").find(
-        (e) => ctx.nodesById.get(e.target)?.type === "logAnalytics",
-      );
-      const wsName = wsEdge ? ctx.resourceNames.get(wsEdge.target)! : "main-workspace";
+      const wsName = ctx.name(targetOfType(ctx, node.id, "depends_on", "logAnalytics")!.id);
       return [
         `# Application Insights ${name}`,
         `$aiParams = @{`,
@@ -263,8 +252,8 @@ function emitNode(node: GraphNode, ctx: GeneratorContext): string[] {
         `    ResourceGroupName = $ResourceGroupName`,
         `    Name              = '${name}'`,
         `    Location          = $Location`,
-        `    Sku               = '${(node.properties.sku as string) ?? "PerGB2018"}'`,
-        `    RetentionInDays   = ${(node.properties.retentionDays as number) ?? 30}`,
+        `    Sku               = '${String(node.properties.sku)}'`,
+        `    RetentionInDays   = ${Number(node.properties.retentionDays)}`,
         `}`,
         `New-AzOperationalInsightsWorkspace @logParams -Force | Out-Null`,
       ];
@@ -276,8 +265,8 @@ function emitNode(node: GraphNode, ctx: GeneratorContext): string[] {
     case "actionGroup":
       return [
         `# Action Group ${name}`,
-        `$ag = New-AzActionGroupReceiver -Name 'ops' -EmailReceiver -EmailAddress ${quote.powershell((node.properties.email as string) ?? "ops@example.com")}`,
-        `Set-AzActionGroup -ResourceGroupName $ResourceGroupName -Name '${name}' -ShortName '${(node.properties.shortName as string) ?? "ops"}' -Receiver $ag | Out-Null`,
+        `$ag = New-AzActionGroupReceiver -Name 'ops' -EmailReceiver -EmailAddress ${quote.powershell(String(node.properties.email))}`,
+        `Set-AzActionGroup -ResourceGroupName $ResourceGroupName -Name '${name}' -ShortName '${String(node.properties.shortName)}' -Receiver $ag | Out-Null`,
       ];
     case "frontDoor":
       return [
@@ -285,7 +274,7 @@ function emitNode(node: GraphNode, ctx: GeneratorContext): string[] {
         `$fdParams = @{`,
         `    ResourceGroupName = $ResourceGroupName`,
         `    Name              = '${name}'`,
-        `    SkuName           = '${(node.properties.sku as string) ?? "Standard_AzureFrontDoor"}'`,
+        `    SkuName           = '${String(node.properties.sku)}'`,
         `}`,
         `New-AzFrontDoorCdnProfile @fdParams | Out-Null`,
       ];
@@ -301,9 +290,9 @@ function emitNode(node: GraphNode, ctx: GeneratorContext): string[] {
         `    ResourceGroupName = $ResourceGroupName`,
         `    Name              = '${name}'`,
         `    Location          = $Location`,
-        `    Sku               = '${(node.properties.sku as string) ?? "Consumption"}'`,
-        `    Organization      = '${(node.properties.publisherName as string) ?? "Bunya"}'`,
-        `    AdminEmail        = ${quote.powershell((node.properties.publisherEmail as string) ?? "ops@example.com")}`,
+        `    Sku               = '${String(node.properties.sku)}'`,
+        `    Organization      = '${String(node.properties.publisherName)}'`,
+        `    AdminEmail        = ${quote.powershell(String(node.properties.publisherEmail))}`,
         `}`,
         `New-AzApiManagement @apimParams | Out-Null`,
       ];
@@ -314,7 +303,7 @@ function emitNode(node: GraphNode, ctx: GeneratorContext): string[] {
         `    ResourceGroupName = $ResourceGroupName`,
         `    Name              = '${name}'`,
         `    Location          = $Location`,
-        `    Sku               = '${(node.properties.sku as string) ?? "Basic"}'`,
+        `    Sku               = '${String(node.properties.sku)}'`,
         `    EnableAdminUser   = $${node.properties.adminUserEnabled === true}`,
         `}`,
         `New-AzContainerRegistry @acrParams | Out-Null`,
@@ -338,18 +327,14 @@ function emitNode(node: GraphNode, ctx: GeneratorContext): string[] {
 }
 
 export function generatePowerShell(document: GraphDocument): GeneratorResult {
-  const validated = validateGeneration(document);
-  if (!validated.ok) return validated;
-  document = validated.document;
-  if (document.nodes.some((node) => (["appService", "functionApp", "containerRegistry"].includes(node.type)) && node.properties.publicNetworkAccess === false)) return generatePrivateDeployment(document, "powershell");
-  const ctx = buildGeneratorContext(document);
-  if (!ctx.topo.ok) {
-    return { ok: false, reason: "cycle detected", cycle: ctx.topo.cycle };
-  }
-  const templateReason = needsTemplateDeployment(ctx);
-  if (templateReason) return generatePrivateDeployment(document, "powershell", `${templateReason}, so this script deploys the included ARM template in one step.`);
-  const rg = ctx.rgNode ? ctx.resourceNames.get(ctx.rgNode.id) : document.metadata.resourceGroupName;
-  const hasSql = ctx.document.nodes.some((n) => n.type === "sqlDatabase");
+  const prepared = prepareGeneration(document);
+  if (!prepared.ok) return prepared;
+  const { ctx } = prepared;
+  document = ctx.source;
+  const template = templateDeployment(ctx, "powershell", NO_PRIVATE_CREATE);
+  if (template) return template;
+  const rg = ctx.name(ctx.rgNode.id);
+  const { hasSql } = ctx;
   const paramLines = [
     `    [string]$ResourceGroupName = '${rg}',`,
     `    [string]$Location = '${document.metadata.region}'`,
@@ -377,11 +362,7 @@ export function generatePowerShell(document: GraphDocument): GeneratorResult {
     ``,
   ];
 
-  for (const node of ctx.topo.order) {
-    const block = emitNode(node, ctx);
-    if (!block) continue;
-    lines.push(...block, "");
-  }
+  for (const node of ctx.order) lines.push(...emitNode(node, ctx), "");
 
   return {
     ok: true,

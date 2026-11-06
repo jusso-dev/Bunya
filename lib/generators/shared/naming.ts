@@ -1,18 +1,13 @@
-import { ServiceType } from "@/lib/graph/schema";
+import type { ServiceType } from "@/lib/graph/schema";
+import { SUFFIXED_NAME_TYPES } from "@/lib/catalogue/azure";
 
-const STORAGE_MAX = 24;
-const KEYVAULT_MAX = 24;
+// Storage account and Key Vault names are globally unique and at most 24
+// characters (Microsoft Learn, "Naming rules and restrictions").
+const SUFFIXED_MAX = 24;
 
-export function sanitiseAlphanumLower(raw: string, max: number): string {
-  const cleaned = raw.toLowerCase().replace(/[^a-z0-9]/g, "");
-  return cleaned.slice(0, max);
-}
-
-export function shortHash(input: string, length = 6): string {
+function shortHash(input: string, length = 6): string {
   let h = 5381;
-  for (let i = 0; i < input.length; i++) {
-    h = ((h << 5) + h + input.charCodeAt(i)) >>> 0;
-  }
+  for (let i = 0; i < input.length; i++) h = ((h << 5) + h + input.charCodeAt(i)) >>> 0;
   return h.toString(36).padStart(length, "0").slice(0, length);
 }
 
@@ -24,23 +19,15 @@ export function terraformIdentifier(raw: string): string {
   return cleaned.length > 0 ? cleaned : "resource";
 }
 
-export function azureResourceName(
-  type: ServiceType,
-  baseName: string,
-  documentSeed: string,
-): string {
+// Globally unique services get a suffix seeded by the diagram, so two
+// diagrams using the same base name do not collide.
+export function azureResourceName(type: ServiceType, baseName: string, documentSeed: string): string {
+  if (!SUFFIXED_NAME_TYPES.has(type)) return baseName;
   const hash = shortHash(`${documentSeed}:${type}:${baseName}`);
-  switch (type) {
-    case "storageAccount": {
-      const base = sanitiseAlphanumLower(baseName, STORAGE_MAX - hash.length);
-      return (base.length > 0 ? base : "stg") + hash;
-    }
-    case "keyVault": {
-      const base = baseName.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-+|-+$/g, "");
-      const trimmed = base.slice(0, KEYVAULT_MAX - hash.length - 1);
-      return `${trimmed || "kv"}-${hash}`;
-    }
-    default:
-      return baseName;
+  if (type === "storageAccount") {
+    const base = baseName.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, SUFFIXED_MAX - hash.length);
+    return (base || "stg") + hash;
   }
+  const base = baseName.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-+|-+$/g, "").slice(0, SUFFIXED_MAX - hash.length - 1);
+  return `${base || "kv"}-${hash}`;
 }
