@@ -605,6 +605,8 @@ describe("parseArmTemplate", () => {
     expect(result.warning).toContain("app-dashboard: container image deployments (DOCKER|acrexample.azurecr.io/app-dashboard:latest) are not modelled");
     expect(result.warning).not.toContain("Container Registry acrexample: ARM configuration is not mapped");
     expect(result.warning).not.toContain("Azure SQL Database orders_db: ARM configuration is not mapped");
+    expect(result.warning).toContain("Skipped resource types Bunya does not model: Microsoft.Sql/servers x1.");
+    expect(result.warning).not.toContain("locations could not be represented");
 
     const terraform = generateTerraform(result.document);
     expect(terraform.ok ? "ok" : terraform.reason).toBe("ok");

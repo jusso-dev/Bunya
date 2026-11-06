@@ -896,10 +896,14 @@ export function parseArmTemplate(text: string): ArmImportResult {
     return { ok: false, reason: `ARM template produces ${nodes.length} nodes and ${edges.length} edges; Bunya supports up to 200 nodes and 1,000 edges.` };
   }
 
-  const locations = known.map((r) => resolveString(r.flat.raw.location, parameters, variables)?.toLowerCase()).filter((value): value is string => !!value && value !== "global");
+  // Portal exports write regions as display names, e.g. "Australia East".
+  const locations = known
+    .map((r) => resolveString(r.flat.raw.location, parameters, variables)?.toLowerCase().replace(/\s+/g, ""))
+    .filter((value): value is string => !!value && value !== "global");
   const location = locations.find((value) => AZURE_REGIONS.includes(value as never));
-  if (locations.some((value) => value !== location)) {
-    warnings.push(`Some resource locations could not be represented; the diagram region is ${location ?? "australiaeast"}.`);
+  const otherLocations = [...new Set(locations.filter((value) => value !== location))];
+  if (otherLocations.length > 0) {
+    warnings.push(`Resources in ${otherLocations.join(", ")} are drawn in the diagram region ${location ?? "australiaeast"}.`);
   }
   const now = new Date().toISOString();
   const document: GraphDocument = {
@@ -916,10 +920,27 @@ export function parseArmTemplate(text: string): ArmImportResult {
     nodes,
     edges,
   };
-  const skipped = flat.length - known.length;
+  const importedTypes = new Set(known.map((r) => r.flat.type.toLowerCase()));
+  const skippedCounts = new Map<string, number>();
+  for (const resource of flat) {
+    if (known.some((r) => r.flat === resource)) continue;
+    skippedCounts.set(resource.type, (skippedCounts.get(resource.type) ?? 0) + 1);
+  }
+  const skipped = [...skippedCounts.values()].reduce((sum, count) => sum + count, 0);
+  // Child settings (site config, host name bindings) belong to imported resources.
+  const isChildSetting = (type: string) =>
+    [...importedTypes].some((parent) => type.toLowerCase().startsWith(`${parent}/`));
+  const describe = (entries: [string, number][]) =>
+    entries.sort((a, b) => b[1] - a[1]).map(([type, count]) => `${type} x${count}`).join(", ");
+  const childEntries = [...skippedCounts].filter(([type]) => isChildSetting(type));
+  const otherEntries = [...skippedCounts].filter(([type]) => !isChildSetting(type));
+  const skippedNotes = [
+    childEntries.length > 0 ? `Skipped child settings of imported resources: ${describe(childEntries)}.` : "",
+    otherEntries.length > 0 ? `Skipped resource types Bunya does not model: ${describe(otherEntries)}.` : "",
+  ];
   return {
     ok: true,
     document,
-    warning: [skipped > 0 ? `${skipped} unsupported ARM resources were skipped.` : "", ...warnings].filter(Boolean).join("\n") || undefined,
+    warning: [skipped > 0 ? `${skipped} unsupported ARM resources were skipped.` : "", ...skippedNotes, ...warnings].filter(Boolean).join("\n") || undefined,
   };
 }

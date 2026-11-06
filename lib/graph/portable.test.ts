@@ -29,7 +29,7 @@ describe("portable export/import", () => {
     expect(result.document.nodes.find((node) => node.resourceName === "vault")?.properties.softDeleteRetentionDays).toBe(30);
     expect(result.warning).toContain("unsupported sku");
     expect(result.warning).toContain("missing type or name");
-    expect(result.warning).toContain("resource locations");
+    expect(result.warning).toContain("are drawn in the diagram region");
     expect(result.envelope.document).toEqual(result.document);
   });
 
