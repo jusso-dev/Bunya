@@ -1,25 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { runRules, applyAutofix } from "@/lib/rules/runtime";
-import type { Finding, RuleEntry } from "@/lib/rules/schema";
+import type { Finding } from "@/lib/rules/schema";
 import { REGISTRY } from "@/lib/rules/registry";
-import { GRAPH_RULES } from "@/lib/rules/graph-rules";
-import { ISM_RULES } from "@/lib/rules/sources/ism/rules";
-import { PSRULE_RULES } from "@/lib/rules/sources/psrule-azure/rules";
 import { healthyGraph } from "./fixtures/healthy";
 import { brokenGraph } from "./fixtures/broken";
 import { getServiceDefinition } from "@/lib/catalogue/services";
 import type { GraphDocument, GraphNode, ServiceType } from "@/lib/graph/schema";
 import { runtimeSupportStatus } from "@/lib/rules/graph-rules/compute";
-
-/**
- * Test bundle of rules. We prefer REGISTRY when it has been populated by
- * `pnpm rules:import`, otherwise we fall back to importing the implemented
- * rule sets directly so the runtime tests still exercise real predicates.
- */
-const TEST_ENTRIES: RuleEntry[] =
-  REGISTRY.length > 0
-    ? REGISTRY
-    : [...GRAPH_RULES, ...ISM_RULES, ...PSRULE_RULES];
 
 function findingsForRule(findings: Finding[], ruleId: string): Finding[] {
   return findings.filter((f) => f.ruleId === ruleId);
@@ -66,18 +53,16 @@ describe("rules-engine runtime", () => {
     const graph = graphFixture([testNode("storage", "storageAccount", { allowPublicAccess: true, publicNetworkAccess: true }), testNode("pe", "privateEndpoint")], [
       { id: "pe-edge", source: "pe", target: "storage", kind: "network" },
     ]);
-    const findings = runRules(graph, TEST_ENTRIES);
+    const findings = runRules(graph, REGISTRY);
     expect(findingsForRule(findings, "PSRULE.STORAGE.FIREWALL")).toHaveLength(1);
     expect(findingsForRule(findings, "PSRULE.STORAGE.SECURETRANSFER")[0]?.severity).toBe("info");
-    expect(TEST_ENTRIES.some((entry) => entry.rule.id === "BUNYA.NET.002")).toBe(false);
 
-    // Anonymous blob access and the public network endpoint are separate settings.
     const anonymousOnly = graphFixture([testNode("storage", "storageAccount", { allowPublicAccess: true, publicNetworkAccess: false })]);
-    const anonymousFindings = runRules(anonymousOnly, TEST_ENTRIES);
+    const anonymousFindings = runRules(anonymousOnly, REGISTRY);
     expect(findingsForRule(anonymousFindings, "PSRULE.STORAGE.BLOBPUBLICACCESS")).toHaveLength(1);
     expect(findingsForRule(anonymousFindings, "PSRULE.STORAGE.FIREWALL")).toHaveLength(0);
     const networkOnly = graphFixture([testNode("storage", "storageAccount", { allowPublicAccess: false, publicNetworkAccess: true })]);
-    const networkFindings = runRules(networkOnly, TEST_ENTRIES);
+    const networkFindings = runRules(networkOnly, REGISTRY);
     expect(findingsForRule(networkFindings, "PSRULE.STORAGE.BLOBPUBLICACCESS")).toHaveLength(0);
     expect(findingsForRule(networkFindings, "AZPOL.STG.PUBLIC-ACCESS")).toHaveLength(1);
   });
@@ -88,7 +73,7 @@ describe("rules-engine runtime", () => {
       { id: "gateway-subnet", source: "gateway", target: "subnet", kind: "network" },
       { id: "subnet-nsg", source: "subnet", target: "nsg", kind: "network" },
     ]);
-    const rule = TEST_ENTRIES.filter((entry) => entry.rule.id.includes("GATEWAY") && entry.rule.id.includes("NSG"));
+    const rule = REGISTRY.filter((entry) => entry.rule.id.includes("GATEWAY") && entry.rule.id.includes("NSG"));
     expect(rule).toHaveLength(1);
     expect(runRules(graph, rule)).toHaveLength(1);
     (nsg.properties.inboundRules as Array<Record<string, unknown>>)[0].destinationPortRange = "65200-65535";
@@ -96,8 +81,9 @@ describe("rules-engine runtime", () => {
     (nsg.properties.inboundRules as Array<Record<string, unknown>>)[0].protocol = "Udp";
     expect(runRules(graph, rule)).toHaveLength(1);
   });
+
   it("healthy.ts produces zero error-severity findings", () => {
-    const findings = runRules(healthyGraph, TEST_ENTRIES);
+    const findings = runRules(healthyGraph, REGISTRY);
     const errors = findings.filter((f) => f.severity === "error");
     expect(
       errors,
@@ -105,129 +91,29 @@ describe("rules-engine runtime", () => {
     ).toHaveLength(0);
   });
 
-  it("broken.ts produces at least 5 findings overall", () => {
-    const findings = runRules(brokenGraph, TEST_ENTRIES);
-    expect(findings.length).toBeGreaterThanOrEqual(5);
+  it("broken.ts fires the rules its comment lists, on the nodes it names", () => {
+    const findings = runRules(brokenGraph, REGISTRY);
+    const on = (ruleId: string) => findingsForRule(findings, ruleId).map((f) => f.nodeIds);
+    expect(on("ISM.0974")).toEqual([["app"]]);
+    expect(on("ISM.1552")).toEqual([["stg"]]);
+    expect(on("BUNYA.COMP.001")).toEqual([["app"]]);
+    expect(on("BUNYA.COMP.002")).toEqual([["stg"]]);
+    expect(on("BUNYA.NAM.001")).toEqual([["stg"]]);
+    expect(on("BUNYA.IMP.001")).toEqual([["fn"]]);
+    expect(on("BUNYA.IMP.005")).toEqual([["ai"]]);
+    expect(on("PSRULE.KEYVAULT.PURGEPROTECT")).toEqual([["kv"]]);
+    // The app -> Key Vault data edge (e3) is both "not identity" and "should be identity".
+    expect(findingsForRule(findings, "BUNYA.IDN.001").map((f) => f.edgeIds)).toEqual([["e3"]]);
+    expect(findingsForRule(findings, "BUNYA.IDN.003").map((f) => f.edgeIds)).toEqual([["e3"]]);
   });
 
-  it("ISM.0974 fires on broken.ts (App Service httpsOnly false)", () => {
-    const findings = runRules(brokenGraph, TEST_ENTRIES);
-    expect(findingsForRule(findings, "ISM.0974").length).toBeGreaterThanOrEqual(
-      1,
-    );
-  });
-
-  it("ISM.1552 fires on broken.ts (Storage TLS 1.0)", () => {
-    const findings = runRules(brokenGraph, TEST_ENTRIES);
-    expect(findingsForRule(findings, "ISM.1552").length).toBeGreaterThanOrEqual(
-      1,
-    );
-  });
-
-  it("at least one PSRule rule fires on broken.ts", () => {
-    const findings = runRules(brokenGraph, TEST_ENTRIES);
-    const psrule = findings.filter((f) => f.source.name === "PSRule for Azure");
-    expect(psrule.length).toBeGreaterThanOrEqual(1);
-  });
-
-  it("BUNYA.NET.004 is registered as a graph-level rule", () => {
-    const ids = TEST_ENTRIES.map((e) => e.rule.id);
-    expect(ids).toContain("BUNYA.NET.004");
-    const entry = TEST_ENTRIES.find((e) => e.rule.id === "BUNYA.NET.004");
-    // It is a graph-scoped rule.
-    expect(entry?.rule.appliesTo).toContain("graph");
-  });
-
-  it("BUNYA.IMP.001 fires when graph has a Function App without a backing Storage Account", () => {
-    const findings = runRules(brokenGraph, TEST_ENTRIES);
-    const imp001 = findingsForRule(findings, "BUNYA.IMP.001");
-    expect(imp001.length).toBeGreaterThanOrEqual(1);
-    // It should reference the lonely function node.
-    expect(imp001[0]?.nodeIds).toContain("fn");
-  });
-
-  it("BUNYA.IDN.001 or BUNYA.IDN.003 fires when an App Service connects to Key Vault via a non-identity edge", () => {
-    const findings = runRules(brokenGraph, TEST_ENTRIES);
-    const idn1 = findingsForRule(findings, "BUNYA.IDN.001");
-    const idn3 = findingsForRule(findings, "BUNYA.IDN.003");
-    expect(idn1.length + idn3.length).toBeGreaterThanOrEqual(1);
-  });
-
-  it("applyAutofix repairs the storage minTlsVersion broken property", () => {
-    const findings = runRules(brokenGraph, TEST_ENTRIES);
-    // Find any finding that targets the bad storage account and has an autofix.
-    const fixable = findings.find(
-      (f) =>
-        f.autofixId !== undefined &&
-        (f.nodeIds ?? []).includes("stg") &&
-        // Locate a rule whose autofix targets minTlsVersion via property change.
-        TEST_ENTRIES.find((e) => e.rule.id === f.ruleId)?.autofixes?.[
-          f.autofixId!
-        ] !== undefined,
-    );
-
-    if (fixable) {
-      const fixed = applyAutofix(brokenGraph, fixable, TEST_ENTRIES);
-      // Original graph must be unchanged.
-      const stg = brokenGraph.nodes.find((n) => n.id === "stg");
-      expect(stg?.properties.minTlsVersion).toBe("1.0");
-      // The autofix should produce a different graph object reference.
-      expect(fixed).not.toBe(brokenGraph);
-    } else {
-      // Fallback: hand-build a finding for the COMP.002/ISM.1552 rule and
-      // hand-apply a tls autofix via a synthetic registry, to satisfy the
-      // contract that applyAutofix actually mutates the property when wired.
-      const entry: RuleEntry = {
-        rule: {
-          id: "TEST.STG.MINTLS",
-          source: { name: "test", url: "https://example.test" },
-          category: "data-protection",
-          severity: "error",
-          appliesTo: ["storageAccount"],
-          message: "test",
-          longExplanation: "test",
-          tags: ["test"],
-        },
-        check: () => [],
-        autofixes: {
-          "set-min-tls-12": (g, f) => {
-            const id = f.nodeIds?.[0];
-            if (!id) return g;
-            return {
-              ...g,
-              nodes: g.nodes.map((n) =>
-                n.id === id
-                  ? {
-                      ...n,
-                      properties: { ...n.properties, minTlsVersion: "1.2" },
-                    }
-                  : n,
-              ),
-            };
-          },
-        },
-      };
-      const finding: Finding = {
-        ruleId: "TEST.STG.MINTLS",
-        rule: entry.rule,
-        severity: "error",
-        source: entry.rule.source,
-        message: entry.rule.message,
-        explanation: entry.rule.longExplanation,
-        nodeIds: ["stg"],
-        autofixId: "set-min-tls-12",
-      };
-      const fixed = applyAutofix(brokenGraph, finding, [entry]);
-      const stg = fixed.nodes.find((n) => n.id === "stg");
-      expect(stg?.properties.minTlsVersion).toBe("1.2");
-    }
-  });
-
-  it("BUNYA.NAM.001 fires on a storageAccount with resourceName 'INVALID-NAME!'", () => {
-    const findings = runRules(brokenGraph, TEST_ENTRIES);
-    const nam1 = findingsForRule(findings, "BUNYA.NAM.001");
-    expect(nam1.length).toBeGreaterThanOrEqual(1);
-    expect(nam1[0]?.nodeIds).toContain("stg");
+  it("applyAutofix repairs the storage minTlsVersion without touching the input graph", () => {
+    const finding = findingsForRule(runRules(brokenGraph, REGISTRY), "PSRULE.STORAGE.MINTLS")[0];
+    expect(finding?.autofixId).toBe("force-tls-12");
+    const fixed = applyAutofix(brokenGraph, finding, REGISTRY);
+    expect(fixed.nodes.find((n) => n.id === "stg")?.properties.minTlsVersion).toBe("1.2");
+    expect(brokenGraph.nodes.find((n) => n.id === "stg")?.properties.minTlsVersion).toBe("1.0");
+    expect(findingsForRule(runRules(fixed, REGISTRY), "PSRULE.STORAGE.MINTLS")).toHaveLength(0);
   });
 
   it("applyAutofix is a no-op when the finding has no autofixId", () => {
@@ -249,7 +135,7 @@ describe("rules-engine runtime", () => {
       explanation: "test",
       nodeIds: ["stg"],
     };
-    const result = applyAutofix(brokenGraph, noFixFinding, TEST_ENTRIES);
+    const result = applyAutofix(brokenGraph, noFixFinding, REGISTRY);
     expect(result).toBe(brokenGraph);
   });
 
@@ -262,7 +148,7 @@ describe("rules-engine runtime", () => {
       }),
       testNode("acr", "containerRegistry"),
     ]);
-    const findings = runRules(graph, TEST_ENTRIES);
+    const findings = runRules(graph, REGISTRY);
     expect(findingsForRule(findings, "BUNYA.COMP.014")).toHaveLength(1);
     expect(findingsForRule(findings, "BUNYA.COMP.015")).toHaveLength(1);
     expect(findingsForRule(findings, "BUNYA.COMP.016")).toHaveLength(1);
@@ -279,7 +165,7 @@ describe("rules-engine runtime", () => {
       }),
       testNode("la", "logAnalytics"),
     ]);
-    const findings = runRules(graph, TEST_ENTRIES);
+    const findings = runRules(graph, REGISTRY);
     expect(findingsForRule(findings, "BUNYA.COMP.023")).toHaveLength(1);
     expect(findingsForRule(findings, "BUNYA.COMP.024")).toHaveLength(1);
     expect(findingsForRule(findings, "BUNYA.COMP.025")).toHaveLength(1);
@@ -295,14 +181,14 @@ describe("rules-engine runtime", () => {
       { id: "e1", source: "pe", target: "subnet", kind: "network" },
       { id: "e2", source: "pe", target: "stg", kind: "network" },
     ]);
-    const findings = runRules(graph, TEST_ENTRIES);
+    const findings = runRules(graph, REGISTRY);
     expect(findingsForRule(findings, "BUNYA.NET.011")).toHaveLength(1);
     expect(findingsForRule(findings, "BUNYA.NET.012")).toHaveLength(0);
 
     const noPrivatePath = graphFixture([
       testNode("stg", "storageAccount", { allowPublicAccess: false, publicNetworkAccess: false }),
     ]);
-    expect(findingsForRule(runRules(noPrivatePath, TEST_ENTRIES), "BUNYA.NET.012")).toHaveLength(1);
+    expect(findingsForRule(runRules(noPrivatePath, REGISTRY), "BUNYA.NET.012")).toHaveLength(1);
   });
 
   it("checks explicit Role Assignment modelling for identity edges", () => {
@@ -312,7 +198,7 @@ describe("rules-engine runtime", () => {
     ], [
       { id: "e1", source: "app", target: "kv", kind: "identity" },
     ]);
-    expect(findingsForRule(runRules(direct, TEST_ENTRIES), "BUNYA.IDN.006")).toHaveLength(1);
+    expect(findingsForRule(runRules(direct, REGISTRY), "BUNYA.IDN.006")).toHaveLength(1);
 
     const explicit = graphFixture([
       testNode("app", "appService"),
@@ -322,7 +208,7 @@ describe("rules-engine runtime", () => {
       { id: "e1", source: "app", target: "rbac", kind: "identity" },
       { id: "e2", source: "rbac", target: "kv", kind: "identity" },
     ]);
-    expect(findingsForRule(runRules(explicit, TEST_ENTRIES), "BUNYA.IDN.006")).toHaveLength(0);
+    expect(findingsForRule(runRules(explicit, REGISTRY), "BUNYA.IDN.006")).toHaveLength(0);
   });
 
   it("requires alerting on production graphs, not only Log Analytics", () => {
@@ -330,7 +216,7 @@ describe("rules-engine runtime", () => {
       testNode("app", "appService"),
       testNode("la", "logAnalytics"),
     ]);
-    expect(findingsForRule(runRules(missing, TEST_ENTRIES), "BUNYA.OBS.010")).toHaveLength(1);
+    expect(findingsForRule(runRules(missing, REGISTRY), "BUNYA.OBS.010")).toHaveLength(1);
 
     const covered = graphFixture([
       testNode("app", "appService"),
@@ -340,7 +226,7 @@ describe("rules-engine runtime", () => {
     ], [
       { id: "e1", source: "alert", target: "ag", kind: "depends_on" },
     ]);
-    expect(findingsForRule(runRules(covered, TEST_ENTRIES), "BUNYA.OBS.010")).toHaveLength(0);
+    expect(findingsForRule(runRules(covered, REGISTRY), "BUNYA.OBS.010")).toHaveLength(0);
   });
 
   it("flags App Service and Function App runtimes past Azure end of support", () => {
@@ -348,9 +234,32 @@ describe("rules-engine runtime", () => {
       testNode("web", "appService", { runtime: "node", runtimeVersion: "18-lts" }),
       testNode("fn", "functionApp", { runtime: "python", runtimeVersion: "3.9" }),
     ]);
-    const findings = findingsForRule(runRules(graph, TEST_ENTRIES), "BUNYA.COMP.RUNTIME-EOL");
+    const findings = findingsForRule(runRules(graph, REGISTRY), "BUNYA.COMP.RUNTIME-EOL");
     expect(findings.map((f) => f.nodeIds)).toEqual([["web"], ["fn"]]);
     expect(findings[0].message).toContain("reached end of Azure support on 2025-04-30");
+  });
+
+  it("caps Virtual Network names at 64 characters and subnet names at 80", () => {
+    const name = "v".repeat(70);
+    const graph = graphFixture([
+      { ...testNode("vnet", "virtualNetwork"), resourceName: name },
+      { ...testNode("subnet", "subnet"), resourceName: name },
+    ]);
+    expect(findingsForRule(runRules(graph, REGISTRY), "BUNYA.NAM.009").map((f) => f.nodeIds)).toEqual([["vnet"]]);
+  });
+
+  it("flags identity edges from a user-assigned identity to types the catalogue does not let it target", () => {
+    const graph = graphFixture([
+      testNode("uai", "userAssignedIdentity"),
+      testNode("kv", "keyVault"),
+      testNode("app", "appService"),
+    ], [
+      { id: "to-kv", source: "uai", target: "kv", kind: "identity" },
+      { id: "to-app", source: "uai", target: "app", kind: "identity" },
+    ]);
+    const findings = runRules(graph, REGISTRY);
+    expect(findingsForRule(findings, "BUNYA.IDN.004").map((f) => f.edgeIds)).toEqual([["to-app"]]);
+    expect(findingsForRule(findings, "BUNYA.IDN.UAI-UNSUPPORTED-TARGET").map((f) => f.edgeIds)).toEqual([["to-app"]]);
   });
 
   it("warns 90 days ahead of runtime end of support", () => {

@@ -83,7 +83,7 @@ export const RULE_BUNDLES: RuleBundle[] = [
 
 export const REGISTRY: RuleEntry[] = withAlignmentTags(RULE_BUNDLES.flatMap((bundle) => bundle.rules));
 
-export const MIN_REGISTRY_SIZE = 100;
+const MIN_REGISTRY_SIZE = 100;
 
 /** Everything wrong with a rule set: schema violations, duplicate ids, too few rules. */
 export function registryProblems(entries: RuleEntry[] = REGISTRY): string[] {
