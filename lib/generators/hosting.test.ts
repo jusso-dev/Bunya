@@ -400,6 +400,28 @@ describe("App Service hosting exports", () => {
       const main = file(generateTerraform(imported.document), "main.tf");
       expect(main).toMatch(/private_connection_resource_id = azurerm_storage_account\.\w+\.id/);
       expect(main).not.toContain("private_connection_resource_id = null");
+
+      // Every resource is unique, and the grants match the original diagram.
+      for (const result of [generateArm(imported.document), generateAzCli(imported.document), generatePowerShell(imported.document)]) {
+        const resources = JSON.parse(file(result, "azuredeploy.json")).resources as Arm[];
+        const keys = resources.map((r) => `${r.type}|${(r as Arm & { scope?: string }).scope ?? ""}|${r.name}`);
+        expect(keys.filter((key, index) => keys.indexOf(key) !== index)).toEqual([]);
+        expect(resources.filter((r) => r.type === "Microsoft.Authorization/roleAssignments")).toHaveLength(2);
+      }
+      expect(imported.document.nodes.some((node) => node.type === "roleAssignment")).toBe(false);
+      expect(file(generateTerraform(imported.document), "main.tf").match(/resource "azurerm_role_assignment"/g)).toHaveLength(2);
+    });
+
+    it("emits one ARM grant when an identity edge and a Role Assignment node describe it", () => {
+      const both = {
+        ...hostingGraph,
+        nodes: [...hostingGraph.nodes, { ...hostingGraph.nodes.find((node) => node.id === "umi")!, id: "ra", type: "roleAssignment" as const, name: "Role Assignment", resourceName: "ra-acrpull", properties: { roleDefinitionName: "AcrPull", scope: "target resource", principalType: "ServicePrincipal" } }],
+        edges: [...hostingGraph.edges, { id: "web-ra", source: "web", target: "ra", kind: "identity" as const }, { id: "ra-acr", source: "ra", target: "acr", kind: "identity" as const }],
+      };
+      const resources = JSON.parse(file(generateArm(both), "azuredeploy.json")).resources as Arm[];
+      const grants = resources.filter((r) => r.type === "Microsoft.Authorization/roleAssignments").map((r) => r.name);
+      expect(grants).toHaveLength(new Set(grants).size);
+      expect(grants.filter((name) => name.includes("'app-hosting', 'AcrPull'"))).toHaveLength(1);
     });
   });
 });

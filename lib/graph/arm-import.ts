@@ -715,6 +715,44 @@ function inferSiteSubnetEdge(
   }
 }
 
+// Exporters grant these roles from a principal -> scope identity edge, so an
+// imported assignment of one of them is drawn as that edge, not as a node.
+const EDGE_GRANTED_ROLES: Record<string, ServiceType> = {
+  AcrPull: "containerRegistry",
+  "Key Vault Secrets User": "keyVault",
+  "Storage Blob Data Contributor": "storageAccount",
+};
+
+// Replaces principal -> Role Assignment -> scope with principal -> scope when
+// the role is exactly the one exporters grant for that edge, so re-importing
+// an export does not grant the role twice.
+function collapseEdgeGrantedRoles(
+  resources: ImportedResource[],
+  edges: GraphEdge[],
+): { resources: ImportedResource[]; edges: GraphEdge[] } {
+  const byId = new Map(resources.map((item) => [item.node.id, item.node]));
+  const removed = new Set<string>();
+  const extra: GraphEdge[] = [];
+  for (const { node } of resources) {
+    if (node.type !== "roleAssignment") continue;
+    const principals = edges.filter((edge) => edge.target === node.id && edge.kind === "identity").map((edge) => byId.get(edge.source));
+    const scopes = edges.filter((edge) => edge.source === node.id && edge.kind === "identity").map((edge) => byId.get(edge.target));
+    const scopeType = EDGE_GRANTED_ROLES[String(node.properties.roleDefinitionName)];
+    if (principals.length !== 1 || scopes.length !== 1 || !principals[0] || !scopes[0] || scopes[0].type !== scopeType) continue;
+    // Only principals whose identity edges the exporters turn into grants
+    // (lib/generators/shared/roles.ts); AKS and VMSS keep the explicit node.
+    if (!["appService", "functionApp", "userAssignedIdentity"].includes(principals[0].type)) continue;
+    removed.add(node.id);
+    extra.push({ id: `${node.id}-grant`, source: principals[0].id, target: scopes[0].id, kind: "identity" });
+  }
+  if (removed.size === 0) return { resources, edges };
+  const kept = edges.filter((edge) => !removed.has(edge.source) && !removed.has(edge.target));
+  for (const edge of extra) {
+    if (!kept.some((e) => e.source === edge.source && e.target === edge.target && e.kind === "identity")) kept.push(edge);
+  }
+  return { resources: resources.filter((item) => !removed.has(item.node.id)), edges: kept };
+}
+
 // A site pulling from a registry with managed identity needs AcrPull, which
 // exporters generate from an identity edge.
 function inferRegistryEdge(
@@ -1113,8 +1151,9 @@ export function parseArmTemplate(text: string): ArmImportResult {
   }
 
   for (const resource of flat) resource.raw = expandReferences(resource.raw, parameters, variables) as ArmResource;
-  const edges = inferEdges(known, flat, warnings);
-  const nodes = layoutImportedNodes(known, edges, resourceGroup);
+  const inferred = inferEdges(known, flat, warnings);
+  const { resources: kept, edges } = collapseEdgeGrantedRoles(known, inferred);
+  const nodes = layoutImportedNodes(kept, edges, resourceGroup);
   if (nodes.length > 200 || edges.length > 1000) {
     return { ok: false, reason: `ARM template produces ${nodes.length} nodes and ${edges.length} edges; Bunya supports up to 200 nodes and 1,000 edges.` };
   }

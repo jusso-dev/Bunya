@@ -843,7 +843,16 @@ function emitRoleAssignments(ctx: GeneratorContext): ArmResource[] {
     const explicit = emitRoleAssignmentNode(node, ctx);
     if (explicit) out.push(explicit);
   }
-  return out;
+  // A direct identity edge and a drawn Role Assignment node can describe the
+  // same grant; both get the same deterministic name, and ARM rejects
+  // duplicate resources, so keep the first.
+  const seen = new Set<string>();
+  return out.filter((resource) => {
+    const key = `${resource.scope}|${resource.name}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function emitDiagnosticSettings(ctx: GeneratorContext): ArmResource[] {

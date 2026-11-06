@@ -59,8 +59,11 @@ project follows [Conventional Commits](https://www.conventionalcommits.org/).
   wait for its endpoints. Every exporter picks a Private Endpoint's target
   service by type, so a DNS zone edge drawn first is never used as the target.
   Re-importing Bunya's own ARM export round-trips: endpoint group IDs are read,
-  role assignment dependencies no longer form a cycle, and the location
-  parameter is resolved.
+  role assignment dependencies no longer form a cycle, imported AcrPull, Key
+  Vault Secrets User and Storage Blob Data Contributor assignments become the
+  identity edges exporters grant them from (so they are not granted twice),
+  and the location parameter is resolved. ARM never emits the same role
+  assignment twice.
 - Flex runtime versions are exported in the form Azure expects (`22-lts` as
   `22`, .NET `8` as `8.0`). Imports only match a pull identity that the
   reference names as a whole word (`id-pull` never matches `id-pull-external`). A warning rule explains first pulls with a system-assigned
