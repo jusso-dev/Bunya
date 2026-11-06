@@ -147,8 +147,9 @@ function emitPrivateEndpoint(node: GraphNode, ctx: GeneratorContext): ArmResourc
   const subnetEdge = outgoingOf(ctx, node.id, "network").find(
     (e) => ctx.nodesById.get(e.target)?.type === "subnet",
   );
+  // The service the endpoint connects to (not its subnet or DNS zones).
   const targetEdge = outgoingOf(ctx, node.id, "network").find(
-    (e) => ctx.nodesById.get(e.target)?.type !== "subnet",
+    (e) => ctx.nodesById.get(e.target)?.type !== "subnet" && ctx.nodesById.get(e.target)?.type !== "privateDnsZone",
   );
   const groupId = (node.properties.groupId as string) ?? "blob";
   const subnetId = subnetArmId(ctx, subnetEdge?.target);
@@ -158,12 +159,20 @@ function emitPrivateEndpoint(node: GraphNode, ctx: GeneratorContext): ArmResourc
   const dnsEdges = outgoingOf(ctx, node.id, "network").filter(
     (e) => ctx.nodesById.get(e.target)?.type === "privateDnsZone",
   );
+  const zoneId = (edge: { target: string }) =>
+    resourceId(
+      "Microsoft.Network/privateDnsZones",
+      (ctx.nodesById.get(edge.target)?.properties.zoneName as string | undefined) ?? resourceName(ctx, edge.target),
+    );
+  // ARM deploys in parallel: wait for the subnet and the target service.
+  const dependencies = [subnetId, ...(targetId ? [targetId] : [])];
   return {
     type: "Microsoft.Network/privateEndpoints",
     apiVersion: "2023-11-01",
     name: resourceName(ctx, node.id),
     location: "[parameters('location')]",
     tags: tags(ctx, node),
+    dependsOn: dependencies,
     properties: {
       subnet: { id: subnetId },
       privateLinkServiceConnections: [
@@ -182,15 +191,12 @@ function emitPrivateEndpoint(node: GraphNode, ctx: GeneratorContext): ArmResourc
             type: "privateDnsZoneGroups",
             apiVersion: "2023-11-01",
             name: "default",
+            dependsOn: [resourceId("Microsoft.Network/privateEndpoints", resourceName(ctx, node.id)), ...dnsEdges.map(zoneId)],
             properties: {
               privateDnsZoneConfigs: dnsEdges.map((edge) => ({
                 name: resourceName(ctx, edge.target),
                 properties: {
-                  privateDnsZoneId: resourceId(
-                    "Microsoft.Network/privateDnsZones",
-                    (ctx.nodesById.get(edge.target)?.properties.zoneName as string | undefined) ??
-                      resourceName(ctx, edge.target),
-                  ),
+                  privateDnsZoneId: zoneId(edge),
                 },
               })),
             },
@@ -215,6 +221,10 @@ function emitPrivateDnsZone(node: GraphNode, ctx: GeneratorContext): ArmResource
       apiVersion: "2020-06-01",
       name: `${resourceName(ctx, edge.target)}-link`,
       location: "global",
+      dependsOn: [
+        resourceId("Microsoft.Network/privateDnsZones", (node.properties.zoneName as string) ?? resourceName(ctx, node.id)),
+        resourceId("Microsoft.Network/virtualNetworks", resourceName(ctx, edge.target)),
+      ],
       properties: {
         registrationEnabled: false,
         virtualNetwork: {
@@ -277,6 +287,7 @@ function emitSite(node: GraphNode, ctx: GeneratorContext): ArmResource {
       ...(flex ? [containerId] : []),
       ...(acrPullGrantId(ctx, body.hosting) ?? []),
       ...(contentShareId(ctx, node, body.hosting) ? [contentShareId(ctx, node, body.hosting)!] : []),
+      ...storageEndpointDependencies(ctx, body.hosting),
     ])],
   };
   return resource;
@@ -290,6 +301,22 @@ function acrPullGrantId(ctx: GeneratorContext, hosting: ReturnType<typeof siteHo
   const registryId = armResourceId(hosting.registry, ctx);
   const name = `guid(${registryId.slice(1, -1)}, '${resourceName(ctx, identity.id)}', 'AcrPull')`;
   return [`[extensionResourceId(${registryId.slice(1, -1)}, 'Microsoft.Authorization/roleAssignments', ${name})]`];
+}
+
+// Private storage: the host starts as soon as the app exists, so wait for the
+// storage Private Endpoints and their DNS zone groups.
+function storageEndpointDependencies(ctx: GeneratorContext, hosting: ReturnType<typeof siteHosting>): string[] {
+  const storage = hosting.storage;
+  if (!storage || storagePublicNetwork(storage.properties)) return [];
+  return ctx.document.nodes
+    .filter((pe) => pe.type === "privateEndpoint" && outgoingOf(ctx, pe.id, "network").some((edge) => edge.target === storage.id))
+    .flatMap((pe) => {
+      const id = resourceId("Microsoft.Network/privateEndpoints", resourceName(ctx, pe.id));
+      const hasZones = outgoingOf(ctx, pe.id, "network").some((edge) => ctx.nodesById.get(edge.target)?.type === "privateDnsZone");
+      return hasZones
+        ? [id, `[resourceId('Microsoft.Network/privateEndpoints/privateDnsZoneGroups', '${resourceName(ctx, pe.id)}', 'default')]`]
+        : [id];
+    });
 }
 
 // Secured storage: the content share must exist before the app is created.

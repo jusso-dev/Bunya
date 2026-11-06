@@ -343,4 +343,32 @@ describe("App Service hosting exports", () => {
       }
     });
   });
+
+  it("declares an ARM dependency for every resource it references", () => {
+    type Resource = { type: string; name: string; dependsOn?: string[]; resources?: Resource[]; properties?: unknown; scope?: string };
+    const resources = JSON.parse(file(generateArm(hostingGraph), "azuredeploy.json")).resources as Resource[];
+    const key = (type: string, names: string[]) => `${type}|${names.join("/")}`.toLowerCase();
+    const declared = new Set<string>();
+    for (const resource of resources) {
+      declared.add(key(resource.type, resource.name.split("/")));
+      for (const child of resource.resources ?? []) declared.add(key(`${resource.type}/${child.type}`, [...resource.name.split("/"), child.name]));
+    }
+    const missing: string[] = [];
+    const check = (resource: Resource, parent?: string) => {
+      const deps = (resource.dependsOn ?? []).map((dep) => dep.toLowerCase().replace(/\s+/g, ""));
+      const text = JSON.stringify({ properties: resource.properties, scope: resource.scope });
+      for (const match of text.matchAll(/resourceId\('([^']+)',\s*'([^']+)'(?:,\s*'([^']+)')?(?:,\s*'([^']+)')?\)/g)) {
+        const names = match.slice(2).filter(Boolean) as string[];
+        const ref = key(match[1], names);
+        if (!declared.has(ref) || ref === parent) continue;
+        const wanted = `[resourceid('${match[1]}',${names.map((n) => `'${n}'`).join(",")})]`.toLowerCase();
+        if (!deps.includes(wanted)) missing.push(`${resource.type} ${resource.name} -> ${match[1]} ${names.join("/")}`);
+      }
+    };
+    for (const resource of resources) {
+      check(resource);
+      for (const child of resource.resources ?? []) check(child, key(resource.type, resource.name.split("/")));
+    }
+    expect(missing).toEqual([]);
+  });
 });
