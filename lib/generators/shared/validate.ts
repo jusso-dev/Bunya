@@ -56,7 +56,7 @@ export function validateGeneration(document: GraphDocument, deployment = true): 
         messages.add(problem.message);
         return true;
       });
-      if (problems.length > 0) throw new Error(`This diagram cannot be deployed to Azure as drawn: ${problems.map((problem) => problem.message).join(" ")}`);
+      if (problems.length > 0) throw new Error(`Bunya cannot generate deployment code for this diagram until these are fixed (an imported design can work in Azure but use settings Bunya does not model): ${problems.map((problem) => problem.message).join(" ")}`);
     }
     return { ok: true, document: parsed };
   } catch (error) {

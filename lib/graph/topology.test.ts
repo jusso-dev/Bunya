@@ -89,7 +89,7 @@ describe("topologyProblems", () => {
     const graph = doc([rg(), node("snet-loose", "subnet", "rg-topology")]);
     const result = generateTerraform(graph);
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reason).toContain("cannot be deployed to Azure as drawn");
+    if (!result.ok) expect(result.reason).toContain("Bunya cannot generate deployment code for this diagram until these are fixed");
   });
 });
 

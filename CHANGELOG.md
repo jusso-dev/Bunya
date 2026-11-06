@@ -15,6 +15,12 @@ project follows [Conventional Commits](https://www.conventionalcommits.org/).
   mode: share, export, import (import notes stay open until dismissed),
   copy, download and connection errors. Form validation messages stay inline.
 - Creating a new diagram shows an Undo action in its toast.
+- Fixed: Bunya files saved from an ARM import before the Storage Account
+  network setting existed opened with every storage endpoint closed, which
+  blocked Terraform and the other exports for Function Apps. Imported accounts
+  now keep Azure's default open endpoint. The export error now says Bunya
+  cannot generate code until the listed items are fixed, not that the design
+  cannot be deployed.
 
 ### App Service plans, container images and import links
 
