@@ -16,3 +16,11 @@ export function checkObjectDepth(value: unknown): void {
     }
   }
 }
+
+// Size check, JSON.parse and depth check for any text a user or link supplies.
+export function parseJsonInput(text: string): unknown {
+  checkImportText(text);
+  const parsed: unknown = JSON.parse(text);
+  checkObjectDepth(parsed);
+  return parsed;
+}

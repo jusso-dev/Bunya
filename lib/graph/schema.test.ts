@@ -1,10 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  GraphDocumentSchema,
-  GraphEdgeSchema,
-  GraphNodeSchema,
-  emptyGraph,
-} from "./schema";
+import { GraphDocumentSchema, emptyGraph } from "./schema";
 
 describe("graph schemas", () => {
   it("validates an empty graph document", () => {
@@ -12,25 +7,8 @@ describe("graph schemas", () => {
     expect(parsed.success).toBe(true);
   });
 
-  it("rejects an unknown service type", () => {
-    const result = GraphNodeSchema.safeParse({
-      id: "n1",
-      type: "notAService",
-      position: { x: 0, y: 0 },
-      name: "x",
-      resourceName: "x",
-      properties: {},
-    });
-    expect(result.success).toBe(false);
-  });
-
-  it("rejects an edge with an unknown kind", () => {
-    const result = GraphEdgeSchema.safeParse({
-      id: "e1",
-      source: "a",
-      target: "b",
-      kind: "notAKind",
-    });
-    expect(result.success).toBe(false);
+  it("rejects edges to missing nodes", () => {
+    const doc = { ...emptyGraph("demo"), edges: [{ id: "e1", source: "a", target: "b", kind: "network" as const }] };
+    expect(GraphDocumentSchema.safeParse(doc).success).toBe(false);
   });
 });

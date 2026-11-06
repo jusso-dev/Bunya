@@ -23,9 +23,12 @@ describe("canConnect", () => {
     expect(result.reason).toMatch(/already exists/);
   });
 
-  it("rejects a connection that would create a cycle", () => {
-    const result = canConnect(firstCutGraph, "kv", "app");
+  it("rejects an allowed connection that would create a cycle", () => {
+    const linked = { ...fullStackGraph, edges: [...fullStackGraph.edges, { id: "fn-app", source: "fn", target: "app", kind: "network" as const }] };
+    const result = canConnect(linked, "app", "fn");
     expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.reason).toMatch(/cycle/);
   });
 
   it("allows a fresh App Service to Storage Account data edge", () => {

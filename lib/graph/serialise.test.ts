@@ -5,7 +5,7 @@ import { serialiseToFragment, deserialiseFromFragment } from "./serialise";
 describe("serialise", () => {
   it("round-trips a graph through gzip+base64url", async () => {
     const fragment = await serialiseToFragment(firstCutGraph);
-    expect(fragment).toMatch(/^bunya1:/);
+    expect(fragment).toMatch(/^bunya1:[A-Za-z0-9_-]+$/);
     const restored = await deserialiseFromFragment(fragment);
     expect(restored).toEqual(firstCutGraph);
   });

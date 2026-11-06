@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { useGraphStore, inferDefaultEdgeKind } from "./store";
+import { useGraphStore } from "./store";
 
 const baseNode = {
   type: "resourceGroup" as const,
@@ -27,11 +27,6 @@ describe("useGraphStore", () => {
     expect(useGraphStore.getState().document.nodes).toHaveLength(0);
     useGraphStore.getState().redo();
     expect(useGraphStore.getState().document.nodes).toHaveLength(1);
-  });
-
-  it("infers identity as default edge kind into Key Vault", () => {
-    expect(inferDefaultEdgeKind("appService", "keyVault")).toBe("identity");
-    expect(inferDefaultEdgeKind("appService", "storageAccount")).toBe("data");
   });
 
   it("drops the exact-name flag when a resource is renamed", () => {

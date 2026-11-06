@@ -114,3 +114,44 @@ export function edgeRoleFor(scopeType: ServiceType): RoleName {
 // the scopes they grant on.
 export const GRANT_PRINCIPALS: ReadonlySet<ServiceType> = new Set(["appService", "functionApp", "userAssignedIdentity"]);
 export const GRANT_SCOPES: ReadonlySet<ServiceType> = new Set(["containerRegistry", "storageAccount", "keyVault"]);
+
+// Storage minimumTlsVersion: ARM writes "TLS1_2", Bunya stores "1.2".
+export function tlsVersionToArm(version: string): string {
+  return `TLS1_${version.split(".")[1]}`;
+}
+
+export function tlsVersionFromArm(value: string): string {
+  return value.replace("TLS1_", "1.");
+}
+
+// Stack names per Bunya runtime: `siteConfig.linuxFxVersion` prefixes
+// ("NODE|22-lts") and the Functions worker runtime (FUNCTIONS_WORKER_RUNTIME,
+// Flex `functionAppConfig.runtime.name`). .NET web apps use DOTNETCORE and
+// isolated-worker Function Apps DOTNET-ISOLATED; DOTNET appears in older exports.
+export const RUNTIME_STACKS = {
+  node: { linuxFx: ["NODE"], worker: "node" },
+  python: { linuxFx: ["PYTHON"], worker: "python" },
+  dotnet: { linuxFx: ["DOTNETCORE", "DOTNET-ISOLATED", "DOTNET"], worker: "dotnet-isolated" },
+  java: { linuxFx: ["JAVA"], worker: "java" },
+  powershell: { linuxFx: ["POWERSHELL"], worker: "powershell" },
+} as const satisfies Record<string, { linuxFx: readonly string[]; worker: string }>;
+
+export type RuntimeName = keyof typeof RUNTIME_STACKS;
+
+export function runtimeOfLinuxFx(stack: string): RuntimeName | undefined {
+  const upper = stack.toUpperCase();
+  return (Object.keys(RUNTIME_STACKS) as RuntimeName[]).find((name) => (RUNTIME_STACKS[name].linuxFx as readonly string[]).includes(upper));
+}
+
+export function runtimeOfWorker(worker: string): RuntimeName | undefined {
+  const lower = worker.toLowerCase();
+  return (Object.keys(RUNTIME_STACKS) as RuntimeName[]).find((name) => RUNTIME_STACKS[name].worker === lower);
+}
+
+// Azure SQL DTU capacity of each Standard service objective Bunya models.
+export const SQL_STANDARD_DTUS = { S0: 10, S1: 20 } as const;
+
+// Services whose exported names get a uniqueness suffix
+// (lib/generators/shared/naming.ts). An imported name is already a unique
+// Azure name, so the importer marks it exactName to keep it.
+export const SUFFIXED_NAME_TYPES: ReadonlySet<ServiceType> = new Set(["storageAccount", "keyVault"]);

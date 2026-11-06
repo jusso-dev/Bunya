@@ -25,7 +25,6 @@ export type GraphStoreState = {
   collapsed: Record<PanelId, boolean>;
   fxAudPerUsd: number;
   organisationRules: OrganisationRule[];
-  // Notes from the most recent import, shown in the Import notes dialog.
   importNotes: { source: string; notes: string[] } | null;
 };
 
@@ -64,6 +63,12 @@ export type GraphStoreActions = {
 export type GraphStore = GraphStoreState & GraphStoreActions;
 
 const HISTORY_LIMIT = 50;
+
+// localStorage key for the AUD/USD rate the user set.
+export const FX_RATE_STORAGE_KEY = "bunya.settings.fxAudPerUsd";
+
+// Below this width the panels overlay the canvas, so only one stays open.
+export const COMPACT_LAYOUT_QUERY = "(max-width: 1023px)";
 
 function pushHistory(state: GraphStoreState): Pick<GraphStoreState, "history" | "future"> {
   const next = [...state.history, state.document].slice(-HISTORY_LIMIT);
@@ -112,9 +117,9 @@ const graphStoreInitializer: StateCreator<GraphStore> = (set, get) => ({
     set({ fxAudPerUsd: clamped });
     if (typeof localStorage !== "undefined") {
       try {
-        localStorage.setItem("bunya.settings.fxAudPerUsd", String(clamped));
+        localStorage.setItem(FX_RATE_STORAGE_KEY, String(clamped));
       } catch {
-        // ignore quota errors
+        // Storage can be full or blocked; the rate still applies this session.
       }
     }
   },
@@ -123,7 +128,7 @@ const graphStoreInitializer: StateCreator<GraphStore> = (set, get) => ({
     set((state) => ({
       collapsed: {
         ...state.collapsed,
-        ...(typeof window !== "undefined" && window.matchMedia("(max-width: 1023px)").matches && state.collapsed[id]
+        ...(typeof window !== "undefined" && window.matchMedia(COMPACT_LAYOUT_QUERY).matches && state.collapsed[id]
           ? { palette: true, properties: true, output: true } : {}),
         [id]: !state.collapsed[id],
       },
@@ -322,5 +327,3 @@ const graphStoreInitializer: StateCreator<GraphStore> = (set, get) => ({
 export const useGraphStore = create<GraphStore>(graphStoreInitializer);
 
 export const createGraphStore = () => createStore<GraphStore>(graphStoreInitializer);
-
-export { inferDefaultEdgeKind } from "@/lib/catalogue/services";
