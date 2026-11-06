@@ -24,7 +24,6 @@ for (const colorScheme of ["light", "dark"] as const) {
     expect([...bytes.subarray(0, 3)]).toEqual([0xff, 0xd8, 0xff]);
     expect(bytes.length).toBeGreaterThan(20_000);
 
-    // A themed Sonner toast confirms the download.
     await expect(page.locator("[data-sonner-toast]").filter({ hasText: "Exported three-tier.jpg." })).toBeVisible();
     await page.screenshot({ path: `test-results/image-export-toast-${colorScheme}.png` });
   });

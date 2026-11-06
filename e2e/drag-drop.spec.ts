@@ -57,30 +57,22 @@ test("drag-and-drop from palette lands the node at the cursor without console er
   await page.goto("/");
   await collapseSidePanels(page);
 
-  const palette = page.locator('[data-service-type="appService"]').first();
-  const canvas = page.locator('[data-testid="bunya-canvas"]');
+  const canvas = page.getByTestId("bunya-canvas");
+  const canvasBox = (await canvas.boundingBox())!;
+  const target = { x: canvasBox.width / 2, y: canvasBox.height / 2 };
+  await page.getByRole("button", { name: "Add Web App (App Service)", exact: true }).dragTo(canvas, { targetPosition: target });
 
-  const paletteBox = await palette.boundingBox();
-  const canvasBox = await canvas.boundingBox();
-  if (!paletteBox || !canvasBox) throw new Error("could not measure palette or canvas");
-
-  const targetX = canvasBox.x + canvasBox.width / 2;
-  const targetY = canvasBox.y + canvasBox.height / 2;
-
-  await page.mouse.move(
-    paletteBox.x + paletteBox.width / 2,
-    paletteBox.y + paletteBox.height / 2,
-  );
-  await page.mouse.down();
-  await page.mouse.move(targetX, targetY, { steps: 16 });
-  await page.mouse.up();
-
-  // HTML5 DnD is unreliable under Playwright; click-to-add is the documented fallback.
-  await palette.click({ position: { x: 10, y: 10 } });
-  await expect(page.locator(".react-flow__node")).not.toHaveCount(0);
+  const node = page.locator(".react-flow__node");
+  await expect(node).toHaveCount(1);
+  const nodeBox = (await node.boundingBox())!;
+  // The drop point is the node's top-left corner.
+  expect(Math.abs(nodeBox.x - (canvasBox.x + target.x))).toBeLessThan(20);
+  expect(Math.abs(nodeBox.y - (canvasBox.y + target.y))).toBeLessThan(20);
 
   const deprecation = messages.find(
     (m) => m.text.toLowerCase().includes("project") && m.text.toLowerCase().includes("deprecated"),
   );
   expect(deprecation, JSON.stringify(messages, null, 2)).toBeUndefined();
+  const pageErrors = messages.filter((m) => m.type === "error");
+  expect(pageErrors, JSON.stringify(pageErrors, null, 2)).toEqual([]);
 });

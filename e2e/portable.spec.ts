@@ -19,7 +19,6 @@ test("Import button replaces the canvas with a Bunya envelope", async ({ page })
   await page.getByRole("button", { name: "Properties" }).first().click();
   await page.getByRole("button", { name: "Output" }).first().click();
 
-  // Existing graph: just a Key Vault
   await page.locator('[data-service-type="keyVault"]').first().click({ position: { x: 10, y: 10 } });
   await expect(page.locator(".react-flow__node")).toHaveCount(1);
 
@@ -93,19 +92,17 @@ test("Import button replaces the canvas with a Bunya envelope", async ({ page })
   await expect(page.locator(".react-flow__node")).toHaveCount(3, { timeout: 5000 });
 });
 
-test("malformed import surfaces an error without clobbering the canvas", async ({ page }) => {
+test("a malformed file dropped on the canvas shows the reason and keeps the diagram", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "Properties" }).first().click();
-  await page.getByRole("button", { name: "Output" }).first().click();
-
-  await page.locator('[data-service-type="keyVault"]').first().click({ position: { x: 10, y: 10 } });
+  await page.getByRole("button", { name: "Add Key Vault", exact: true }).click();
   await expect(page.locator(".react-flow__node")).toHaveCount(1);
 
-  await page.setInputFiles('input[aria-label="Import Bunya file"]', {
-    name: "broken.json",
-    mimeType: "application/json",
-    buffer: Buffer.from("not json at all"),
+  await page.getByTestId("bunya-canvas").evaluate((canvas) => {
+    const data = new DataTransfer();
+    data.items.add(new File(["not json at all"], "broken.json", { type: "application/json" }));
+    canvas.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: data }));
   });
-  await page.waitForTimeout(300);
+
+  await expect(page.getByRole("dialog", { name: "Import diagram" }).getByRole("alert")).toContainText("Import failed");
   await expect(page.locator(".react-flow__node")).toHaveCount(1);
 });
