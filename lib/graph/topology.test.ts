@@ -194,6 +194,35 @@ describe("starter templates", () => {
       expect(text).toContain('"fn2" has VNet integration, which the Consumption plan');
     });
 
+    it("never puts an unattached app on a serverless plan when exporting", () => {
+      const document = doc([
+        node("rg", "resourceGroup", null),
+        node("flex", "appServicePlan", "rg", { sku: "FC1", capacity: 0 }),
+        node("fn", "functionApp", "flex"),
+        node("stg", "storageAccount", "rg"),
+        node("web", "appService", "rg", { containerImage: "acr1.azurecr.io/api:1" }),
+      ], [{ id: "e1", source: "fn", target: "stg", kind: "data" }]);
+      const result = generateArm(document);
+      if (!result.ok) throw new Error(result.reason);
+      const template = JSON.parse(result.files[0].content) as { resources: { type: string; name: string; sku?: { name: string }; properties?: { serverFarmId?: string } }[] };
+      const web = template.resources.find((r) => r.type === "Microsoft.Web/sites" && r.name === "web")!;
+      const plans = template.resources.filter((r) => r.type === "Microsoft.Web/serverfarms");
+      expect(plans.map((p) => p.sku?.name).sort()).toEqual(["B1", "FC1"]);
+      expect(web.properties?.serverFarmId).not.toContain("'flex'");
+    });
+
+    it("checks the plans implicit expansion adds before exporting", () => {
+      const document = doc([
+        node("rg", "resourceGroup", null),
+        node("win", "appServicePlan", "rg", { sku: "S1", os: "Windows" }),
+        node("web", "appService", "rg"),
+      ]);
+      const result = generateTerraform(document);
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.files.find((f) => f.path === "main.tf")?.content).toMatch(/os_type\s+= "Linux"/);
+    });
+
     it("exports the new dedicated SKUs", () => {
       for (const sku of ["B3", "S2", "S3", "P0v3", "P3v3", "P1v2", "P2v2", "P3v2"]) {
         const document = doc([

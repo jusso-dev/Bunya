@@ -140,4 +140,56 @@ describe("App Service hosting exports", () => {
       expect(result.files[0].content).toContain('App Service Plan "plan-flex" uses FC1');
     }
   });
+
+  describe("council review regressions", () => {
+    const without = (edgeId: string) => ({ ...hostingGraph, edges: hostingGraph.edges.filter((edge) => edge.id !== edgeId) });
+    const withProps = (nodeId: string, properties: Record<string, unknown>) => ({
+      ...hostingGraph,
+      nodes: hostingGraph.nodes.map((node) => (node.id === nodeId ? { ...node, properties: { ...node.properties, ...properties } } : node)),
+    });
+
+    it("blocks a registry image that has no pull identity", () => {
+      for (const generate of [generateTerraform, generateBicep, generateArm]) {
+        const result = generate(without("web-acr"));
+        expect(result.ok ? "ok" : result.reason).toContain('"app-hosting" pulls its image from Container Registry "acrhosting" without a managed identity');
+      }
+    });
+
+    it("orders a user-assigned pull after its AcrPull grant", () => {
+      const worker = site("fn-ep");
+      expect(worker.dependsOn?.some((dep) => dep.includes("Microsoft.Authorization/roleAssignments") && dep.includes("'id-pull', 'AcrPull'"))).toBe(true);
+      const grants = armResources().filter((r) => r.type === "Microsoft.Authorization/roleAssignments");
+      const name = grants.find((r) => String(r.properties?.principalId).includes("'id-pull'"))?.name;
+      expect(name).toContain("'id-pull', 'AcrPull'");
+
+      const main = file(generateTerraform(hostingGraph), "main.tf");
+      const fnEp = main.split('resource "azurerm_linux_function_app" "fn_ep"')[1].split("\n}")[0];
+      expect(fnEp).toContain("depends_on = [azurerm_role_assignment.id_pull_acrhosting_acrpull]");
+      expect(main).toContain('resource "azurerm_role_assignment" "id_pull_acrhosting_acrpull"');
+
+      const bicep = file(generateBicep(hostingGraph), "main.bicep");
+      const ref = bicep.match(/resource (\S+_acrpull) 'Microsoft.Authorization\/roleAssignments/g) ?? [];
+      expect(ref.length).toBe(2);
+      expect(bicep).toMatch(/dependsOn: \[\n\s+node_\d+_id_pull_resource_node_\d+_acrhosting_resource_acrpull\n/);
+    });
+
+    it("grants the same roles in ARM, Bicep and Terraform", () => {
+      const arm = armResources().filter((r) => r.type === "Microsoft.Authorization/roleAssignments");
+      expect(arm.some((r) => String(r.name).includes("'Reader'"))).toBe(false);
+      expect(arm).toHaveLength(2);
+      expect(file(generateBicep(hostingGraph), "main.bicep").match(/Microsoft.Authorization\/roleAssignments@/g)).toHaveLength(2);
+      expect(file(generateTerraform(hostingGraph), "main.tf").match(/resource "azurerm_role_assignment"/g)).toHaveLength(2);
+    });
+
+    it("requires a drawn storage account for Flex deployment packages", () => {
+      const result = generateArm(without("flex-stg"));
+      expect(result.ok ? "ok" : result.reason).toContain('"fn-flex" runs on Flex Consumption, which deploys packages from a storage account');
+    });
+
+    it("only allows Flex runtime versions Azure supports", () => {
+      const result = generateBicep(withProps("fn-flex", { runtimeVersion: "3.9" }));
+      expect(result.ok ? "ok" : result.reason).toContain("uses python 3.9, which Flex Consumption does not run; use python 3.10, 3.11, 3.12, 3.13, 3.14");
+      expect(generateBicep(withProps("fn-flex", { runtime: "dotnet", runtimeVersion: "8" })).ok).toBe(true);
+    });
+  });
 });

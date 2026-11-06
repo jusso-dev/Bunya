@@ -229,6 +229,14 @@ function registryConfig(ctx: GeneratorContext, hosting: SiteHosting): string[] {
   return lines;
 }
 
+// A user-assigned pull identity is granted AcrPull before the app starts, so
+// the first image pull succeeds.
+function pullGrantDependsOn(ctx: GeneratorContext, hosting: SiteHosting): string[] {
+  if (!hosting.registry || hosting.pullIdentity?.kind !== "user") return [];
+  const grant = `azurerm_role_assignment.${ctx.identifiers.get(hosting.pullIdentity.node.id)}_${ctx.identifiers.get(hosting.registry.id)}_acrpull`;
+  return ["", `  depends_on = [${grant}]`];
+}
+
 function subnetLine(ctx: GeneratorContext, hosting: SiteHosting): string[] {
   return hosting.subnet ? [`  virtual_network_subnet_id     = azurerm_subnet.${ctx.identifiers.get(hosting.subnet.id)}.id`] : [];
 }
@@ -267,7 +275,7 @@ function emitAppService(node: GraphNode, ctx: GeneratorContext): string {
     ...identityBlock(ctx, hosting),
   ];
   if (settings.length > 0) lines.push("", `  app_settings = {`, ...settings, `  }`);
-  lines.push(tagsBlock(ctx, node), `}`);
+  lines.push(...pullGrantDependsOn(ctx, hosting), tagsBlock(ctx, node), `}`);
   return lines.filter(Boolean).join("\n");
 }
 
@@ -321,7 +329,7 @@ function emitLinuxFunctionApp(node: GraphNode, ctx: GeneratorContext, hosting: S
     ...identityBlock(ctx, hosting),
   ];
   if (settings.length > 0) lines.push("", `  app_settings = {`, ...settings, `  }`);
-  lines.push(tagsBlock(ctx, node), `}`);
+  lines.push(...pullGrantDependsOn(ctx, hosting), tagsBlock(ctx, node), `}`);
   return lines.filter(Boolean).join("\n");
 }
 
@@ -365,7 +373,7 @@ function emitFlexFunctionApp(node: GraphNode, ctx: GeneratorContext, hosting: Si
     ...identityBlock(ctx, hosting),
   ];
   if (settings.length > 0) lines.push("", `  app_settings = {`, ...settings, `  }`);
-  lines.push(tagsBlock(ctx, node), `}`);
+  lines.push(...pullGrantDependsOn(ctx, hosting), tagsBlock(ctx, node), `}`);
   return lines.filter(Boolean).join("\n");
 }
 

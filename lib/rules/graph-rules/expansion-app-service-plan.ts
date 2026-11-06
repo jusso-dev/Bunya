@@ -6,7 +6,7 @@
 // to it (Function Apps, App Services) and emit findings on either the plan or
 // the attached compute.
 
-import { graphRule, nodesOfType } from "@/lib/rules/builders";
+import { graphRule, nodeRule, nodesOfType } from "@/lib/rules/builders";
 import type { RuleEntry } from "@/lib/rules/schema";
 import type { GraphDocument, GraphNode } from "@/lib/graph/schema";
 
@@ -86,6 +86,24 @@ export const expansionAppServicePlanRules: RuleEntry[] = [
       }
       return findings;
     },
+  }),
+
+  // BUNYA.COST.PLAN-LINUX-CONSUMPTION-RETIRING
+  nodeRule({
+    id: "BUNYA.COST.PLAN-LINUX-CONSUMPTION-RETIRING",
+    source: {
+      name: "Microsoft Learn — Migrate Consumption plan apps to the Flex Consumption plan",
+      license: "CC-BY-4.0",
+      url: "https://learn.microsoft.com/en-us/azure/azure-functions/migration/migrate-plan-consumption-to-flex",
+    },
+    category: "cost",
+    severity: "warning",
+    serviceTypes: ["appServicePlan"],
+    message: "Linux Consumption (Y1) plans retire on 30 September 2028; use Flex Consumption (FC1) for new Function Apps.",
+    longExplanation:
+      "Microsoft is retiring Function Apps on Linux in a Consumption plan on 30 September 2028, and the plan gets no new features or language versions. Flex Consumption (FC1) is the replacement: it also bills per execution, scales to zero, and adds VNet integration and larger instances. Bunya exports Linux sites, so a Y1 plan here is a Linux Consumption plan.",
+    tags: ["bunya", "app-service-plan", "functions", "retirement"],
+    predicate: (node) => (node.properties as { sku?: string }).sku === "Y1",
   }),
 
   // 8. BUNYA.COMP.PLAN-OS-MISMATCH

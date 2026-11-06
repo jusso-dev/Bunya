@@ -193,6 +193,7 @@ const LINUX_FX_RUNTIMES: Record<string, string> = {
 // Keeping the exported runtime lets lifecycle rules see what is deployed.
 function linuxRuntime(
   siteConfig: Record<string, unknown>,
+  resourceKind: "app" | "functionapp",
   resourceName: string,
   parameters: Record<string, unknown>,
   variables: Record<string, unknown>,
@@ -212,9 +213,8 @@ function linuxRuntime(
     warnings.push(`${resourceName}: runtime "${fx}" is not modelled; Bunya defaults were used.`);
     return {};
   }
-  if (match[1].toUpperCase() === "DOTNET-ISOLATED") {
-    // Bunya models .NET as one runtime; the isolated worker setting is not kept.
-    warnings.push(`${resourceName}: the .NET isolated worker model is not modelled; review FUNCTIONS_WORKER_RUNTIME after export.`);
+  if (match[1].toUpperCase().startsWith("DOTNET") && match[1].toUpperCase() !== "DOTNET-ISOLATED" && resourceKind === "functionapp") {
+    warnings.push(`${resourceName}: .NET Function Apps are exported on the isolated worker model; the in-process model ends support on 10 November 2026, so migrate the code before deploying.`);
   }
   return { runtime, runtimeVersion: match[2].trim() };
 }
@@ -239,9 +239,6 @@ function flexSettings(props: Record<string, unknown>, resourceName: string, warn
     out.runtime = FLEX_RUNTIMES[name];
     const version = asString(runtime.version);
     if (version) out.runtimeVersion = version;
-    if (name === "dotnet-isolated") {
-      warnings.push(`${resourceName}: the .NET isolated worker model is not modelled; review FUNCTIONS_WORKER_RUNTIME after export.`);
-    }
   } else if (name) {
     warnings.push(`${resourceName}: runtime "${name}" is not modelled; Bunya defaults were used.`);
   }
@@ -316,7 +313,7 @@ function baseProperties(type: ServiceType, resource: FlatArmResource, allResourc
     case "appService":
       return {
         ...defaults,
-        ...linuxRuntime(asRecord(props.siteConfig), resource.name, parameters, variables, warnings),
+        ...linuxRuntime(asRecord(props.siteConfig), "app", resource.name, parameters, variables, warnings),
         httpsOnly: props.httpsOnly !== false,
         alwaysOn: asRecord(props.siteConfig).alwaysOn !== false,
         publicNetworkAccess: asString(props.publicNetworkAccess) !== "Disabled",
@@ -325,7 +322,7 @@ function baseProperties(type: ServiceType, resource: FlatArmResource, allResourc
     case "functionApp":
       return {
         ...defaults,
-        ...linuxRuntime(asRecord(props.siteConfig), resource.name, parameters, variables, warnings),
+        ...linuxRuntime(asRecord(props.siteConfig), "functionapp", resource.name, parameters, variables, warnings),
         ...flexSettings(props, resource.name, warnings),
         httpsOnly: props.httpsOnly !== false,
         publicNetworkAccess: asString(props.publicNetworkAccess) !== "Disabled",
@@ -715,13 +712,46 @@ function inferRegistryEdge(
     warnings.push(`${item.flat.name}: pulls ${image.reference} with registry credentials; turn on managed identity pulls and draw an identity edge to ${registry.resourceName} so exports grant AcrPull.`);
     return;
   }
-  const userIdentity = findReferencedNode(siteConfig.acrUserManagedIdentityID, resources, ["userAssignedIdentity"]);
+  const clientId = asString(siteConfig.acrUserManagedIdentityID);
+  if (!clientId) {
+    addEdge(edges, item.node, registry, "identity");
+    return;
+  }
+  // acrUserManagedIdentityID is the identity's client ID (a GUID, or an
+  // expression reading clientId). Match it to an identity attached to the site.
+  const attached = Object.keys(asRecord(asRecord(item.flat.raw.identity).userAssignedIdentities))
+    .map((ref) => findReferencedNode(ref, resources, ["userAssignedIdentity"]))
+    .filter((node): node is GraphNode => !!node);
+  const userIdentity =
+    findReferencedNode(clientId, resources, ["userAssignedIdentity"]) ??
+    (attached.length === 1 ? attached[0] : undefined);
   if (userIdentity) {
     addEdge(edges, item.node, userIdentity, "identity");
     addEdge(edges, userIdentity, registry, "identity");
     return;
   }
-  addEdge(edges, item.node, registry, "identity");
+  // Never fall back to the system identity: that would grant AcrPull to a
+  // different principal than the one Azure uses to pull.
+  addEdge(edges, item.node, registry, "depends_on");
+  warnings.push(`${item.flat.name}: pulls ${image.reference} with user-assigned identity ${clientId}, which is not in this template; add the identity and draw identity edges app to identity to ${registry.resourceName} so exports grant AcrPull to it.`);
+}
+
+const APP_INSIGHTS_SETTINGS = new Set(["applicationinsights_connection_string", "appinsights_instrumentationkey"]);
+
+// Values of the App Insights settings, from siteConfig.appSettings (name/value
+// pairs) or a sites/config "appsettings" child (a key/value map).
+function appInsightsSettingValues(site: FlatArmResource, allResources: FlatArmResource[]): unknown[] {
+  const values: unknown[] = [];
+  for (const entry of asArray(asRecord(asRecord(site.raw.properties).siteConfig).appSettings)) {
+    const pair = asRecord(entry);
+    if (APP_INSIGHTS_SETTINGS.has(String(pair.name ?? "").toLowerCase())) values.push(pair.value);
+  }
+  for (const child of childResources(site, allResources, "config")) {
+    for (const [key, value] of Object.entries(asRecord(child.raw.properties))) {
+      if (APP_INSIGHTS_SETTINGS.has(key.toLowerCase())) values.push(value);
+    }
+  }
+  return values;
 }
 
 // Portal exports tag App Insights components with a hidden-link to their app;
@@ -742,16 +772,12 @@ function inferAppInsightsEdges(
     const site = sites.find((candidate) => candidate.flat.name.toLowerCase() === name)?.node;
     if (site) addEdge(edges, site, item.node, "diagnostic");
   }
-  const component = item.flat.fullName.toLowerCase();
+  const components = resources.filter((candidate) => candidate.node.type === "applicationInsights");
   for (const site of sites) {
-    const settings = [
-      asRecord(asRecord(site.flat.raw.properties).siteConfig).appSettings,
-      ...childResources(site.flat, allResources, "config").map((child) => child.raw.properties),
-    ];
-    const text = JSON.stringify(settings).toLowerCase();
-    if (!/applicationinsights_connection_string|appinsights_instrumentationkey/.test(text)) continue;
-    if (text.includes(`microsoft.insights/components', '${component}'`) || text.includes(`/components/${component}`)) {
-      addEdge(edges, site.node, item.node, "diagnostic");
+    for (const value of appInsightsSettingValues(site.flat, allResources)) {
+      // The resolver handles resourceId(...) with any whitespace and paths.
+      const target = findReferencedNode(value, components, ["applicationInsights"]);
+      if (target === item.node) addEdge(edges, site.node, item.node, "diagnostic");
     }
   }
 }

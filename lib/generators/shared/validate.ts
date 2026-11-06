@@ -2,6 +2,7 @@ import { getServiceDefinition } from "../../catalogue/services";
 import { GraphDocumentSchema, type GraphDocument } from "../../graph/schema";
 import { checkImportText, checkObjectDepth } from "../../graph/limits";
 import { topologyProblems } from "../../graph/topology";
+import { expandImplicits } from "./implicits";
 
 // These exporters emit literal deployment values, never user-provided code.
 // Keep one conservative literal grammar across Bash, PowerShell, HCL, Bicep
@@ -47,7 +48,14 @@ export function validateGeneration(document: GraphDocument, deployment = true): 
       node.properties = properties;
     }
     if (deployment) {
-      const problems = topologyProblems(parsed);
+      // Check the graph as drawn and as exporters emit it, including plans and
+      // edges implicit expansion adds for unattached apps.
+      const messages = new Set<string>();
+      const problems = [...topologyProblems(parsed), ...topologyProblems(expandImplicits(parsed).document)].filter((problem) => {
+        if (messages.has(problem.message)) return false;
+        messages.add(problem.message);
+        return true;
+      });
       if (problems.length > 0) throw new Error(`This diagram cannot be deployed to Azure as drawn: ${problems.map((problem) => problem.message).join(" ")}`);
     }
     return { ok: true, document: parsed };

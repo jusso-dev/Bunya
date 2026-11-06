@@ -268,9 +268,23 @@ function emitSite(node: GraphNode, ctx: GeneratorContext): ArmResource {
     identity: toArm(body.identity) as Record<string, unknown>,
     properties: toArm(body.properties) as Record<string, unknown>,
     tags: tags(ctx, node),
-    dependsOn: [...new Set([...body.dependsOn.map((dep) => armResourceId(dep, ctx)), ...(flex ? [containerId] : [])])],
+    dependsOn: [...new Set([
+      ...body.dependsOn.map((dep) => armResourceId(dep, ctx)),
+      ...(flex ? [containerId] : []),
+      ...(acrPullGrantId(ctx, body.hosting) ?? []),
+    ])],
   };
   return resource;
+}
+
+// A user-assigned pull identity can be granted AcrPull before the site
+// exists, so order the site after the grant; the first pull then succeeds.
+function acrPullGrantId(ctx: GeneratorContext, hosting: ReturnType<typeof siteHosting>): string[] | null {
+  if (!hosting.registry || hosting.pullIdentity?.kind !== "user") return null;
+  const identity = hosting.pullIdentity.node;
+  const registryId = armResourceId(hosting.registry, ctx);
+  const name = `guid(${registryId.slice(1, -1)}, '${resourceName(ctx, identity.id)}', 'AcrPull')`;
+  return [`[extensionResourceId(${registryId.slice(1, -1)}, 'Microsoft.Authorization/roleAssignments', ${name})]`];
 }
 
 // Flex Consumption deploys packages from this blob container.
@@ -736,7 +750,7 @@ function emitRoleAssignmentNode(node: GraphNode, ctx: GeneratorContext): ArmReso
     type: "Microsoft.Authorization/roleAssignments",
     apiVersion: "2022-04-01",
     scope: armResourceId(scope, ctx),
-    name: `[guid(${armResourceId(scope, ctx).slice(1, -1)}, '${principal.resourceName}', '${roleName}')]`,
+    name: `[guid(${armResourceId(scope, ctx).slice(1, -1)}, '${resourceName(ctx, principal.id)}', '${roleName}')]`,
     properties: {
       roleDefinitionId:
         `[subscriptionResourceId('Microsoft.Authorization/roleDefinitions','${ROLE_DEFINITION_IDS[roleName] ?? ROLE_DEFINITION_IDS.Reader}')]`,
@@ -755,6 +769,8 @@ function emitRoleAssignments(ctx: GeneratorContext): ArmResource[] {
     const target = ctx.nodesById.get(edge.target);
     if (!source || !target) continue;
     if (source.type === "roleAssignment" || target.type === "roleAssignment") continue;
+    // A site -> user-assigned identity edge attaches the identity; it grants nothing.
+    if (target.type === "userAssignedIdentity") continue;
     const principalId = principalIdExpression(source, ctx);
     if (!principalId) continue;
     const roleName = defaultRoleNameFor(target);
@@ -762,7 +778,7 @@ function emitRoleAssignments(ctx: GeneratorContext): ArmResource[] {
       type: "Microsoft.Authorization/roleAssignments",
       apiVersion: "2022-04-01",
       scope: armResourceId(target, ctx),
-      name: `[guid(${armResourceId(target, ctx).slice(1, -1)}, '${source.resourceName}', '${roleName}')]`,
+      name: `[guid(${armResourceId(target, ctx).slice(1, -1)}, '${resourceName(ctx, source.id)}', '${roleName}')]`,
       properties: {
         roleDefinitionId:
           `[subscriptionResourceId('Microsoft.Authorization/roleDefinitions','${ROLE_DEFINITION_IDS[roleName] ?? ROLE_DEFINITION_IDS.Reader}')]`,

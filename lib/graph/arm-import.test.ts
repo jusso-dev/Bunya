@@ -502,7 +502,7 @@ describe("parseArmTemplate", () => {
     expect(result.warning).toContain('runtime "RUBY|2.7" is not modelled');
     expect(byName["web-param"]).toMatchObject({ runtime: "node", runtimeVersion: "20-lts" });
     expect(byName["fn-isolated"]).toMatchObject({ runtime: "dotnet", runtimeVersion: "8.0" });
-    expect(result.warning).toContain("fn-isolated: the .NET isolated worker model is not modelled");
+    expect(result.warning ?? "").not.toContain("fn-isolated");
   });
 
   it("imports an Azure portal export with parameterised plans, unsafe names and mapped settings", () => {
@@ -610,9 +610,20 @@ describe("parseArmTemplate", () => {
     expect(result.warning).toContain("Skipped resource types Bunya does not model: Microsoft.Sql/servers x1.");
     expect(result.warning).not.toContain("locations could not be represented");
 
-    const terraform = generateTerraform(result.document);
+    // The app pulls with registry credentials, so exports block until an
+    // identity edge lets them grant AcrPull instead.
+    const blocked = generateTerraform(result.document);
+    expect(blocked.ok ? "ok" : blocked.reason).toContain('"app-dashboard" pulls its image from Container Registry "acrexample" without a managed identity');
+    const withIdentity = {
+      ...result.document,
+      edges: [...result.document.edges, { id: "pull", source: byName("app-dashboard").id, target: byName("acrexample").id, kind: "identity" as const }],
+    };
+    const terraform = generateTerraform(withIdentity);
     if (!terraform.ok) throw new Error(terraform.reason);
-    expect(terraform.files.find((file) => file.path === "main.tf")?.content).toContain('docker_image_name   = "app-dashboard:latest"');
+    const main = terraform.files.find((file) => file.path === "main.tf")?.content ?? "";
+    expect(main).toContain('docker_image_name   = "app-dashboard:latest"');
+    expect(main).toContain("container_registry_use_managed_identity = true");
+    expect(main).toContain('role_definition_name = "AcrPull"');
   });
 
   it("imports Flex Consumption, VNet integration, App Insights links and managed-identity registry pulls", () => {
@@ -691,5 +702,77 @@ describe("parseArmTemplate", () => {
     }));
     if (!result.ok) throw new Error(result.reason);
     expect(result.document.nodes.find((node) => node.resourceName === "plan-win")?.properties.os).toBe("Windows");
+  });
+
+  describe("council review regressions", () => {
+    const appInsightsTemplate = (expression: string) => ({
+      resources: [
+        { type: "Microsoft.Insights/components", name: "appi", location: "australiaeast", kind: "web", properties: { Application_Type: "web" } },
+        { type: "Microsoft.Insights/components", name: "appi-other", location: "australiaeast", kind: "web", properties: { Application_Type: "web" } },
+        { type: "Microsoft.Web/serverfarms", name: "plan", location: "australiaeast", kind: "linux", sku: { name: "B1" }, properties: { reserved: true } },
+        {
+          type: "Microsoft.Web/sites",
+          name: "web",
+          location: "australiaeast",
+          kind: "app,linux",
+          properties: {
+            serverFarmId: "[resourceId('Microsoft.Web/serverfarms', 'plan')]",
+            siteConfig: { appSettings: [{ name: "APPLICATIONINSIGHTS_CONNECTION_STRING", value: expression }] },
+          },
+        },
+      ],
+    });
+
+    it.each([
+      "[reference(resourceId('Microsoft.Insights/components','appi'), '2020-02-02').ConnectionString]",
+      "[reference(resourceId('Microsoft.Insights/components', 'appi'), '2020-02-02').ConnectionString]",
+      "[reference(resourceId( 'Microsoft.Insights/components' ,  'appi' )).ConnectionString]",
+    ])("links an app to App Insights from %s", (expression) => {
+      const result = parseArmTemplate(JSON.stringify(appInsightsTemplate(expression)));
+      if (!result.ok) throw new Error(result.reason);
+      const id = (name: string) => result.document.nodes.find((node) => node.resourceName === name)!.id;
+      const diagnostics = result.document.edges.filter((edge) => edge.kind === "diagnostic" && edge.source === id("web"));
+      expect(diagnostics.map((edge) => edge.target)).toEqual([id("appi")]);
+    });
+
+    const registryTemplate = (identity: Record<string, unknown> | undefined, clientId: string) => ({
+      resources: [
+        { type: "Microsoft.ContainerRegistry/registries", name: "acrapp", location: "australiaeast", sku: { name: "Basic" }, properties: {} },
+        { type: "Microsoft.ManagedIdentity/userAssignedIdentities", name: "id-pull", location: "australiaeast" },
+        { type: "Microsoft.Web/serverfarms", name: "plan", location: "australiaeast", kind: "linux", sku: { name: "P1v3" }, properties: { reserved: true } },
+        {
+          type: "Microsoft.Web/sites",
+          name: "web",
+          location: "australiaeast",
+          kind: "app,linux,container",
+          ...(identity ? { identity } : {}),
+          properties: {
+            serverFarmId: "[resourceId('Microsoft.Web/serverfarms', 'plan')]",
+            siteConfig: { linuxFxVersion: "DOCKER|acrapp.azurecr.io/api:1", acrUseManagedIdentityCreds: true, acrUserManagedIdentityID: clientId },
+          },
+        },
+      ],
+    });
+
+    it("keeps a user-assigned pull identity referenced by client ID", () => {
+      const result = parseArmTemplate(JSON.stringify(registryTemplate({
+        type: "UserAssigned",
+        userAssignedIdentities: { "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', 'id-pull')]": {} },
+      }, "6e2a1f4c-9a51-4d1f-8f6d-0f3b2c9d7e11")));
+      if (!result.ok) throw new Error(result.reason);
+      const id = (name: string) => result.document.nodes.find((node) => node.resourceName === name)!.id;
+      const has = (source: string, target: string) => result.document.edges.some((e) => e.source === id(source) && e.target === id(target) && e.kind === "identity");
+      expect(has("web", "id-pull")).toBe(true);
+      expect(has("id-pull", "acrapp")).toBe(true);
+      expect(has("web", "acrapp")).toBe(false);
+    });
+
+    it("warns instead of granting AcrPull to the system identity when the pull identity is unknown", () => {
+      const result = parseArmTemplate(JSON.stringify(registryTemplate(undefined, "6e2a1f4c-9a51-4d1f-8f6d-0f3b2c9d7e11")));
+      if (!result.ok) throw new Error(result.reason);
+      const id = (name: string) => result.document.nodes.find((node) => node.resourceName === name)!.id;
+      expect(result.document.edges.some((e) => e.source === id("web") && e.target === id("acrapp") && e.kind === "identity")).toBe(false);
+      expect(result.warning).toContain("user-assigned identity 6e2a1f4c-9a51-4d1f-8f6d-0f3b2c9d7e11, which is not in this template");
+    });
   });
 });

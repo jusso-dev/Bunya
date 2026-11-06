@@ -1,5 +1,5 @@
 import type { GraphDocument, GraphNode, ServiceType } from "./schema";
-import { planFamily } from "@/lib/catalogue/app-service-plans";
+import { parseContainerImage, planFamily } from "@/lib/catalogue/app-service-plans";
 
 // Azure placement rules Bunya can draw. A Virtual Network holds only subnets
 // (VNet-injected services join a subnet through a network edge), an App
@@ -92,6 +92,39 @@ export function subnetDelegations(document: GraphDocument, subnet: GraphNode): s
   return [...new Set([...declared, ...derived])];
 }
 
+// Flex Consumption language versions (Microsoft Learn, "Supported language
+// stack versions", Flex Consumption plan, November 2026).
+const FLEX_RUNTIME_VERSIONS: Record<string, readonly string[]> = {
+  dotnet: ["8.0", "9.0", "10.0"],
+  java: ["8", "11", "17", "21", "25"],
+  node: ["22", "24"],
+  powershell: ["7.4", "7.6"],
+  python: ["3.10", "3.11", "3.12", "3.13", "3.14"],
+};
+
+function normaliseVersion(runtime: string, version: string): string {
+  const trimmed = version.trim().replace(/-lts$/i, "");
+  return runtime === "dotnet" && /^\d+$/.test(trimmed) ? `${trimmed}.0` : trimmed;
+}
+
+// The registry a site pulls its image from, when that registry is drawn.
+export function siteRegistry(document: GraphDocument, site: GraphNode): GraphNode | undefined {
+  const image = parseContainerImage(String(site.properties.containerImage ?? ""));
+  if (!image) return undefined;
+  const host = image.registryHost.toLowerCase();
+  return document.nodes.find((node) => node.type === "containerRegistry" && `${node.resourceName.toLowerCase()}.azurecr.io` === host);
+}
+
+// True when the site, or a user-assigned identity it carries, has an identity
+// edge to the registry, so exports can turn on managed-identity pulls.
+export function hasRegistryPullIdentity(document: GraphDocument, site: GraphNode, registry: GraphNode): boolean {
+  const identityTargets = (id: string) =>
+    document.edges.filter((edge) => edge.source === id && edge.kind === "identity").map((edge) => edge.target);
+  const direct = identityTargets(site.id);
+  if (direct.includes(registry.id)) return true;
+  return direct.some((id) => document.nodes.find((node) => node.id === id)?.type === "userAssignedIdentity" && identityTargets(id).includes(registry.id));
+}
+
 function hostingProblems(document: GraphDocument): TopologyProblem[] {
   const problems: TopologyProblem[] = [];
   const byId = new Map(document.nodes.map((node) => [node.id, node]));
@@ -112,6 +145,21 @@ function hostingProblems(document: GraphDocument): TopologyProblem[] {
     }
     if (site.properties.containerImage && (family === "consumption" || family === "flex")) {
       problems.push({ nodeIds: pair, message: `${label(site)} runs a container image, which ${label(plan)} (${sku}) does not support; use an Elastic Premium or dedicated plan, or clear the image.` });
+    }
+    const registry = siteRegistry(document, site);
+    if (registry && !hasRegistryPullIdentity(document, site, registry)) {
+      problems.push({ nodeIds: [site.id, registry.id], message: `${label(site)} pulls its image from ${label(registry)} without a managed identity, so the first pull would fail; draw an identity edge from the app (or a user-assigned identity it uses) to the registry so exports grant AcrPull.` });
+    }
+    if (family === "flex" && site.type === "functionApp") {
+      const runtime = String(site.properties.runtime ?? "node");
+      const allowed = FLEX_RUNTIME_VERSIONS[runtime] ?? [];
+      const version = normaliseVersion(runtime, String(site.properties.runtimeVersion ?? ""));
+      if (!allowed.includes(version)) {
+        problems.push({ nodeIds: pair, message: `${label(site)} uses ${runtime} ${String(site.properties.runtimeVersion)}, which Flex Consumption does not run; use ${runtime} ${allowed.join(", ")}.` });
+      }
+    }
+    if (family === "flex" && site.type === "functionApp" && !document.edges.some((edge) => edge.source === site.id && edge.kind === "data" && byId.get(edge.target)?.type === "storageAccount")) {
+      problems.push({ nodeIds: pair, message: `${label(site)} runs on Flex Consumption, which deploys packages from a storage account; draw a data edge from the app to the Storage Account it should use.` });
     }
     if (family === "consumption" && siteIntegrationSubnet(document, site)) {
       problems.push({ nodeIds: pair, message: `${label(site)} has VNet integration, which the Consumption plan ${label(plan)} (Y1) does not support; use Flex Consumption, Elastic Premium or a dedicated plan.` });

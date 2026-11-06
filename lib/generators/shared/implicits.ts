@@ -7,6 +7,7 @@ import {
 } from "@/lib/graph/schema";
 import { getServiceDefinition } from "@/lib/catalogue/services";
 import { freeSubnetPrefix } from "@/lib/graph/topology";
+import { planFamily } from "@/lib/catalogue/app-service-plans";
 
 export type ImplicitAddition =
   | { kind: "node"; node: GraphNode; reason: string }
@@ -87,7 +88,12 @@ export function expandImplicits(document: GraphDocument): ExpandedGraph {
     nodes[i] = { ...n, parentId: resourceGroup.id };
   }
 
-  let plan = findFirstOfType("appServicePlan");
+  // Unattached sites share a dedicated Linux plan. Reusing a Flex,
+  // Consumption, Elastic Premium or Windows plan would silently change
+  // how the app is hosted (and often fails to deploy).
+  let plan = nodes.find(
+    (n) => n.type === "appServicePlan" && planFamily(n.properties.sku) === "dedicated" && n.properties.os !== "Windows",
+  );
   const computeNodes = nodes.filter(
     (n) => n.type === "appService" || n.type === "functionApp",
   );

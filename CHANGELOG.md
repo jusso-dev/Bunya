@@ -29,6 +29,19 @@ project follows [Conventional Commits](https://www.conventionalcommits.org/).
   delegation, and the App Insights connection string. Identity edges to a
   registry or storage account generate AcrPull or Storage Blob Data
   Contributor. The Terraform provider constraint is now `~> 4.35`.
+- Deployment checks also run on the graph exporters emit, so an app without
+  a plan is never put on a Flex, Consumption, Elastic Premium or Windows plan.
+  They block a registry image with no managed-identity pull, a Flex app
+  without a drawn storage account, and Flex runtime versions Azure does not
+  run. A user-assigned pull identity is granted AcrPull before the app starts.
+- ARM no longer grants a stray Reader role when an app carries a
+  user-assigned identity.
+- ARM import keeps a user-assigned registry pull identity (matched through the
+  app's attached identities, warning when it is missing), links App Insights
+  regardless of expression spacing, and warns that in-process .NET Function
+  Apps are exported on the isolated model. New
+  `BUNYA.COST.PLAN-LINUX-CONSUMPTION-RETIRING` warns that Linux Consumption
+  retires on 30 September 2028.
 - The az CLI and PowerShell exports deploy the included ARM template in one
   step for these hosting models, because the CLIs create them in several
   separately-failing (some preview-only) steps.

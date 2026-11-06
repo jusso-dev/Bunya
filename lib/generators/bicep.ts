@@ -216,10 +216,21 @@ function emitSite(node: GraphNode, ctx: GeneratorContext): string {
     `  identity: ${toBicep(body.identity, 1)}`,
     `  properties: ${toBicep(body.properties, 1)}`,
     tagsLiteral(ctx, node),
-    ...(body.hosting.family === "flex" && node.type === "functionApp" ? [`  dependsOn: [`, `    ${ident}_deployment`, `  ]`] : []),
+    ...siteDependsOn(ctx, node, body.hosting),
     `}`,
   );
   return lines.filter(Boolean).join("\n");
+}
+
+// Bicep infers most ordering; add the Flex deployment container and, for a
+// user-assigned pull identity, its AcrPull grant so the first pull succeeds.
+function siteDependsOn(ctx: GeneratorContext, node: GraphNode, hosting: ReturnType<typeof siteBody>["hosting"]): string[] {
+  const deps: string[] = [];
+  if (hosting.family === "flex" && node.type === "functionApp") deps.push(`${nodeRef(ctx, node.id)}_deployment`);
+  if (hosting.registry && hosting.pullIdentity?.kind === "user") {
+    deps.push(`${nodeRef(ctx, hosting.pullIdentity.node.id)}_${nodeRef(ctx, hosting.registry.id)}_acrpull`);
+  }
+  return deps.length > 0 ? [`  dependsOn: [`, ...deps.map((dep) => `    ${dep}`), `  ]`] : [];
 }
 
 const emitAppService = emitSite;
