@@ -65,7 +65,8 @@ project follows [Conventional Commits](https://www.conventionalcommits.org/).
   and the location parameter is resolved. ARM never emits the same role
   assignment twice. Imported Storage Account and Key Vault names are kept
   exactly (no second uniqueness suffix) until the resource is renamed, so a
-  re-exported template updates the same accounts.
+  re-exported template updates the same accounts; the import notes say to
+  rename them to deploy a separate copy.
 - Function Apps on private storage wait for its Private Endpoints and DNS zone
   groups, and for the DNS zone links to their VNet, in ARM, Bicep and
   Terraform.

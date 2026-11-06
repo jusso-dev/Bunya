@@ -1193,6 +1193,9 @@ export function parseArmTemplate(text: string): ArmImportResult {
     nodes,
     edges,
   };
+  if (known.some((r) => r.node.exactName)) {
+    warnings.push("Storage Account and Key Vault names are kept exactly, so exports update the same resources; rename them in the inspector to deploy a separate copy.");
+  }
   const importedTypes = new Set(known.map((r) => r.flat.type.toLowerCase()));
   const skippedCounts = new Map<string, number>();
   for (const resource of flat) {

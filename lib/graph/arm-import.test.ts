@@ -832,5 +832,6 @@ describe("parseArmTemplate", () => {
     const second = generateArm(imported.document);
     if (!second.ok) throw new Error(second.reason);
     expect(names(second.files[0].content)).toEqual(names(first.files[0].content));
+    expect(imported.warning).toContain("rename them in the inspector to deploy a separate copy");
   });
 });
