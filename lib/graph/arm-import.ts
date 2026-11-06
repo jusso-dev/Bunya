@@ -1,5 +1,6 @@
-import { parseJsonInput } from "./limits";
+import { parseJsonInput, stripJsonComments } from "./limits";
 import { toExportLiterals } from "./literal";
+import { createEvaluator, isExpression, type Evaluator } from "./arm-expressions";
 import { getServiceDefinition } from "@/lib/catalogue/services";
 import type {
   EdgeKind,
@@ -22,7 +23,7 @@ import {
   tlsVersionFromArm,
 } from "@/lib/catalogue/azure";
 import { APP_SERVICE_PLAN_SKUS, CONTAINER_IMAGE_PATTERN, isServerlessPlan, parseContainerImage } from "@/lib/catalogue/app-service-plans";
-import { isSite, sitePlan } from "@/lib/graph/topology";
+import { freeSubnetPrefix, isSite, sitePlan, subnetVirtualNetwork } from "@/lib/graph/topology";
 
 type ArmResource = {
   type?: unknown;
@@ -36,19 +37,22 @@ type ArmResource = {
   dependsOn?: unknown;
   resources?: unknown;
   tags?: unknown;
+  existing?: unknown;
 };
 
 type FlatArmResource = {
-  // As written: property mapping reads these values.
+  // Every expression that depends only on the template (parameter defaults,
+  // variables, string functions, resourceId) evaluated; the rest kept as written.
   raw: ArmResource;
-  // With parameter and variable references replaced by their defaults: edge
-  // inference matches resource names in these.
+  // The same, for edge inference, which matches resource names in references.
   expanded: ArmResource;
   type: string;
   name: string;
   fullName: string;
   parentType?: string;
   parentName?: string;
+  // Declared inside its parent's properties (a VNet's subnets array).
+  inline?: boolean;
 };
 
 type ImportedResource = { flat: FlatArmResource; node: GraphNode };
@@ -71,77 +75,48 @@ function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value : undefined;
 }
 
+// Settings that still hold an expression depend on the deployment (for
+// example reference() or resourceGroup()). Drop them so the catalogue default
+// applies, and return their paths.
+function withoutDeploymentExpressions(value: unknown, path: string, dropped: string[]): unknown {
+  if (Array.isArray(value)) {
+    return value.filter((item) => {
+      if (!isExpression(item)) return true;
+      dropped.push(path);
+      return false;
+    }).map((item, index) => withoutDeploymentExpressions(item, `${path}[${index}]`, dropped));
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).flatMap(([key, item]) => {
+      if (isExpression(item)) {
+        dropped.push(`${path}.${key}`);
+        return [];
+      }
+      return [[key, withoutDeploymentExpressions(item, `${path}.${key}`, dropped)]];
+    }));
+  }
+  return value;
+}
+
 function asNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+// The last segment of a resolved name ("vnet/subnet" -> "subnet"). An
+// expression that cannot be evaluated falls back to the parameter or variable
+// it reads, else to `fallback`.
 function cleanName(raw: string, fallback: string): string {
   const trimmed = raw.trim();
-  const param = trimmed.match(/^\[parameters\('([^']+)'\)\]$/i)?.[1];
-  if (param) return param.replace(/[^A-Za-z0-9-]/g, "-");
-  const variable = trimmed.match(/^\[variables\('([^']+)'\)\]$/i)?.[1];
-  if (variable) return variable.replace(/[^A-Za-z0-9-]/g, "-");
-  if (trimmed.startsWith("[")) return fallback;
+  if (isExpression(trimmed)) {
+    const reference = /\b(?:parameters|variables)\('([^']+)'\)/i.exec(trimmed)?.[1];
+    return reference ? reference.replace(/[^A-Za-z0-9-]/g, "-") : fallback;
+  }
   return trimmed.split("/").filter(Boolean).at(-1) ?? fallback;
 }
 
-function resolveString(
-  value: unknown,
-  parameters: Record<string, unknown>,
-  variables: Record<string, unknown>,
-): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const exactParam = value.match(/^\[parameters\('([^']+)'\)\]$/i)?.[1];
-  if (exactParam) {
-    const def = asRecord(parameters[exactParam]).defaultValue;
-    return typeof def === "string" ? def : exactParam;
-  }
-  const exactVariable = value.match(/^\[variables\('([^']+)'\)\]$/i)?.[1];
-  if (exactVariable) {
-    const def = variables[exactVariable];
-    return typeof def === "string" ? def : exactVariable;
-  }
-  const concat = value.match(/^\[concat\((.*)\)\]$/i)?.[1];
-  if (concat) {
-    const parts = concat
-      .split(/,(?=(?:[^']*'[^']*')*[^']*$)/)
-      .map((part) => part.trim())
-      .map((part) => {
-        const literal = part.match(/^'([^']*)'$/)?.[1];
-        if (literal !== undefined) return literal;
-        const param = part.match(/^parameters\('([^']+)'\)$/i)?.[1];
-        if (param) return resolveString(`[parameters('${param}')]`, parameters, variables) ?? param;
-        const variable = part.match(/^variables\('([^']+)'\)$/i)?.[1];
-        if (variable) return resolveString(`[variables('${variable}')]`, parameters, variables) ?? variable;
-        return "";
-      });
-    const joined = parts.join("");
-    return joined || undefined;
-  }
-  return value;
-}
-
-// Portal exports reference resources through parameter names, e.g.
-// resourceId('Microsoft.Web/serverfarms', parameters('serverfarms_x_name')).
-// Swap each reference for its default value so edge matching sees real names.
-function expandReferences(
-  value: unknown,
-  parameters: Record<string, unknown>,
-  variables: Record<string, unknown>,
-): unknown {
-  if (typeof value === "string") {
-    return value.replace(/\b(parameters|variables)\('([^']+)'\)/gi, (match, kind: string, key: string) => {
-      const resolved = kind.toLowerCase() === "parameters" ? asRecord(parameters[key]).defaultValue : variables[key];
-      return typeof resolved === "string" ? `'${resolved.replace(/'/g, "''")}'` : match;
-    });
-  }
-  if (Array.isArray(value)) return value.map((item) => expandReferences(item, parameters, variables));
-  if (typeof value === "object" && value !== null) {
-    return Object.fromEntries(
-      Object.entries(value).map(([key, item]) => [key, expandReferences(item, parameters, variables)]),
-    );
-  }
-  return value;
+// A resolved string, or undefined when the value is not a string or cannot be evaluated.
+function resolvedString(value: unknown): string | undefined {
+  return typeof value === "string" && !isExpression(value) ? value : undefined;
 }
 
 function safeResourceName(name: string, fallback: string): string {
@@ -149,27 +124,42 @@ function safeResourceName(name: string, fallback: string): string {
   return safe || fallback;
 }
 
+// Template resources are an array, or (languageVersion 2.0) an object keyed
+// by symbolic name.
+function resourceList(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  return Object.values(asRecord(value));
+}
+
 function flattenResources(
   resources: unknown[],
-  parameters: Record<string, unknown>,
-  variables: Record<string, unknown>,
+  evaluator: Evaluator,
   warnings: string[],
   parent?: FlatArmResource,
 ): FlatArmResource[] {
   const out: FlatArmResource[] = [];
   resources.forEach((value, index) => {
-    const raw = asRecord(value) as ArmResource;
-    const rawType = resolveString(raw.type, parameters, variables);
-    const rawName = resolveString(raw.name, parameters, variables);
+    const written = asRecord(value) as ArmResource;
+    if (written.existing === true) return;
+    const rawType = resolvedString(evaluator.evaluate(written.type));
+    const evaluatedName = evaluator.evaluateLenient(written.name);
+    // Portal exports default unset name parameters to "": keep the resource
+    // under the parameter's name rather than dropping it.
+    const rawName = typeof evaluatedName === "string" && evaluatedName.trim() && !isExpression(evaluatedName)
+      ? evaluatedName
+      : typeof written.name === "string" && written.name.trim()
+        ? cleanName(written.name, `resource-${index + 1}`)
+        : undefined;
     if (!rawType || !rawName) {
       warnings.push("An ARM resource with a missing type or name and its nested resources were skipped.");
       return;
     }
     const type = parent && !rawType.includes(".") ? `${parent.type}/${rawType}` : rawType;
     const fullName = parent && !rawName.includes("/") ? `${parent.fullName}/${rawName}` : rawName;
+    const resolved = evaluator.resolveAll(written) as ArmResource;
     const flat: FlatArmResource = {
-      raw,
-      expanded: expandReferences(raw, parameters, variables) as ArmResource,
+      raw: resolved,
+      expanded: resolved,
       type,
       name: cleanName(rawName, `resource-${index + 1}`),
       fullName,
@@ -177,9 +167,15 @@ function flattenResources(
       parentName: parent?.fullName,
     };
     out.push(flat);
-    out.push(
-      ...flattenResources(asArray(raw.resources), parameters, variables, warnings, flat),
-    );
+    out.push(...flattenResources(resourceList(written.resources), evaluator, warnings, flat));
+    // Subnets declared inline on a virtual network are resources of their own.
+    if (type.toLowerCase() === "microsoft.network/virtualnetworks") {
+      asArray(asRecord(written.properties).subnets).forEach((subnet) => {
+        const entry = asRecord(subnet);
+        if (entry.copy !== undefined || typeof entry.name !== "string") return;
+        out.push(...flattenResources([{ ...entry, type: "subnets" }], evaluator, warnings, flat).map((child) => ({ ...child, inline: true })));
+      });
+    }
   });
   return out;
 }
@@ -193,11 +189,9 @@ function linuxRuntime(
   siteConfig: Record<string, unknown>,
   resourceKind: "app" | "functionapp",
   resourceName: string,
-  parameters: Record<string, unknown>,
-  variables: Record<string, unknown>,
   warnings: string[],
 ): Record<string, string> {
-  const fx = resolveString(siteConfig.linuxFxVersion, parameters, variables);
+  const fx = resolvedString(siteConfig.linuxFxVersion);
   if (!fx) return {};
   const match = /^([A-Za-z-]+)\|(.+)$/.exec(fx.trim());
   const runtime = match ? runtimeOfLinuxFx(match[1]) : undefined;
@@ -272,7 +266,7 @@ function sqlDatabaseSku(sku: Record<string, unknown>): string | undefined {
 
 // Settings read from the ARM resource. Anything left undefined takes the
 // catalogue default when the properties schema parses the result.
-function armProperties(type: ServiceType, resource: FlatArmResource, allResources: FlatArmResource[], parameters: Record<string, unknown>, variables: Record<string, unknown>, warnings: string[]): Record<string, unknown> {
+function armProperties(type: ServiceType, resource: FlatArmResource, allResources: FlatArmResource[], warnings: string[]): Record<string, unknown> {
   const props = asRecord(resource.raw.properties);
   const sku = asRecord(resource.raw.sku);
   const identity = asRecord(resource.raw.identity);
@@ -283,7 +277,7 @@ function armProperties(type: ServiceType, resource: FlatArmResource, allResource
       const addressSpace = asRecord(props.addressSpace);
       const prefixes = asArray(addressSpace.addressPrefixes).filter((v): v is string => typeof v === "string");
       const dnsServers = asArray(asRecord(props.dhcpOptions).dnsServers)
-        .map((server) => resolveString(server, parameters, variables))
+        .map(resolvedString)
         .filter((server): server is string => !!server && /^\d+\.\d+\.\d+\.\d+$/.test(server));
       return {
         addressSpace: prefixes[0],
@@ -310,7 +304,7 @@ function armProperties(type: ServiceType, resource: FlatArmResource, allResource
     }
     case "appService":
       return {
-        ...linuxRuntime(asRecord(props.siteConfig), "app", resource.name, parameters, variables, warnings),
+        ...linuxRuntime(asRecord(props.siteConfig), "app", resource.name, warnings),
         httpsOnly: props.httpsOnly !== false,
         alwaysOn: asRecord(props.siteConfig).alwaysOn !== false,
         publicNetworkAccess: asString(props.publicNetworkAccess) !== "Disabled",
@@ -318,7 +312,7 @@ function armProperties(type: ServiceType, resource: FlatArmResource, allResource
       };
     case "functionApp":
       return {
-        ...linuxRuntime(asRecord(props.siteConfig), "functionapp", resource.name, parameters, variables, warnings),
+        ...linuxRuntime(asRecord(props.siteConfig), "functionapp", resource.name, warnings),
         ...flexSettings(props, resource.name, warnings),
         httpsOnly: props.httpsOnly !== false,
         publicNetworkAccess: asString(props.publicNetworkAccess) !== "Disabled",
@@ -379,7 +373,7 @@ function armProperties(type: ServiceType, resource: FlatArmResource, allResource
       };
     case "keyVault": {
       const rawSku = asRecord(props.sku).name;
-      const skuName = resolveString(rawSku, parameters, variables)?.trim().toLowerCase();
+      const skuName = resolvedString(rawSku)?.trim().toLowerCase();
       if (rawSku !== undefined && skuName !== "standard" && skuName !== "premium") {
         warnings.push(`Key Vault ${resource.name} has an unrecognized or unresolved SKU; defaulted to standard.`);
       }
@@ -505,9 +499,14 @@ function hasMonitorAgent(resource: FlatArmResource, allResources: FlatArmResourc
 // Exporters only emit plain literal strings, so replace other characters at
 // import and say so, instead of letting every export fail later.
 function validatedProperties(type: ServiceType, resource: FlatArmResource, properties: Record<string, unknown>, warnings: string[]): Record<string, unknown> {
-  const { value: safe, changes: changed } = toExportLiterals(properties, "setting");
+  const dropped: string[] = [];
+  const literal = withoutDeploymentExpressions(properties, "setting", dropped) as Record<string, unknown>;
+  const { value: safe, changes: changed } = toExportLiterals(literal, "setting");
   const changes = changed.map((change) => `${change.path} "${change.from.slice(0, 60)}" became "${change.to.slice(0, 60)}"`);
   const definition = getServiceDefinition(type);
+  if (dropped.length > 0) {
+    warnings.push(`${definition.label} ${resource.name}: ${dropped.slice(0, 5).map((path) => path.replace(/^setting\./, "")).join(", ")}${dropped.length > 5 ? ` and ${dropped.length - 5} more` : ""} ${dropped.length === 1 ? "is" : "are"} only known at deployment; used Bunya defaults.`);
+  }
   if (changes.length > 0) {
     warnings.push(`${definition.label} ${resource.name}: replaced characters exports cannot write (such as & ' ! #) with "-": ${changes.slice(0, 5).join("; ")}${changes.length > 5 ? `; and ${changes.length - 5} more` : ""}.`);
   }
@@ -1088,10 +1087,31 @@ function layoutImportedNodes(
   return nodes;
 }
 
+// Subnets whose prefix is only known at deployment get a free range in their
+// VNet, so the diagram does not show overlapping subnets that Azure would not deploy.
+function assignUnknownSubnetPrefixes(document: GraphDocument, subnetIds: Set<string>, warnings: string[]): void {
+  const assigned = new Set<string>();
+  for (const subnet of document.nodes) {
+    if (!subnetIds.has(subnet.id)) continue;
+    const vnet = subnetVirtualNetwork(document, subnet);
+    if (!vnet) continue;
+    const used = document.nodes
+      .filter((other) => other.type === "subnet" && other.id !== subnet.id && subnetVirtualNetwork(document, other)?.id === vnet.id)
+      .filter((other) => !subnetIds.has(other.id) || assigned.has(other.id))
+      .map((other) => other.properties.addressPrefix);
+    const prefix = freeSubnetPrefix(vnet.properties.addressSpace, used);
+    if (!prefix) continue;
+    subnet.properties = { ...subnet.properties, addressPrefix: prefix };
+    assigned.add(subnet.id);
+    warnings.push(`Subnet ${subnet.resourceName}: its address prefix is only known at deployment; drew it as ${prefix}.`);
+  }
+}
+
 export function parseArmTemplate(text: string): ArmImportResult {
   let parsed: unknown;
   try {
-    parsed = parseJsonInput(text);
+    // Logic Apps workflow definitions nest deeper than diagrams ever do.
+    parsed = parseJsonInput(stripJsonComments(text), 64);
   } catch (err) {
     return {
       ok: false,
@@ -1099,14 +1119,17 @@ export function parseArmTemplate(text: string): ArmImportResult {
     };
   }
   const root = asRecord(parsed);
-  const resourcesRaw = asArray(root.resources);
+  const resourcesRaw = resourceList(root.resources);
   if (resourcesRaw.length === 0) {
-    return { ok: false, reason: "ARM template has no resources array." };
+    return { ok: false, reason: "ARM template has no resources." };
   }
-  const parameters = asRecord(root.parameters);
-  const variables = asRecord(root.variables);
+  const evaluator = createEvaluator({ parameters: asRecord(root.parameters), variables: asRecord(root.variables) });
   const warnings: string[] = [];
-  const flat = flattenResources(resourcesRaw, parameters, variables, warnings);
+  // Portal exports list each subnet inline on its VNet and again as a child resource.
+  const flattened = flattenResources(resourcesRaw, evaluator, warnings);
+  const declared = new Set(flattened.filter((resource) => !resource.inline).map((resource) => `${resource.type}|${resource.fullName}`.toLowerCase()));
+  const flat = flattened.filter((resource) => !resource.inline || !declared.has(`${resource.type}|${resource.fullName}`.toLowerCase()));
+  const unknownPrefixes = new Set<string>();
   const known = flat
     .map((resource, index) => {
       const type = serviceTypeFor(resource);
@@ -1117,6 +1140,10 @@ export function parseArmTemplate(text: string): ArmImportResult {
       if (resourceName !== armName) {
         warnings.push(`${def.label}: renamed "${armName}" to "${resourceName}" because exports allow only letters, numbers, dots, underscores and hyphens; check the name before deploying.`);
       }
+      const read = armProperties(type, resource, flat, warnings);
+      if (type === "subnet" && !(typeof read.addressPrefix === "string" && !isExpression(read.addressPrefix))) {
+        unknownPrefixes.add(`${ARM_NODE_ID_PREFIX}${index + 1}`);
+      }
       const node: GraphNode = {
         id: `${ARM_NODE_ID_PREFIX}${index + 1}`,
         type,
@@ -1124,7 +1151,7 @@ export function parseArmTemplate(text: string): ArmImportResult {
         resourceName,
         ...(resourceName === armName && SUFFIXED_NAME_TYPES.has(type) ? { exactName: true } : {}),
         position: { x: 0, y: 0 },
-        properties: validatedProperties(type, resource, armProperties(type, resource, flat, parameters, variables, warnings), warnings),
+        properties: validatedProperties(type, resource, read, warnings),
       };
       return { flat: resource, node };
     })
@@ -1155,18 +1182,18 @@ export function parseArmTemplate(text: string): ArmImportResult {
   }
 
   // Portal exports write regions as display names, e.g. "Australia East".
-  // expandReferences has already turned [parameters('location')] into
-  // ['australiaeast']; strip the expression wrapper and quotes.
+  // Locations that depend on the deployment, such as resourceGroup().location, are not known here.
   const locations = known
-    .map((r) => resolveString(r.flat.expanded.location, parameters, variables)?.toLowerCase().replace(/^\[\s*'(.*)'\s*\]$/, "$1").replace(/\s+/g, ""))
+    .map((r) => resolvedString(r.flat.raw.location)?.toLowerCase().replace(/\s+/g, ""))
     .filter((value): value is string => !!value && value !== "global");
   const location = locations.find((value) => AZURE_REGIONS.includes(value as never));
   const otherLocations = [...new Set(locations.filter((value) => value !== location))];
   if (otherLocations.length > 0) {
     warnings.push(`Resources in ${otherLocations.join(", ")} are drawn in the diagram region ${location ?? "australiaeast"}.`);
   }
-  const now = new Date().toISOString();
   const draft = { nodes, edges } as unknown as GraphDocument;
+  assignUnknownSubnetPrefixes(draft, unknownPrefixes, warnings);
+  const now = new Date().toISOString();
   for (const node of nodes) {
     if (node.type !== "functionApp") continue;
     node.properties = { ...node.properties, consumptionPlan: isServerlessPlan(sitePlan(draft, node)?.properties.sku) };

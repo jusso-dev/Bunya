@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { AzureRegionSchema, EDGE_KINDS, EdgeKind, ServiceType } from "@/lib/graph/schema";
-import { PRIVATE_DNS_ZONES, PRIVATE_LINK_GROUP_IDS, ROLE_NAMES } from "./azure";
+import { PRIVATE_LINK_GROUP_IDS, ROLE_NAMES } from "./azure";
 import { APP_SERVICE_PLAN_SKUS, CONTAINER_IMAGE_PATTERN } from "./app-service-plans";
 
 export type ServiceCategory =
@@ -70,7 +70,9 @@ export const privateEndpointSchema = z.object({
 });
 
 export const privateDnsZoneSchema = z.object({
-  zoneName: z.enum(PRIVATE_DNS_ZONES).default("privatelink.blob.core.windows.net"),
+  // Any private DNS zone Azure accepts, not only the privatelink zones Bunya's
+  // Private Endpoint rules know (an export must create the zone it was given).
+  zoneName: z.string().max(253).regex(/^(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))+$/).default("privatelink.blob.core.windows.net"),
   linkedToVnet: z.boolean().default(true),
 });
 

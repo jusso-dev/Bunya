@@ -68,7 +68,6 @@ export const PRIVATE_LINK_GROUPS = {
 
 export type PrivateLinkGroupId = keyof typeof PRIVATE_LINK_GROUPS;
 export const PRIVATE_LINK_GROUP_IDS = Object.keys(PRIVATE_LINK_GROUPS) as [PrivateLinkGroupId, ...PrivateLinkGroupId[]];
-export const PRIVATE_DNS_ZONES = [...new Set(Object.values(PRIVATE_LINK_GROUPS).map((group) => group.zone))] as [string, ...string[]];
 
 export function privateDnsZoneFor(groupId: string): string | undefined {
   return (PRIVATE_LINK_GROUPS as Record<string, { zone: string }>)[groupId]?.zone;

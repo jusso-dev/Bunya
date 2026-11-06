@@ -131,6 +131,10 @@ export function parseImportText(text: string): ImportResult {
         ),
       };
     }
+    // A file that is not JSON fails both readers for the same reason; say it once.
+    if (portable.reason.startsWith("File is not valid JSON") && arm.reason.startsWith("ARM template is not valid JSON")) {
+      return { ok: false, reason: arm.reason };
+    }
     return {
       ok: false,
       reason: `${portable.reason} Also failed ARM import: ${arm.reason}`,
