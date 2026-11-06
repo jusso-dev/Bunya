@@ -1,5 +1,5 @@
 import type { GraphDocument, GraphNode, ServiceType } from "./schema";
-import { parseContainerImage, planFamily } from "@/lib/catalogue/app-service-plans";
+import { isServerlessPlan, parseContainerImage, planFamily } from "@/lib/catalogue/app-service-plans";
 import { storagePublicNetwork } from "@/lib/catalogue/services";
 import { PRIVATE_LINK_TARGETS, privateDnsZoneFor } from "@/lib/catalogue/azure";
 
@@ -8,7 +8,7 @@ import { PRIVATE_LINK_TARGETS, privateDnsZoneFor } from "@/lib/catalogue/azure";
 // Service Plan hosts only sites, and Resource Groups never nest.
 export function acceptsChild(parentType: ServiceType, childType: ServiceType): boolean {
   if (parentType === "virtualNetwork") return childType === "subnet";
-  if (parentType === "appServicePlan") return childType === "appService" || childType === "functionApp";
+  if (parentType === "appServicePlan") return isSiteType(childType);
   if (parentType === "resourceGroup") return childType !== "resourceGroup";
   return false;
 }
@@ -50,7 +50,6 @@ export function subnetVirtualNetwork(document: GraphDocument, subnet: GraphNode)
     .find((target) => target?.type === "virtualNetwork");
 }
 
-
 // The service a Private Endpoint connects to, whatever order its edges were drawn in.
 export function privateEndpointTarget(document: GraphDocument, pe: GraphNode): GraphNode | undefined {
   const byId = new Map(document.nodes.map((node) => [node.id, node]));
@@ -60,11 +59,14 @@ export function privateEndpointTarget(document: GraphDocument, pe: GraphNode): G
     .find((target): target is GraphNode => !!target && PRIVATE_LINK_TARGETS.has(target.type));
 }
 
-export function isSite(node: GraphNode | undefined): boolean {
-  return node?.type === "appService" || node?.type === "functionApp";
+export function isSiteType(type: ServiceType): boolean {
+  return type === "appService" || type === "functionApp";
 }
 
-// The plan a web or function app runs on: its container, else a depends_on edge.
+export function isSite(node: GraphNode | undefined): boolean {
+  return !!node && isSiteType(node.type);
+}
+
 export function sitePlan(document: GraphDocument, site: GraphNode): GraphNode | undefined {
   const byId = new Map(document.nodes.map((node) => [node.id, node]));
   const parent = site.parentId ? byId.get(site.parentId) : undefined;
@@ -75,7 +77,6 @@ export function sitePlan(document: GraphDocument, site: GraphNode): GraphNode | 
     .find((target) => target?.type === "appServicePlan");
 }
 
-// The subnet a web or function app integrates with (regional VNet integration).
 export function siteIntegrationSubnet(document: GraphDocument, site: GraphNode): GraphNode | undefined {
   const byId = new Map(document.nodes.map((node) => [node.id, node]));
   return document.edges
@@ -91,8 +92,6 @@ export function integrationDelegation(document: GraphDocument, site: GraphNode):
   return planFamily(plan?.properties.sku) === "flex" ? "Microsoft.App/environments" : "Microsoft.Web/serverFarms";
 }
 
-// Delegations a subnet needs: those set on the subnet plus one for each
-// integrated web or function app.
 export function subnetDelegations(document: GraphDocument, subnet: GraphNode): string[] {
   const byId = new Map(document.nodes.map((node) => [node.id, node]));
   const declared = Array.isArray(subnet.properties.delegations)
@@ -153,8 +152,7 @@ function resolvesPrivately(document: GraphDocument, pe: GraphNode, groupId: stri
   );
 }
 
-// Sub-resources of `storage` with a Private Endpoint in the app's VNet that
-// the app can resolve; `unresolved` collects endpoints missing DNS.
+// `unresolved` collects endpoints in the app's VNet whose DNS does not resolve.
 function privateStorageEndpoints(document: GraphDocument, site: GraphNode, storage: GraphNode, unresolved: Set<string> = new Set()): Set<string> {
   const subnet = siteIntegrationSubnet(document, site);
   const appVnet = subnet ? subnetVirtualNetwork(document, subnet) : undefined;
@@ -174,7 +172,6 @@ function privateStorageEndpoints(document: GraphDocument, site: GraphNode, stora
   return found;
 }
 
-// The registry a site pulls its image from, when that registry is drawn.
 export function siteRegistry(document: GraphDocument, site: GraphNode): GraphNode | undefined {
   const image = parseContainerImage(String(site.properties.containerImage ?? ""));
   if (!image) return undefined;
@@ -210,7 +207,7 @@ function hostingProblems(document: GraphDocument): TopologyProblem[] {
     if (site.type === "appService" && family !== "dedicated") {
       problems.push({ nodeIds: pair, message: `${label(site)} is a web app, but ${label(plan)} (${sku}) only hosts Function Apps; use a Basic, Standard or Premium plan.`, kind: "azure" });
     }
-    if (site.properties.containerImage && (family === "consumption" || family === "flex")) {
+    if (site.properties.containerImage && isServerlessPlan(sku)) {
       problems.push({ nodeIds: pair, message: `${label(site)} runs a container image, which ${label(plan)} (${sku}) does not support; use an Elastic Premium or dedicated plan, or clear the image.`, kind: "azure" });
     }
     const registry = siteRegistry(document, site);
@@ -356,7 +353,6 @@ export function topologyProblems(document: GraphDocument): TopologyProblem[] {
   return problems;
 }
 
-// First free prefix of `bits` length inside the VNet, or null when full.
 export function freeSubnetPrefix(addressSpace: unknown, used: unknown[], bits = 24): string | null {
   const space = parseCidr(addressSpace);
   if (!space) return null;

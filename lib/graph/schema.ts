@@ -44,6 +44,10 @@ export const EDGE_KINDS = [
   "diagnostic",
 ] as const;
 
+// IDs the ARM importer gives nodes. migrate() uses them to recognise
+// imported nodes in files saved before a setting existed.
+export const ARM_NODE_ID_PREFIX = "arm-node-";
+
 export const AzureRegionSchema = z.enum(AZURE_REGIONS);
 export const ServiceTypeSchema = z.enum(SERVICE_TYPES);
 export const EdgeKindSchema = z.enum(EDGE_KINDS);
@@ -69,11 +73,22 @@ export function isContainerType(type: ServiceType): type is ContainerServiceType
   return (CONTAINER_SERVICE_TYPES as readonly ServiceType[]).includes(type);
 }
 
+export const SERVICE_NODE_SIZE = { width: 220, height: 50 } as const;
+
 export const DEFAULT_CONTAINER_SIZE: Record<ContainerServiceType, { width: number; height: number }> = {
   resourceGroup: { width: 720, height: 480 },
   virtualNetwork: { width: 520, height: 360 },
   appServicePlan: { width: 460, height: 300 },
 };
+
+export function nodeSize(node: Pick<GraphNode, "type" | "size">): { width: number; height: number } {
+  if (node.size) return node.size;
+  if (isContainerType(node.type)) return DEFAULT_CONTAINER_SIZE[node.type];
+  return SERVICE_NODE_SIZE;
+}
+
+export const MAX_NODES = 200;
+export const MAX_EDGES = 1000;
 
 export const GraphEdgeSchema = z.object({
   id: z.string().min(1).max(256),
@@ -82,7 +97,7 @@ export const GraphEdgeSchema = z.object({
   kind: EdgeKindSchema,
 });
 
-export const GraphMetadataSchema = z.object({
+const GraphMetadataSchema = z.object({
   name: z.string().min(1).max(256),
   description: z.string().max(10000).optional(),
   createdAt: z.string(),
@@ -95,8 +110,8 @@ export const GraphMetadataSchema = z.object({
 export const GraphDocumentSchema = z.object({
   schemaVersion: z.literal(1),
   metadata: GraphMetadataSchema,
-  nodes: z.array(GraphNodeSchema).max(200),
-  edges: z.array(GraphEdgeSchema).max(1000),
+  nodes: z.array(GraphNodeSchema).max(MAX_NODES),
+  edges: z.array(GraphEdgeSchema).max(MAX_EDGES),
 }).superRefine((doc, ctx) => {
   const nodes = new Map(doc.nodes.map((node) => [node.id, node]));
   const problem = (message: string) => ctx.addIssue({ code: "custom", message });
@@ -123,7 +138,6 @@ export type ServiceType = z.infer<typeof ServiceTypeSchema>;
 export type EdgeKind = z.infer<typeof EdgeKindSchema>;
 export type GraphNode = z.infer<typeof GraphNodeSchema>;
 export type GraphEdge = z.infer<typeof GraphEdgeSchema>;
-export type GraphMetadata = z.infer<typeof GraphMetadataSchema>;
 export type GraphDocument = z.infer<typeof GraphDocumentSchema>;
 
 export function emptyGraph(name = "untitled"): GraphDocument {

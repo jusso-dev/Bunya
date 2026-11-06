@@ -10,14 +10,12 @@ const PADDING = 48;
 const MAX_SIDE = 8192; // stays inside browser canvas limits
 const SCALE = 2; // sharp on high-density screens and in documents
 
-// Canvas chrome that should not appear in an exported picture.
 const EXCLUDED_CLASSES = ["react-flow__minimap", "react-flow__controls", "react-flow__panel", "react-flow__attribution"];
 
 export function imageFilename(name: string, format: ImageFormat): string {
   return `${fileStem(name)}.${format === "jpeg" ? "jpg" : "png"}`;
 }
 
-// Size of the exported image and the viewport transform that fits every node.
 export function exportFrame(nodes: Node[]): { width: number; height: number; transform: string } {
   const bounds = getRectOfNodes(nodes);
   const width = Math.min(MAX_SIDE / SCALE, Math.max(320, Math.ceil(bounds.width + PADDING * 2)));
