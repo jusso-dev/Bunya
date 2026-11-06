@@ -54,7 +54,6 @@ export function ServicePalette() {
     const point = gridPosition(document.nodes.length);
     const id = addNode(newNode(document, { type: def.type, ...placeAt(document, point, def.type) }));
     graph.selectNode(id);
-    // A clicked service has no drop point, so bring wherever it landed into view.
     useSessionUi.getState().requestFit();
     if (window.matchMedia(COMPACT_LAYOUT_QUERY).matches) graph.setPanelCollapsed("palette", true);
   };

@@ -101,14 +101,21 @@ function CanvasInner() {
     }
   }, [document.metadata.name, getNodes]);
 
-  // React Flow measures new nodes on the next frame, so fit after it.
+  // fitView skips nodes React Flow has not measured yet, so wait until every
+  // node on the canvas has a size.
   useEffect(() => {
     if (fitRequest === 0) return;
-    const id = window.requestAnimationFrame(() => {
-      fitView({ padding: 0.3, duration: 250, maxZoom: 1.0, minZoom: 0.3 });
-    });
-    return () => window.cancelAnimationFrame(id);
-  }, [fitRequest, fitView]);
+    let frame = 0;
+    let attempts = 0;
+    const fitWhenMeasured = () => {
+      const measured = getNodes();
+      const ready = measured.length === useGraphStore.getState().document.nodes.length && measured.every((n) => n.width && n.height);
+      if (ready || ++attempts > 60) fitView({ padding: 0.3, duration: 250, maxZoom: 1.0, minZoom: 0.3 });
+      else frame = window.requestAnimationFrame(fitWhenMeasured);
+    };
+    frame = window.requestAnimationFrame(fitWhenMeasured);
+    return () => window.cancelAnimationFrame(frame);
+  }, [fitRequest, fitView, getNodes]);
 
   // Containers render first so their children draw on top of them.
   const nodes = useMemo<Node<CanvasNodeData>[]>(() => {
@@ -154,9 +161,8 @@ function CanvasInner() {
     }));
   }, [document.edges, selectedEdgeId]);
 
-  // The store is the only copy of the diagram: React Flow's changes are
-  // applied to it, and a service dropped at the end of a drag moves into the
-  // container under it.
+  // React Flow's changes go straight to the store, which is the only copy
+  // of the diagram.
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
       for (const change of changes) {
@@ -283,7 +289,6 @@ function CanvasInner() {
           selectEdge(null);
           setConnectionError(null);
         }}
-        fitView
         snapToGrid
         snapGrid={[16, 16]}
         deleteKeyCode={null}
