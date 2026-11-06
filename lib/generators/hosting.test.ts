@@ -244,6 +244,7 @@ describe("App Service hosting exports", () => {
         { ...hostingGraph.nodes.find((node) => node.id === "stg-flex")!, id: "stg-ep", resourceName: "stepprivate" },
         { ...hostingGraph.nodes.find((node) => node.id === "snet-web")!, id: "snet-ep", resourceName: "snet-ep", properties: { ...hostingGraph.nodes.find((node) => node.id === "snet-web")!.properties, addressPrefix: "10.20.4.0/24" } },
         ...groupIds.map((groupId) => ({ ...hostingGraph.nodes.find((node) => node.id === "pe-blob")!, id: `pe-ep-${groupId}`, resourceName: `pe-ep-${groupId}`, properties: { groupId, manualApproval: false } })),
+        ...groupIds.filter((groupId) => groupId !== "blob").map((groupId) => ({ ...hostingGraph.nodes.find((node) => node.id === "dns-blob")!, id: `dns-${groupId}`, resourceName: `privatelink.${groupId}.core.windows.net`, properties: { zoneName: `privatelink.${groupId}.core.windows.net`, linkedToVnet: true } })),
       ],
       edges: [
         ...hostingGraph.edges.filter((edge) => edge.id !== "ep-stg"),
@@ -252,6 +253,8 @@ describe("App Service hosting exports", () => {
         ...groupIds.flatMap((groupId) => [
           { id: `pe-ep-${groupId}-snet`, source: `pe-ep-${groupId}`, target: "snet-pe", kind: "network" as const },
           { id: `pe-ep-${groupId}-stg`, source: `pe-ep-${groupId}`, target: "stg-ep", kind: "network" as const },
+          { id: `pe-ep-${groupId}-dns`, source: `pe-ep-${groupId}`, target: `dns-${groupId}`, kind: "network" as const },
+          ...(groupId === "blob" ? [] : [{ id: `dns-${groupId}-vnet`, source: `dns-${groupId}`, target: "vnet", kind: "network" as const }]),
         ]),
       ],
     });
@@ -287,6 +290,25 @@ describe("App Service hosting exports", () => {
       const worker = site("fn-ep");
       expect(worker.properties).not.toHaveProperty("vnetContentShareEnabled");
       expect(armResources().some((r) => r.type === "Microsoft.Storage/storageAccounts/fileServices/shares")).toBe(false);
+    });
+  });
+
+  describe("private DNS for storage endpoints", () => {
+    const withoutDns = { ...hostingGraph, edges: hostingGraph.edges.filter((edge) => edge.id !== "dns-vnet") };
+
+    it("blocks private storage the app cannot resolve", () => {
+      for (const generate of [generateArm, generateTerraform]) {
+        const result = generate(withoutDns);
+        expect(result.ok ? "ok" : result.reason).toContain('"fn-flex" cannot resolve Storage Account "stflexpriv" privately: link privatelink.blob.core.windows.net');
+      }
+    });
+
+    it("accepts custom DNS servers on the VNet", () => {
+      const custom = {
+        ...withoutDns,
+        nodes: withoutDns.nodes.map((node) => (node.id === "vnet" ? { ...node, properties: { ...node.properties, dnsServers: ["10.20.0.4"] } } : node)),
+      };
+      expect(generateArm(custom).ok).toBe(true);
     });
   });
 });

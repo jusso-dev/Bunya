@@ -556,6 +556,14 @@ function findReferencedNode(
 
   if (scored.length === 0) return undefined;
   if (scored.length > 1 && scored[0].score === scored[1].score) return undefined;
+  if (exact) {
+    // The name must be a whole token: quoted ('id-pull') or a complete path
+    // segment (/id-pull, then end, quote or slash), never a prefix of id-pull-external.
+    const winner = candidates.find((candidate) => candidate.node === scored[0].node);
+    const name = winner?.flat.name.toLowerCase() ?? "";
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (!new RegExp(`(^|[/'])${escaped}($|['/,)\\]])`).test(lower)) return undefined;
+  }
   return scored[0].node;
 }
 

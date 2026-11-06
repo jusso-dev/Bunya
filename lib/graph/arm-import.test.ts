@@ -782,6 +782,18 @@ describe("parseArmTemplate", () => {
       expect(result.warning).toContain("which is not in this template");
     });
 
+    it("does not match an external identity whose name starts with a local identity's name", () => {
+      const template = registryTemplate({
+        type: "UserAssigned",
+        userAssignedIdentities: { "/subscriptions/x/resourceGroups/shared/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-pull-external": {} },
+      }, "6e2a1f4c-9a51-4d1f-8f6d-0f3b2c9d7e11");
+      const result = parseArmTemplate(JSON.stringify(template));
+      if (!result.ok) throw new Error(result.reason);
+      const id = (name: string) => result.document.nodes.find((node) => node.resourceName === name)!.id;
+      expect(result.document.edges.some((e) => e.kind === "identity" && (e.source === id("web") || e.target === id("acrapp")))).toBe(false);
+      expect(result.warning).toContain("which is not in this template");
+    });
+
     it("warns instead of granting AcrPull to the system identity when the pull identity is unknown", () => {
       const result = parseArmTemplate(JSON.stringify(registryTemplate(undefined, "6e2a1f4c-9a51-4d1f-8f6d-0f3b2c9d7e11")));
       if (!result.ok) throw new Error(result.reason);

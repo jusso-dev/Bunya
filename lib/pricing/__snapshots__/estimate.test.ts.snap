@@ -74,6 +74,16 @@ exports[`estimateCost > snapshots line-item structure for the full-stack fixture
       "sku": "ruleset",
     },
     {
+      "monthly": 0,
+      "service": "Private DNS Zone",
+      "sku": "zone",
+    },
+    {
+      "monthly": 0,
+      "service": "Private DNS Zone",
+      "sku": "zone",
+    },
+    {
       "monthly": 10.95,
       "service": "Private Endpoint",
       "sku": "per-endpoint",

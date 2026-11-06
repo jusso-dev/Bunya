@@ -122,8 +122,34 @@ export function requiredStorageEndpoints(sku: unknown): string[] {
   return ["blob", "table"];
 }
 
-// Sub-resources of `storage` with a Private Endpoint in the app's VNet.
-function privateStorageEndpoints(document: GraphDocument, site: GraphNode, storage: GraphNode): Set<string> {
+const STORAGE_DNS_ZONES: Record<string, string> = {
+  blob: "privatelink.blob.core.windows.net",
+  file: "privatelink.file.core.windows.net",
+  queue: "privatelink.queue.core.windows.net",
+  table: "privatelink.table.core.windows.net",
+};
+
+// A Private Endpoint only works when the app resolves the storage hostname to
+// it: its privatelink zone must be attached to the endpoint and linked to the
+// app's VNet. A VNet with custom DNS servers resolves names itself.
+function resolvesPrivately(document: GraphDocument, pe: GraphNode, groupId: string, appVnet: GraphNode): boolean {
+  const servers = appVnet.properties.dnsServers;
+  if (Array.isArray(servers) && servers.length > 0) return true;
+  const zoneName = STORAGE_DNS_ZONES[groupId];
+  const linked = (a: string, b: string) =>
+    document.edges.some((edge) => edge.kind === "network" && ((edge.source === a && edge.target === b) || (edge.source === b && edge.target === a)));
+  return document.nodes.some(
+    (zone) =>
+      zone.type === "privateDnsZone" &&
+      String(zone.properties.zoneName ?? zone.resourceName) === zoneName &&
+      linked(pe.id, zone.id) &&
+      document.edges.some((edge) => edge.kind === "network" && edge.source === zone.id && edge.target === appVnet.id),
+  );
+}
+
+// Sub-resources of `storage` with a Private Endpoint in the app's VNet that
+// the app can resolve; `unresolved` collects endpoints missing DNS.
+function privateStorageEndpoints(document: GraphDocument, site: GraphNode, storage: GraphNode, unresolved: Set<string> = new Set()): Set<string> {
   const subnet = siteIntegrationSubnet(document, site);
   const appVnet = subnet ? subnetVirtualNetwork(document, subnet) : undefined;
   const found = new Set<string>();
@@ -133,8 +159,12 @@ function privateStorageEndpoints(document: GraphDocument, site: GraphNode, stora
     const targets = document.edges.filter((edge) => edge.source === pe.id && edge.kind === "network").map((edge) => byId.get(edge.target));
     if (!targets.some((target) => target?.id === storage.id)) continue;
     const peSubnet = targets.find((target) => target?.type === "subnet");
-    if (peSubnet && subnetVirtualNetwork(document, peSubnet)?.id === appVnet.id) found.add(String(pe.properties.groupId ?? "blob"));
+    if (!peSubnet || subnetVirtualNetwork(document, peSubnet)?.id !== appVnet.id) continue;
+    const groupId = String(pe.properties.groupId ?? "blob");
+    if (resolvesPrivately(document, pe, groupId, appVnet)) found.add(groupId);
+    else unresolved.add(groupId);
   }
+  for (const groupId of found) unresolved.delete(groupId);
   return found;
 }
 
@@ -194,8 +224,13 @@ function hostingProblems(document: GraphDocument): TopologyProblem[] {
       : undefined;
     if (backingStorage && !storagePublicNetwork(backingStorage.properties)) {
       const needed = requiredStorageEndpoints(sku);
-      const present = privateStorageEndpoints(document, site, backingStorage);
-      const missing = needed.filter((groupId) => !present.has(groupId));
+      const unresolved = new Set<string>();
+      const present = privateStorageEndpoints(document, site, backingStorage, unresolved);
+      const missing = needed.filter((groupId) => !present.has(groupId) && !unresolved.has(groupId));
+      const noDns = needed.filter((groupId) => unresolved.has(groupId));
+      if (noDns.length > 0) {
+        problems.push({ nodeIds: [site.id, backingStorage.id], message: `${label(site)} cannot resolve ${label(backingStorage)} privately: link ${noDns.map((groupId) => STORAGE_DNS_ZONES[groupId]).join(", ")} to its ${noDns.join(", ")} Private Endpoint${noDns.length > 1 ? "s" : ""} and to the app's VNet, or set custom DNS servers on the VNet.` });
+      }
       if (missing.length > 0) {
         const how = siteIntegrationSubnet(document, site)
           ? `add ${missing.join(", ")} Private Endpoints to it in the app's VNet`

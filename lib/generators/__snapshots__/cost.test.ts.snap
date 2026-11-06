@@ -25,6 +25,8 @@ exports[`generateCostEstimate > snapshots the full-stack cost markdown 1`] = `
 | \`nsg-app\` | Network Security Group | ruleset | A$0.00 | No direct cost |
 | \`pe-stg\` | Private Endpoint | per-endpoint | A$10.95 | Per-endpoint fixed cost + data processing |
 | \`pe-stg-table\` | Private Endpoint | per-endpoint | A$10.95 | Per-endpoint fixed cost + data processing |
+| \`privatelink.blob.core.windows.net\` | Private DNS Zone | zone | A$0.00 | _unmodelled_ |
+| \`privatelink.table.core.windows.net\` | Private DNS Zone | zone | A$0.00 | _unmodelled_ |
 | \`plan-full-stack\` | App Service Plan | B1 x 1 | A$20.80 | Basic B1, Linux, per instance |
 | \`app-full-stack\` | App Service | (plan) | A$0.00 | Compute billed via App Service Plan |
 | \`fn-full-stack\` | Function App | (plan) | A$0.00 | Billed via the App Service Plan |

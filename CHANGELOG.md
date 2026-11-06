@@ -49,10 +49,12 @@ project follows [Conventional Commits](https://www.conventionalcommits.org/).
   the Private Endpoints its plan needs (blob for Flex; blob and table, plus
   file for Elastic Premium). Secured Elastic Premium storage gets a
   pre-created content share and `vnetContentShareEnabled`
-  (`WEBSITE_CONTENTOVERVNET` in Terraform).
+  (`WEBSITE_CONTENTOVERVNET` in Terraform). Each of those endpoints needs its
+  `privatelink` DNS zone linked to the app's VNet, unless the VNet uses custom
+  DNS servers.
 - Flex runtime versions are exported in the form Azure expects (`22-lts` as
   `22`, .NET `8` as `8.0`). Imports only match a pull identity that the
-  reference names. A warning rule explains first pulls with a system-assigned
+  reference names as a whole word (`id-pull` never matches `id-pull-external`). A warning rule explains first pulls with a system-assigned
   identity.
 - The az CLI and PowerShell exports deploy the included ARM template in one
   step for these hosting models, because the CLIs create them in several
