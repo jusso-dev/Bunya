@@ -802,4 +802,18 @@ describe("parseArmTemplate", () => {
       expect(result.warning).toContain("user-assigned identity 6e2a1f4c-9a51-4d1f-8f6d-0f3b2c9d7e11, which is not in this template");
     });
   });
+
+  it("round-trips VNet custom DNS servers through export and import", async () => {
+    const { hostingGraph } = await import("@/lib/generators/__fixtures__/hosting");
+    const { generateArm } = await import("@/lib/generators/arm");
+    const custom = {
+      ...hostingGraph,
+      nodes: hostingGraph.nodes.map((node) => (node.id === "vnet" ? { ...node, properties: { ...node.properties, dnsServers: ["10.20.0.4", "10.20.0.5"] } } : node)),
+    };
+    const exported = generateArm(custom);
+    if (!exported.ok) throw new Error(exported.reason);
+    const imported = parseArmTemplate(exported.files[0].content);
+    if (!imported.ok) throw new Error(imported.reason);
+    expect(imported.document.nodes.find((node) => node.type === "virtualNetwork")?.properties.dnsServers).toEqual(["10.20.0.4", "10.20.0.5"]);
+  });
 });

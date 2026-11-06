@@ -289,7 +289,10 @@ function baseProperties(type: ServiceType, resource: FlatArmResource, allResourc
     case "virtualNetwork": {
       const addressSpace = asRecord(props.addressSpace);
       const prefixes = asArray(addressSpace.addressPrefixes).filter((v): v is string => typeof v === "string");
-      return { ...defaults, addressSpace: prefixes[0] ?? defaults.addressSpace };
+      const dnsServers = asArray(asRecord(props.dhcpOptions).dnsServers)
+        .map((server) => resolveString(server, parameters, variables))
+        .filter((server): server is string => !!server && /^\d+\.\d+\.\d+\.\d+$/.test(server));
+      return { ...defaults, addressSpace: prefixes[0] ?? defaults.addressSpace, dnsServers };
     }
     case "subnet":
       return {
