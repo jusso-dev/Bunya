@@ -1,36 +1,22 @@
 import { migrate } from "../lib/graph/migrate";
 import { z } from "zod";
 import { canConnect } from "../lib/catalogue/connections";
-import { getServiceDefinition, listServices } from "../lib/catalogue/services";
+import { listServices } from "../lib/catalogue/services";
 import {
-  DEFAULT_CONTAINER_SIZE,
+  AzureRegionSchema,
   EdgeKindSchema,
   GraphDocumentSchema,
+  GraphMetadataSchema,
   ServiceTypeSchema,
+  isContainerType,
   type GraphDocument,
-  type GraphNode,
-  type ServiceType,
 } from "../lib/graph/schema";
 import { serialiseToFragment, shareUrlFromFragment } from "../lib/graph/serialise";
-import { generateArm } from "../lib/generators/arm";
-import { generateAzCli } from "../lib/generators/azcli";
-import { generateBicep } from "../lib/generators/bicep";
-import { generateMermaid } from "../lib/generators/mermaid";
-import { generatePowerShell } from "../lib/generators/powershell";
-import { generateReadme } from "../lib/generators/readme";
-import { generateAzurePolicy } from "../lib/generators/azure-policy";
-import { generateTerraform } from "../lib/generators/terraform";
-import type { GeneratedFile, GeneratorResult } from "../lib/generators/types";
+import { OUTPUT_IDS, OUTPUTS, type OutputId } from "../lib/generators/registry";
+import type { GeneratedFile } from "../lib/generators/types";
 import { validate } from "../lib/rules/runtime";
 import type { Finding } from "../lib/rules/schema";
-
-const environmentSchema = z.enum(["dev", "test", "prod"]);
-const regionSchema = z.enum([
-  "australiaeast",
-  "australiasoutheast",
-  "australiacentral",
-  "australiacentral2",
-]);
+import { gridPosition, newNode, slug } from "../lib/session/new-node";
 
 export const DiagramNodeInputSchema = z.object({
   id: z.string().trim().min(1).max(80),
@@ -50,129 +36,30 @@ export const DiagramConnectionInputSchema = z.object({
 export const CreateDiagramInputSchema = z.object({
   name: z.string().trim().min(1).max(120),
   description: z.string().trim().max(2_000).optional(),
-  region: regionSchema.optional(),
-  environment: environmentSchema.optional(),
+  region: AzureRegionSchema.optional(),
+  environment: GraphMetadataSchema.shape.environment.optional(),
   resourceGroupName: z.string().trim().min(1).max(120).optional(),
   nodes: z.array(DiagramNodeInputSchema).min(1).max(100),
   connections: z.array(DiagramConnectionInputSchema).max(250).default([]),
   includeResourceGroup: z.boolean().default(true),
 });
 
-export const ExportTargetSchema = z.enum([
-  "terraform",
-  "bicep",
-  "arm",
-  "azcli",
-  "powershell",
-  "azurePolicy",
-  "mermaid",
-  "readme",
-  "all",
-]);
+export const ExportTargetSchema = z.enum([...OUTPUT_IDS, "all"]);
+
+export const EXPORT_TARGET_DESCRIPTION = `Exports a Bunya graph as ${OUTPUTS.map((output) => output.label).join(", ")}, or "all" for every format. The returned files are ready for the MCP client to save.`;
 
 export type ExportTarget = z.infer<typeof ExportTargetSchema>;
 export type CreateDiagramInput = z.input<typeof CreateDiagramInputSchema>;
 
 export type BunyaExport = {
-  target: Exclude<ExportTarget, "all">;
+  target: OutputId;
   files: GeneratedFile[];
 };
 
-const RESOURCE_PREFIX: Record<ServiceType, string> = {
-  resourceGroup: "rg",
-  virtualNetwork: "vnet",
-  subnet: "snet",
-  networkSecurityGroup: "nsg",
-  privateEndpoint: "pe",
-  privateDnsZone: "dns",
-  appServicePlan: "plan",
-  appService: "app",
-  functionApp: "func",
-  staticWebApp: "swa",
-  aksCluster: "aks",
-  virtualMachineScaleSet: "vmss",
-  storageAccount: "st",
-  sqlDatabase: "sql",
-  cosmosDb: "cosmos",
-  keyVault: "kv",
-  applicationInsights: "appi",
-  logAnalytics: "log",
-  monitorAlert: "alert",
-  actionGroup: "ag",
-  frontDoor: "fd",
-  applicationGateway: "agw",
-  apiManagement: "apim",
-  containerRegistry: "acr",
-  userAssignedIdentity: "id",
-  roleAssignment: "rbac",
-};
-
-function slug(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "") || "workload";
-}
-
-function defaultResourceName(type: ServiceType, name: string): string {
-  const definition = getServiceDefinition(type);
-  const prefix = RESOURCE_PREFIX[type];
-  const suffix = slug(name);
-  if (definition.azureNamePattern === "lowercase-alphanum-global") {
-    return `${prefix}${suffix.replace(/-/g, "")}`.slice(0, 24);
-  }
-  return `${prefix}-${suffix}`.slice(0, 120);
-}
-
-function defaultNodeName(type: ServiceType): string {
-  return getServiceDefinition(type).label;
-}
-
-function defaultPosition(index: number): { x: number; y: number } {
-  return { x: 180 + (index % 4) * 240, y: 80 + Math.floor(index / 4) * 170 };
-}
-
-function nodeFromInput(
-  input: z.infer<typeof DiagramNodeInputSchema>,
-  index: number,
-): GraphNode {
-  const name = input.name ?? defaultNodeName(input.type);
-  const definition = getServiceDefinition(input.type);
-  const properties = definition.propertiesSchema.safeParse({
-    ...definition.defaultProperties,
-    ...input.properties,
-  });
-  if (!properties.success) {
-    throw new Error(`Invalid properties for ${input.id} (${definition.label}): ${properties.error.message}`);
-  }
-
-  const node: GraphNode = {
-    id: input.id,
-    type: input.type,
-    name,
-    resourceName: input.resourceName ?? defaultResourceName(input.type, name),
-    position: defaultPosition(index),
-    properties: properties.data as Record<string, unknown>,
-    parentId: input.parentId,
-  };
-  if (input.type in DEFAULT_CONTAINER_SIZE) {
-    node.size = DEFAULT_CONTAINER_SIZE[input.type as keyof typeof DEFAULT_CONTAINER_SIZE];
-  }
-  return node;
-}
-
-function resourceGroupNode(input: CreateDiagramInput): GraphNode {
-  const name = "Resource Group";
-  const definition = getServiceDefinition("resourceGroup");
-  return {
-    id: "resource-group",
-    type: "resourceGroup",
-    name,
-    resourceName: input.resourceGroupName ?? `rg-${slug(input.name)}`,
-    position: { x: 0, y: 0 },
-    properties: definition.defaultProperties,
-    size: DEFAULT_CONTAINER_SIZE.resourceGroup,
-  };
+// Every document an MCP client sends goes through the same migration the
+// editor uses, so older Bunya files are accepted everywhere.
+export function parseDocument(input: unknown): GraphDocument {
+  return migrate(input);
 }
 
 /**
@@ -186,10 +73,7 @@ export function createDiagram(input: CreateDiagramInput): GraphDocument {
     nodeIds.add(node.id);
   }
 
-  const hasResourceGroup = input.nodes.some((node) => node.type === "resourceGroup");
-  const nodes = input.nodes.map(nodeFromInput);
-  if ((input.includeResourceGroup ?? true) && !hasResourceGroup) nodes.unshift(resourceGroupNode(input));
-
+  const resourceGroupName = input.resourceGroupName ?? `rg-${slug(input.name)}`;
   const document: GraphDocument = {
     schemaVersion: 1,
     metadata: {
@@ -199,17 +83,33 @@ export function createDiagram(input: CreateDiagramInput): GraphDocument {
       updatedAt: new Date().toISOString(),
       region: input.region ?? "australiaeast",
       environment: input.environment ?? "dev",
-      resourceGroupName: input.resourceGroupName ?? `rg-${slug(input.name)}`,
+      resourceGroupName,
     },
-    nodes,
+    nodes: [],
     edges: [],
   };
+
+  for (const [index, { id, ...plan }] of input.nodes.entries()) {
+    try {
+      document.nodes.push({ id, ...newNode(document, { ...plan, position: gridPosition(index) }) });
+    } catch (error) {
+      throw new Error(`${id}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  const hasResourceGroup = input.nodes.some((node) => node.type === "resourceGroup");
+  if ((input.includeResourceGroup ?? true) && !hasResourceGroup) {
+    document.nodes.unshift({
+      id: "resource-group",
+      ...newNode(document, { type: "resourceGroup", name: "Resource Group", resourceName: resourceGroupName, position: { x: 0, y: 0 } }),
+    });
+  }
+  const nodes = document.nodes;
 
   for (const node of nodes) {
     if (!node.parentId) continue;
     const parent = nodes.find((candidate) => candidate.id === node.parentId);
     if (!parent) throw new Error(`Node ${node.id} refers to missing parent ${node.parentId}.`);
-    if (!(parent.type in DEFAULT_CONTAINER_SIZE)) {
+    if (!isContainerType(parent.type)) {
       throw new Error(`Node ${node.id} parent ${node.parentId} is not a container.`);
     }
   }
@@ -236,28 +136,17 @@ export async function diagramViewUrl(document: GraphDocument, appUrl?: string): 
 }
 
 export function validationSummary(document: GraphDocument): Finding[] {
-  return validate(migrate(document));
+  return validate(document);
 }
 
-const generators: Record<Exclude<ExportTarget, "all">, (document: GraphDocument) => GeneratorResult> = {
-  terraform: generateTerraform,
-  bicep: generateBicep,
-  arm: generateArm,
-  azcli: generateAzCli,
-  powershell: generatePowerShell,
-  azurePolicy: generateAzurePolicy,
-  mermaid: generateMermaid,
-  readme: generateReadme,
-};
-
 export function exportDiagram(document: GraphDocument, target: ExportTarget): BunyaExport[] {
-  const targets = target === "all" ? Object.keys(generators) as Exclude<ExportTarget, "all">[] : [target];
-  return targets.map((currentTarget) => {
-    const result = generators[currentTarget](document);
+  const outputs = target === "all" ? OUTPUTS : OUTPUTS.filter((output) => output.id === target);
+  return outputs.map((output) => {
+    const result = output.generate(document, {});
     if (!result.ok) {
-      throw new Error(`${currentTarget} generation failed: ${result.reason}${result.cycle ? ` (${result.cycle.join(" -> ")})` : ""}`);
+      throw new Error(`${output.id} generation failed: ${result.reason}${result.cycle ? ` (${result.cycle.join(" -> ")})` : ""}`);
     }
-    return { target: currentTarget, files: result.files };
+    return { target: output.id, files: result.files };
   });
 }
 
