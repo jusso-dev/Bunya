@@ -1,6 +1,4 @@
-// Generated from Microsoft Learn — Azure Private Link FAQ (revision 2026-04-01).
-// Each entry encodes one FAQ answer as a Bunya RuleEntry. Do not hand-edit;
-// rerun the importer.
+// One rule per answer in Microsoft Learn's Azure Private Link FAQ, paraphrased.
 import { graphRule, nodeRule, getProp, nodesOfType } from "@/lib/rules/builders";
 import type { RuleEntry } from "@/lib/rules/schema";
 import type { GraphNode } from "@/lib/graph/schema";
@@ -14,7 +12,6 @@ const FAQ_BASE = {
 } as const;
 
 export const PRIVATE_LINK_RULES: RuleEntry[] = [
-  // 1. FAQ.PE-NO-PUBLIC-INGRESS — Private Endpoint cannot accept public ingress directly.
   graphRule({
     id: "FAQ.PE-NO-PUBLIC-INGRESS",
     source: {
@@ -44,7 +41,6 @@ export const PRIVATE_LINK_RULES: RuleEntry[] = [
     },
   }),
 
-  // 2. FAQ.PE-DNS-INTEGRATION — PE requires Azure Private DNS Zone or matching custom DNS.
   nodeRule({
     id: "FAQ.PE-DNS-INTEGRATION",
     source: {
@@ -63,7 +59,6 @@ export const PRIVATE_LINK_RULES: RuleEntry[] = [
     predicate: () => true,
   }),
 
-  // 3. FAQ.PE-NIC-LOCATION — PE NIC must be in same region as PE resource.
   graphRule({
     id: "FAQ.PE-NIC-LOCATION",
     source: {
@@ -88,7 +83,6 @@ export const PRIVATE_LINK_RULES: RuleEntry[] = [
           findings.push({ nodeIds: [pe.id] });
           continue;
         }
-        // Best-effort: look at the subnet/vnet the PE is attached to.
         for (const e of graph.edges) {
           if (e.source !== pe.id || e.kind !== "network") continue;
           const tgt = graph.nodes.find((n) => n.id === e.target);
@@ -103,7 +97,6 @@ export const PRIVATE_LINK_RULES: RuleEntry[] = [
     },
   }),
 
-  // 4. FAQ.PE-MULTIPLE-SUBSCRIPTIONS — Cross-subscription PE -> target is supported (advisory).
   nodeRule({
     id: "FAQ.PE-MULTIPLE-SUBSCRIPTIONS",
     source: {
@@ -122,7 +115,6 @@ export const PRIVATE_LINK_RULES: RuleEntry[] = [
     predicate: () => true,
   }),
 
-  // 5. FAQ.PE-NSG-FLOW-LOGS — Flow logs do not capture PE inbound traffic on older platform versions.
   nodeRule({
     id: "FAQ.PE-NSG-FLOW-LOGS",
     source: {
@@ -141,7 +133,6 @@ export const PRIVATE_LINK_RULES: RuleEntry[] = [
     predicate: () => true,
   }),
 
-  // 6. FAQ.PE-DELETE-LOCK — PEs must be removed before deleting the target service.
   nodeRule({
     id: "FAQ.PE-DELETE-LOCK",
     source: {
@@ -160,7 +151,6 @@ export const PRIVATE_LINK_RULES: RuleEntry[] = [
     predicate: () => true,
   }),
 
-  // 7. FAQ.PE-EGRESS-FROM-PE — Traffic to a PE is unidirectional inbound.
   nodeRule({
     id: "FAQ.PE-EGRESS-FROM-PE",
     source: {
@@ -179,7 +169,6 @@ export const PRIVATE_LINK_RULES: RuleEntry[] = [
     predicate: () => true,
   }),
 
-  // 8. FAQ.PE-COSTS — Each Private Endpoint billed per-hour + per-GB.
   graphRule({
     id: "FAQ.PE-COSTS",
     source: {
@@ -201,7 +190,6 @@ export const PRIVATE_LINK_RULES: RuleEntry[] = [
     },
   }),
 
-  // 9. FAQ.PE-AVAILABLE-SERVICES — PE without explicit groupId is ambiguous.
   nodeRule({
     id: "FAQ.PE-AVAILABLE-SERVICES",
     source: {

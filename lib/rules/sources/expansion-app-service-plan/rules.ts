@@ -1,10 +1,7 @@
-// Auto-curated App Service Plan rule expansion, re-encoded for Bunya.
-// Source bundles: PSRule for Azure (MIT), Azure Policy built-ins (CC-BY-4.0),
-// Checkov for Azure (Apache-2.0), and Microsoft Learn (CC-BY-4.0).
-// Each entry cites its upstream rule ID and canonical doc URL.
-// Advisory rules whose check cannot run on Bunya's property model are
-// marked [advisory] in the message and have a `() => false` predicate.
-
+// App Service Plan rules curated from PSRule for Azure, Azure Policy built-ins,
+// Checkov and Microsoft Learn.
+// Rules prefixed [advisory] document controls Bunya's property model cannot
+// evaluate; their predicates never fire.
 import { graphRule, nodeRule, nodesOfType } from "@/lib/rules/builders";
 import type { RuleEntry } from "@/lib/rules/schema";
 import type { GraphDocument, GraphNode } from "@/lib/graph/schema";
@@ -34,9 +31,6 @@ const LINUX_ONLY_RUNTIMES = new Set(["node", "python"]);
 const NAME_PATTERN = /^[a-zA-Z0-9-]+$/;
 
 export const EXPANSION_APP_SERVICE_PLAN_RULES: RuleEntry[] = [
-  // ---------------------------------------------------------------------------
-  // 1. PSRULE.APPSERVICEPLAN.MIN-PLAN — Basic SKU in prod is too small.
-  // ---------------------------------------------------------------------------
   nodeRule({
     id: "PSRULE.APPSERVICEPLAN.MIN-PLAN",
     source: {
@@ -58,9 +52,6 @@ export const EXPANSION_APP_SERVICE_PLAN_RULES: RuleEntry[] = [
       typeof n.properties.sku === "string" && planSkuTier(n.properties.sku) === "Basic",
   }),
 
-  // ---------------------------------------------------------------------------
-  // 2. PSRULE.APPSERVICEPLAN.INSTANCES — Run at least 2 instances in prod.
-  // ---------------------------------------------------------------------------
   nodeRule({
     id: "PSRULE.APPSERVICEPLAN.INSTANCES",
     source: {
@@ -84,9 +75,6 @@ export const EXPANSION_APP_SERVICE_PLAN_RULES: RuleEntry[] = [
     },
   }),
 
-  // ---------------------------------------------------------------------------
-  // 3. AZPOL.APPSERVICEPLAN.AUTOSCALE — Premium plan should allow autoscale.
-  // ---------------------------------------------------------------------------
   nodeRule({
     id: "AZPOL.APPSERVICEPLAN.AUTOSCALE",
     source: {
@@ -106,9 +94,6 @@ export const EXPANSION_APP_SERVICE_PLAN_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // ---------------------------------------------------------------------------
-  // 4. BUNYA.NAM.APP-SERVICE-PLAN — Name length 1-40, charset [a-zA-Z0-9-].
-  // ---------------------------------------------------------------------------
   nodeRule({
     id: "BUNYA.NAM.APP-SERVICE-PLAN",
     source: {
@@ -133,9 +118,6 @@ export const EXPANSION_APP_SERVICE_PLAN_RULES: RuleEntry[] = [
     },
   }),
 
-  // ---------------------------------------------------------------------------
-  // 5. WAF.APPSERVICEPLAN.RELIABILITY-ZONES — Premium SKU should be zone-redundant.
-  // ---------------------------------------------------------------------------
   nodeRule({
     id: "WAF.APPSERVICEPLAN.RELIABILITY-ZONES",
     source: {
@@ -155,9 +137,6 @@ export const EXPANSION_APP_SERVICE_PLAN_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // ---------------------------------------------------------------------------
-  // 6. CHECKOV.AZURE.APPSERVICEPLAN.FORCED-HTTPS — Plan-tier HTTPS enforcement.
-  // ---------------------------------------------------------------------------
   nodeRule({
     id: "CHECKOV.AZURE.APPSERVICEPLAN.FORCED-HTTPS",
     source: {
@@ -177,9 +156,6 @@ export const EXPANSION_APP_SERVICE_PLAN_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 7. BUNYA.COST.PLAN-CONSUMPTION-FOR-LONELY-FN
-  //    Function App is the only compute attached to a plan that is not on a
-  //    consumption-friendly SKU.
   graphRule({
     id: "BUNYA.COST.PLAN-CONSUMPTION-FOR-LONELY-FN",
     source: FUNCTIONS_SCALE_SOURCE,
@@ -193,7 +169,6 @@ export const EXPANSION_APP_SERVICE_PLAN_RULES: RuleEntry[] = [
     predicate: (graph) => {
       const findings: Array<{ nodeIds?: string[]; message?: string }> = [];
       for (const plan of nodesOfType(graph, "appServicePlan")) {
-        // Find every compute node attached to this plan via nesting or depends_on.
         const nested = graph.nodes.filter(
           (n) =>
             n.parentId === plan.id &&
@@ -219,7 +194,6 @@ export const EXPANSION_APP_SERVICE_PLAN_RULES: RuleEntry[] = [
     },
   }),
 
-  // BUNYA.COST.PLAN-LINUX-CONSUMPTION-RETIRING
   nodeRule({
     id: "BUNYA.COST.PLAN-LINUX-CONSUMPTION-RETIRING",
     source: {
@@ -237,9 +211,6 @@ export const EXPANSION_APP_SERVICE_PLAN_RULES: RuleEntry[] = [
     predicate: (node) => planFamily(node.properties.sku) === "consumption",
   }),
 
-  // 8. BUNYA.COMP.PLAN-OS-MISMATCH
-  //    App Service / Function App attached to a plan where plan.os is not Linux
-  //    while the runtime is node or python (Bunya treats those as Linux web apps).
   graphRule({
     id: "BUNYA.COMP.PLAN-OS-MISMATCH",
     source: APP_SERVICE_HOSTING_SOURCE,
@@ -273,9 +244,6 @@ export const EXPANSION_APP_SERVICE_PLAN_RULES: RuleEntry[] = [
     },
   }),
 
-  // BUNYA.IDN.PULL-SYSTEM-IDENTITY-FIRST-DEPLOY
-  //   A system-assigned identity exists only once the app does, so its
-  //   AcrPull grant lands after the first image pull.
   graphRule({
     id: "BUNYA.IDN.PULL-SYSTEM-IDENTITY-FIRST-DEPLOY",
     source: {

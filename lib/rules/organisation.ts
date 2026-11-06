@@ -1,10 +1,7 @@
 import { checkImportText, checkObjectDepth } from "../graph/limits";
-import type { GraphDocument, GraphEdge, GraphNode, ServiceType } from "@/lib/graph/schema";
-import { SERVICE_TYPES } from "@/lib/graph/schema";
-import { serviceTypeOfArm } from "@/lib/catalogue/azure";
-import { EdgeKindSchema } from "@/lib/graph/schema";
+import { EdgeKindSchema, SERVICE_TYPES, type GraphDocument, type GraphEdge, type GraphNode, type ServiceType } from "@/lib/graph/schema";
+import { serviceTypeOfArm, tlsVersionFromArm } from "@/lib/catalogue/azure";
 import { SeveritySchema, type Finding, type RuleEntry, type Severity } from "@/lib/rules/schema";
-
 
 // Imported and typed rule text is capped so one rule cannot swamp the panel,
 // findings or toasts.
@@ -67,14 +64,13 @@ function policyServiceType(armType: string): ServiceType | null {
   return armType.toLowerCase() === "microsoft.sql/servers" ? "sqlDatabase" : serviceTypeOfArm(armType);
 }
 
-const FIELD_TO_PROPERTY: Record<string, string> = {
-  "microsoft.web/sites/publicnetworkaccess": "publicNetworkAccess",
-  "microsoft.storage/storageaccounts/publicnetworkaccess": "publicNetworkAccess",
-  "microsoft.keyvault/vaults/publicnetworkaccess": "publicNetworkAccess",
-  "microsoft.containerregistry/registries/publicnetworkaccess": "publicNetworkAccess",
-  "microsoft.storage/storageaccounts/allowblobpublicaccess": "allowPublicAccess",
-  "microsoft.storage/storageaccounts/minimumtlsversion": "minTlsVersion",
-  "microsoft.keyvault/vaults/enablepurgeprotection": "purgeProtection",
+// Azure Policy alias leaf (lower case) -> Bunya property. Each leaf names the
+// same setting on every resource type Bunya models.
+const POLICY_LEAF_TO_PROPERTY: Record<string, string> = {
+  publicnetworkaccess: "publicNetworkAccess",
+  allowblobpublicaccess: "allowPublicAccess",
+  minimumtlsversion: "minTlsVersion",
+  enablepurgeprotection: "purgeProtection",
 };
 
 export function buildOrganisationRulesEnvelope(rules: OrganisationRule[]): OrganisationRulesEnvelope {
@@ -302,7 +298,7 @@ function atomToRule(
   policy: AzurePolicy,
   index: number,
 ): OrganisationRule | null {
-  const key = FIELD_TO_PROPERTY[atom.field.toLowerCase()] ?? policyFieldFallback(atom.field);
+  const key = POLICY_LEAF_TO_PROPERTY[atom.field.split("/").at(-1)?.toLowerCase() ?? ""];
   if (!key) return null;
   const operator = policyOperatorToRuleOperator(atom.operator, atom.value);
   if (!operator) return null;
@@ -357,19 +353,11 @@ function policyOperatorToRuleOperator(operator: string, value: unknown): Propert
   }
 }
 
-function policyFieldFallback(field: string): string | null {
-  const leaf = field.split("/").filter(Boolean).at(-1);
-  if (!leaf) return null;
-  if (leaf.toLowerCase() === "publicnetworkaccess") return "publicNetworkAccess";
-  if (leaf.toLowerCase() === "allowblobpublicaccess") return "allowPublicAccess";
-  return null;
-}
-
 function normalisePolicyValue(value: unknown): unknown {
   if (Array.isArray(value)) return value[0];
   if (value === "true") return true;
   if (value === "false") return false;
-  if (value === "TLS1_2") return "1.2";
+  if (typeof value === "string" && /^TLS1_\d$/.test(value)) return tlsVersionFromArm(value);
   return value;
 }
 

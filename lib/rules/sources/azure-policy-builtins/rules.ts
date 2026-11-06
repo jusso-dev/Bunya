@@ -1,8 +1,6 @@
-// Generated from the Azure Policy built-in definitions catalogue, pinned at the
-// 2026-04-01 snapshot. This file is hand-curated but lives behind the same
-// `import.ts` stub that the fetcher script will overwrite when run online. Do
-// not edit individual rules here — re-run the generator if you need to refresh
-// the set.
+// Hand-curated subset of the Azure Policy built-in definitions catalogue.
+// Rules prefixed [advisory] document controls Bunya's property model cannot
+// evaluate; their predicates never fire.
 import { graphRule, nodeRule, getProp } from "@/lib/rules/builders";
 import { storagePublicNetwork } from "@/lib/catalogue/services";
 import type { RuleEntry } from "@/lib/rules/schema";
@@ -21,7 +19,6 @@ function policySrc(displayName: string) {
 }
 
 export const AZURE_POLICY_RULES: RuleEntry[] = [
-  // 1. AZPOL.STG.SECURE-TRANSFER — Secure transfer to storage accounts should be enabled (advisory)
   nodeRule({
     id: "AZPOL.STG.SECURE-TRANSFER",
     source: policySrc(
@@ -38,7 +35,6 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 2. AZPOL.STG.PUBLIC-ACCESS — Storage accounts should disable public network access
   nodeRule({
     id: "AZPOL.STG.PUBLIC-ACCESS",
     source: policySrc(
@@ -54,7 +50,6 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
     predicate: (n) => storagePublicNetwork(n.properties),
   }),
 
-  // 3. AZPOL.STG.MIN-TLS — Storage accounts should have the specified minimum TLS version (1.2)
   nodeRule({
     id: "AZPOL.STG.MIN-TLS",
     source: policySrc(
@@ -70,7 +65,6 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
     predicate: (n) => getProp<string>(n, "minTlsVersion") !== "1.2",
   }),
 
-  // 4. AZPOL.WEB.HTTPS-ONLY — App Service apps should only be accessible over HTTPS
   nodeRule({
     id: "AZPOL.WEB.HTTPS-ONLY",
     source: policySrc(
@@ -86,7 +80,6 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
     predicate: (n) => getProp<boolean>(n, "httpsOnly") === false,
   }),
 
-  // 5. AZPOL.WEB.LATEST-TLS — App Service apps should use the latest TLS version
   nodeRule({
     id: "AZPOL.WEB.LATEST-TLS",
     source: policySrc(
@@ -103,7 +96,6 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 6. AZPOL.WEB.MANAGED-IDENTITY — App Service apps should use managed identity (advisory)
   nodeRule({
     id: "AZPOL.WEB.MANAGED-IDENTITY",
     source: policySrc("App Service apps should use managed identity"),
@@ -117,7 +109,6 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 7. AZPOL.FN.HTTPS-ONLY — Function apps should only be accessible over HTTPS
   nodeRule({
     id: "AZPOL.FN.HTTPS-ONLY",
     source: policySrc(
@@ -133,7 +124,6 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
     predicate: (n) => getProp<boolean>(n, "httpsOnly") === false,
   }),
 
-  // 8. AZPOL.FN.LATEST-TLS — Function apps should use the latest TLS version
   nodeRule({
     id: "AZPOL.FN.LATEST-TLS",
     source: policySrc(
@@ -150,7 +140,6 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 9. AZPOL.SQL.AAD-AUTH — Azure SQL Database should have Microsoft Entra-only authentication (advisory)
   nodeRule({
     id: "AZPOL.SQL.AAD-AUTH",
     source: policySrc(
@@ -167,7 +156,6 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 10. AZPOL.SQL.TDE — Transparent Data Encryption on SQL databases should be enabled (advisory)
   nodeRule({
     id: "AZPOL.SQL.TDE",
     source: policySrc(
@@ -184,7 +172,6 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 11. AZPOL.SQL.PUBLIC-ACCESS — Public network access on Azure SQL Database should be disabled (advisory)
   nodeRule({
     id: "AZPOL.SQL.PUBLIC-ACCESS",
     source: policySrc(
@@ -201,7 +188,6 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 12. AZPOL.COS.PUBLIC-ACCESS — Public network access should be disabled for Cosmos DB (advisory)
   nodeRule({
     id: "AZPOL.COS.PUBLIC-ACCESS",
     source: policySrc(
@@ -218,7 +204,6 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 13. AZPOL.KV.FIREWALL — Azure Key Vault should have firewall enabled
   nodeRule({
     id: "AZPOL.KV.FIREWALL",
     source: policySrc("Azure Key Vault should have firewall enabled or public network access disabled"),
@@ -232,7 +217,6 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
     predicate: (n) => getProp<boolean>(n, "publicNetworkAccess") === true,
   }),
 
-  // 14. AZPOL.KV.PURGE-PROTECT — Key vaults should have deletion protection enabled
   nodeRule({
     id: "AZPOL.KV.PURGE-PROTECT",
     source: policySrc("Key vaults should have deletion protection enabled"),
@@ -246,7 +230,6 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
     predicate: (n) => getProp<boolean>(n, "purgeProtection") === false,
   }),
 
-  // 15. AZPOL.KV.SOFT-DELETE — Key vaults should have soft delete enabled (retention days set)
   nodeRule({
     id: "AZPOL.KV.SOFT-DELETE",
     source: policySrc("Key vaults should have soft delete enabled"),
@@ -264,7 +247,6 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
     },
   }),
 
-  // 16. AZPOL.SNET.NSG — Subnets should be associated with a Network Security Group
   nodeRule({
     id: "AZPOL.SNET.NSG",
     source: policySrc(
@@ -288,7 +270,6 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
     },
   }),
 
-  // 17. AZPOL.DIAG.LOG-ANALYTICS — Resource logs should be enabled (graph-wide check)
   graphRule({
     id: "AZPOL.DIAG.LOG-ANALYTICS",
     source: policySrc("Resource logs should be enabled for Audit on supported resources"),
@@ -320,7 +301,6 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
     },
   }),
 
-  // 18. AZPOL.ACR.PRIVATE-LINK — ACR should use private link (publicNetworkAccess false)
   nodeRule({
     id: "AZPOL.ACR.PRIVATE-LINK",
     source: policySrc(
@@ -337,7 +317,6 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
     predicate: (n) => getProp<boolean>(n, "publicNetworkAccess") === true,
   }),
 
-  // 19. AZPOL.APIM.MIN-API-VERSION — API Management minimum API version (advisory)
   nodeRule({
     id: "AZPOL.APIM.MIN-API-VERSION",
     source: policySrc(
@@ -354,7 +333,6 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 20. AZPOL.AGW.WAF — Web Application Firewall should be enabled for Application Gateway
   nodeRule({
     id: "AZPOL.AGW.WAF",
     source: policySrc(

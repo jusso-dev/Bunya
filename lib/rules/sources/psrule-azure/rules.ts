@@ -1,10 +1,6 @@
-// Auto-curated PSRule for Azure rules, re-encoded for Bunya.
-// Source: https://github.com/Azure/PSRule.Rules.Azure (MIT)
-// Docs:   https://azure.github.io/PSRule.Rules.Azure/
-// Each entry cites its upstream rule ID and canonical doc URL.
-// Advisory rules whose check cannot run on Bunya's property model are
-// marked [advisory] in the message and have a `() => false` predicate.
-
+// Hand-curated subset of PSRule for Azure (MIT), https://github.com/Azure/PSRule.Rules.Azure.
+// Rules prefixed [advisory] document controls Bunya's property model cannot
+// evaluate; their predicates never fire.
 import { nodeRule, graphRule, getProp } from "@/lib/rules/builders";
 import { storagePublicNetwork } from "@/lib/catalogue/services";
 import type { Autofix, RuleEntry } from "@/lib/rules/schema";
@@ -33,9 +29,6 @@ function mapNodeProps(
 }
 
 export const PSRULE_RULES: RuleEntry[] = [
-  // ---------------------------------------------------------------------------
-  // Storage (8)
-  // ---------------------------------------------------------------------------
   nodeRule({
     id: "PSRULE.STORAGE.MINTLS",
     source: source("Azure.Storage.MinTLS"),
@@ -168,9 +161,6 @@ export const PSRULE_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // ---------------------------------------------------------------------------
-  // App Service (8)
-  // ---------------------------------------------------------------------------
   nodeRule({
     id: "PSRULE.APPSERVICE.USEHTTPS",
     source: source("Azure.AppService.UseHTTPS"),
@@ -327,9 +317,6 @@ export const PSRULE_RULES: RuleEntry[] = [
     },
   }),
 
-  // ---------------------------------------------------------------------------
-  // SQL (6)
-  // ---------------------------------------------------------------------------
   nodeRule({
     id: "PSRULE.SQL.MINTLS",
     source: source("Azure.SQL.MinTLS"),
@@ -423,9 +410,6 @@ export const PSRULE_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // ---------------------------------------------------------------------------
-  // Cosmos (4)
-  // ---------------------------------------------------------------------------
   nodeRule({
     id: "PSRULE.COSMOS.DISABLEMETADATAWRITE",
     source: source("Azure.Cosmos.DisableMetadataWrite"),
@@ -489,9 +473,6 @@ export const PSRULE_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // ---------------------------------------------------------------------------
-  // Key Vault (5)
-  // ---------------------------------------------------------------------------
   nodeRule({
     id: "PSRULE.KEYVAULT.RBAC",
     source: source("Azure.KeyVault.RBAC"),
@@ -616,9 +597,6 @@ export const PSRULE_RULES: RuleEntry[] = [
     },
   }),
 
-  // ---------------------------------------------------------------------------
-  // Container Registry (5)
-  // ---------------------------------------------------------------------------
   nodeRule({
     id: "PSRULE.ACR.ADMINUSER",
     source: source("Azure.ACR.AdminUser"),
@@ -714,9 +692,6 @@ export const PSRULE_RULES: RuleEntry[] = [
     },
   }),
 
-  // ---------------------------------------------------------------------------
-  // VNet / NSG / Subnet (4)
-  // ---------------------------------------------------------------------------
   nodeRule({
     id: "PSRULE.VNET.USENSGS",
     source: source("Azure.VNET.UseNSGs"),
@@ -799,9 +774,6 @@ export const PSRULE_RULES: RuleEntry[] = [
     },
   }),
 
-  // ---------------------------------------------------------------------------
-  // Application Gateway (4)
-  // ---------------------------------------------------------------------------
   nodeRule({
     id: "PSRULE.APPGW.WAFENABLED",
     source: source("Azure.AppGw.WAFEnabled"),
@@ -894,9 +866,6 @@ export const PSRULE_RULES: RuleEntry[] = [
     },
   }),
 
-  // ---------------------------------------------------------------------------
-  // Front Door (3)
-  // ---------------------------------------------------------------------------
   nodeRule({
     id: "PSRULE.FRONTDOOR.USETLS12",
     source: source("Azure.FrontDoor.MinTLS"),
@@ -941,9 +910,6 @@ export const PSRULE_RULES: RuleEntry[] = [
     },
   }),
 
-  // ---------------------------------------------------------------------------
-  // API Management (2)
-  // ---------------------------------------------------------------------------
   nodeRule({
     id: "PSRULE.APIM.HTTPSONLY",
     source: source("Azure.APIM.HTTPS"),
@@ -971,9 +937,6 @@ export const PSRULE_RULES: RuleEntry[] = [
     predicate: (n) => getProp<string>(n, "sku") === "Consumption",
   }),
 
-  // ---------------------------------------------------------------------------
-  // Function App (2)
-  // ---------------------------------------------------------------------------
   nodeRule({
     id: "PSRULE.FUNCTION.USEHTTPS",
     source: source("Azure.Function.UseHTTPS"),
@@ -1013,9 +976,6 @@ export const PSRULE_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // ---------------------------------------------------------------------------
-  // App Insights / Log Analytics (2)
-  // ---------------------------------------------------------------------------
   nodeRule({
     id: "PSRULE.APPINSIGHTS.WORKSPACE",
     source: source("Azure.AppInsights.Workspace"),
@@ -1064,9 +1024,6 @@ export const PSRULE_RULES: RuleEntry[] = [
     },
   }),
 
-  // ---------------------------------------------------------------------------
-  // Generic (2)
-  // ---------------------------------------------------------------------------
   graphRule({
     id: "PSRULE.RESOURCE.USETAGS",
     source: source("Azure.Resource.UseTags"),

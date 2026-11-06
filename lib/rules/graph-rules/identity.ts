@@ -19,7 +19,6 @@ export function uaiUnsupportedTargetEdges(graph: GraphDocument): Array<{ nodeIds
 }
 
 export const identityRules: RuleEntry[] = [
-  // BUNYA.IDN.001 — Edge to Key Vault must be an identity edge (or diagnostic)
   graphRule({
     id: "BUNYA.IDN.001",
     source: {
@@ -46,7 +45,6 @@ export const identityRules: RuleEntry[] = [
     },
   }),
 
-  // BUNYA.IDN.002 — Orphan User-Assigned Managed Identity
   graphRule({
     id: "BUNYA.IDN.002",
     source: {
@@ -76,7 +74,6 @@ export const identityRules: RuleEntry[] = [
     },
   }),
 
-  // BUNYA.IDN.003 — App/Function -> Key Vault must be identity edge
   graphRule({
     id: "BUNYA.IDN.003",
     source: {
@@ -122,7 +119,6 @@ export const identityRules: RuleEntry[] = [
     },
   }),
 
-  // BUNYA.IDN.004 — UMI pointing at a service that does not honour MI
   graphRule({
     id: "BUNYA.IDN.004",
     source: {
@@ -140,7 +136,6 @@ export const identityRules: RuleEntry[] = [
     predicate: uaiUnsupportedTargetEdges,
   }),
 
-  // BUNYA.IDN.005 — ACR pulled by compute without an MI edge
   graphRule({
     id: "BUNYA.IDN.005",
     source: {

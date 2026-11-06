@@ -12,7 +12,6 @@ const ISM_BASE = {
 const DEFAULT_SQL_ADMINS = new Set(["sa", "admin", "sqladmin", "bunyaadmin"]);
 
 export const ISM_RULES: RuleEntry[] = [
-  // 1. ISM-0974 — Authentication occurs over an encrypted channel.
   nodeRule({
     id: "ISM.0974",
     source: { ...ISM_BASE, ruleId: "ISM-0974" },
@@ -30,7 +29,6 @@ export const ISM_RULES: RuleEntry[] = [
     },
   }),
 
-  // 2. ISM-1552 — Only TLS 1.2 or higher is used.
   nodeRule({
     id: "ISM.1552",
     source: { ...ISM_BASE, ruleId: "ISM-1552" },
@@ -47,7 +45,6 @@ export const ISM_RULES: RuleEntry[] = [
     },
   }),
 
-  // 3. ISM-1525 — Only ASD-approved cryptographic algorithms are used.
   nodeRule({
     id: "ISM.1525",
     source: { ...ISM_BASE, ruleId: "ISM-1525" },
@@ -62,7 +59,6 @@ export const ISM_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 4. ISM-1480 — Multi-factor authentication for privileged users.
   nodeRule({
     id: "ISM.1480",
     source: { ...ISM_BASE, ruleId: "ISM-1480" },
@@ -77,7 +73,6 @@ export const ISM_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 5. ISM-0405 — Systems are patched promptly (runtime freshness).
   nodeRule({
     id: "ISM.0405",
     source: { ...ISM_BASE, ruleId: "ISM-0405" },
@@ -95,7 +90,6 @@ export const ISM_RULES: RuleEntry[] = [
     },
   }),
 
-  // 6. ISM-1418 — Database firewall is configured (look for a private endpoint).
   graphRule({
     id: "ISM.1418",
     source: { ...ISM_BASE, ruleId: "ISM-1418" },
@@ -127,7 +121,6 @@ export const ISM_RULES: RuleEntry[] = [
     },
   }),
 
-  // 7. ISM-1546 — TLS or IPSec is used to protect data in transit.
   nodeRule({
     id: "ISM.1546",
     source: { ...ISM_BASE, ruleId: "ISM-1546" },
@@ -145,7 +138,6 @@ export const ISM_RULES: RuleEntry[] = [
     },
   }),
 
-  // 8. ISM-1233 — System logs are securely stored centrally.
   graphRule({
     id: "ISM.1233",
     source: { ...ISM_BASE, ruleId: "ISM-1233" },
@@ -168,7 +160,6 @@ export const ISM_RULES: RuleEntry[] = [
     },
   }),
 
-  // 9. ISM-0859 — Logs are centrally stored (diagnostic emitters need a sink).
   graphRule({
     id: "ISM.0859",
     source: { ...ISM_BASE, ruleId: "ISM-0859" },
@@ -206,7 +197,6 @@ export const ISM_RULES: RuleEntry[] = [
     },
   }),
 
-  // 10. ISM-1175 — Web application input validation.
   nodeRule({
     id: "ISM.1175",
     source: { ...ISM_BASE, ruleId: "ISM-1175" },
@@ -221,7 +211,6 @@ export const ISM_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 11. ISM-0457 — Privileged access events are logged.
   nodeRule({
     id: "ISM.0457",
     source: { ...ISM_BASE, ruleId: "ISM-0457" },
@@ -236,7 +225,6 @@ export const ISM_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 12. ISM-1537 — Privileged access is periodically reviewed.
   nodeRule({
     id: "ISM.1537",
     source: { ...ISM_BASE, ruleId: "ISM-1537" },
@@ -251,7 +239,6 @@ export const ISM_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 13. ISM-1297 — Strong passwords / non-default admin identifiers.
   nodeRule({
     id: "ISM.1297",
     source: { ...ISM_BASE, ruleId: "ISM-1297" },
@@ -270,7 +257,6 @@ export const ISM_RULES: RuleEntry[] = [
     },
   }),
 
-  // 14. ISM-0140 — Cyber security incidents are reported.
   nodeRule({
     id: "ISM.0140",
     source: { ...ISM_BASE, ruleId: "ISM-0140" },
@@ -285,7 +271,6 @@ export const ISM_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 15. ISM-1241 — Web content filtering.
   nodeRule({
     id: "ISM.1241",
     source: { ...ISM_BASE, ruleId: "ISM-1241" },
@@ -300,7 +285,6 @@ export const ISM_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 16. ISM-1622 — Secure ICT environments.
   nodeRule({
     id: "ISM.1622",
     source: { ...ISM_BASE, ruleId: "ISM-1622" },
@@ -315,7 +299,6 @@ export const ISM_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 17. ISM-1418 (subsidiary) — Database accounts: SQL public network access off.
   nodeRule({
     id: "ISM.1418.sub",
     source: { ...ISM_BASE, ruleId: "ISM-1418" },

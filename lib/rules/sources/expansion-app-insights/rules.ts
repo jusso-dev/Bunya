@@ -1,15 +1,11 @@
-// Curated Application Insights rule expansion, re-encoded for Bunya.
-// Upstream sources cited per-rule (Azure Policy built-ins, PSRule for Azure,
-// Microsoft Cloud Security Benchmark). Each entry pins the canonical doc URL on
-// `source.url` and, where applicable, the upstream `ruleId`. Advisory rules
-// whose check cannot run against Bunya's property model are marked [advisory]
-// and use `predicate: () => false` (node) or `predicate: () => []` (graph).
-
+// Application Insights rules curated from Azure Policy built-ins, PSRule for
+// Azure and the Microsoft Cloud Security Benchmark.
+// Rules prefixed [advisory] document controls Bunya's property model cannot
+// evaluate; their predicates never fire.
 import { graphRule, nodeRule } from "@/lib/rules/builders";
 import type { RuleEntry } from "@/lib/rules/schema";
 
 export const EXPANSION_APP_INSIGHTS_RULES: RuleEntry[] = [
-  // 1. AZPOL.APPINSIGHTS.LOCAL-AUTH — Disable local authentication (advisory)
   nodeRule({
     id: "AZPOL.APPINSIGHTS.LOCAL-AUTH",
     source: {
@@ -31,7 +27,6 @@ export const EXPANSION_APP_INSIGHTS_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 2. PSRULE.APPINSIGHTS.NAME — Resource name compliance
   nodeRule({
     id: "PSRULE.APPINSIGHTS.NAME",
     source: {
@@ -51,7 +46,6 @@ export const EXPANSION_APP_INSIGHTS_RULES: RuleEntry[] = [
     predicate: (n) => !/^[a-zA-Z0-9._()-]{1,260}$/.test(n.resourceName),
   }),
 
-  // 3. PSRULE.APPINSIGHTS.WORKSPACE-V2 — Must be workspace-based (graph rule)
   graphRule({
     id: "PSRULE.APPINSIGHTS.WORKSPACE-V2",
     source: {
@@ -84,7 +78,6 @@ export const EXPANSION_APP_INSIGHTS_RULES: RuleEntry[] = [
     },
   }),
 
-  // 4. MCSB.APPINSIGHTS.LT-3 — Enable logging for cloud-native investigation
   graphRule({
     id: "MCSB.APPINSIGHTS.LT-3",
     source: {
@@ -116,7 +109,6 @@ export const EXPANSION_APP_INSIGHTS_RULES: RuleEntry[] = [
     },
   }),
 
-  // 5. BUNYA.OBS.AI-SAMPLING-PROD — Sampling below 100% in production
   nodeRule({
     id: "BUNYA.OBS.AI-SAMPLING-PROD",
     source: {
@@ -139,7 +131,6 @@ export const EXPANSION_APP_INSIGHTS_RULES: RuleEntry[] = [
     },
   }),
 
-  // 6. BUNYA.COMP.AI-CMK — Customer-managed keys for App Insights (advisory)
   nodeRule({
     id: "BUNYA.COMP.AI-CMK",
     source: {
@@ -158,7 +149,6 @@ export const EXPANSION_APP_INSIGHTS_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 7. BUNYA.OBS.AI-WORKSPACE-WRONG-REGION — Cross-region workspace (advisory)
   graphRule({
     id: "BUNYA.OBS.AI-WORKSPACE-WRONG-REGION",
     source: {
@@ -177,7 +167,6 @@ export const EXPANSION_APP_INSIGHTS_RULES: RuleEntry[] = [
     predicate: () => [],
   }),
 
-  // 8. BUNYA.OBS.AI-NO-SOURCE — App Insights without an incoming compute source
   graphRule({
     id: "BUNYA.OBS.AI-NO-SOURCE",
     source: {

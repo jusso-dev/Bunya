@@ -290,7 +290,7 @@ describe("rules-engine runtime", () => {
       testNode("vnet", "virtualNetwork"),
       { ...testNode("subnet", "subnet"), parentId: "vnet" },
       testNode("pe", "privateEndpoint", { groupId: "blob" }),
-      testNode("stg", "storageAccount", { allowPublicAccess: false, publicNetworkAccess: "Disabled" }),
+      testNode("stg", "storageAccount", { allowPublicAccess: false, publicNetworkAccess: false }),
     ], [
       { id: "e1", source: "pe", target: "subnet", kind: "network" },
       { id: "e2", source: "pe", target: "stg", kind: "network" },
@@ -300,7 +300,7 @@ describe("rules-engine runtime", () => {
     expect(findingsForRule(findings, "BUNYA.NET.012")).toHaveLength(0);
 
     const noPrivatePath = graphFixture([
-      testNode("stg", "storageAccount", { allowPublicAccess: false, publicNetworkAccess: "Disabled" }),
+      testNode("stg", "storageAccount", { allowPublicAccess: false, publicNetworkAccess: false }),
     ]);
     expect(findingsForRule(runRules(noPrivatePath, TEST_ENTRIES), "BUNYA.NET.012")).toHaveLength(1);
   });

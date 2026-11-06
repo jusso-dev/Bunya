@@ -20,11 +20,9 @@ function portMatches(range: string | undefined, port: string): boolean {
   if (range === undefined) return false;
   if (range === "*") return true;
   if (range === port) return true;
-  // Comma-separated list (e.g. "22,3389").
   if (range.includes(",")) {
     return range.split(",").map((s) => s.trim()).includes(port);
   }
-  // Range form (e.g. "20-25").
   if (range.includes("-")) {
     const [lo, hi] = range.split("-").map((s) => Number(s.trim()));
     const p = Number(port);
@@ -56,7 +54,6 @@ function coversGatewayPorts(range: string | undefined): boolean {
 }
 
 export const EXPANSION_NSG_RULES: RuleEntry[] = [
-  // 1. PSRULE.NSG.ANY-INBOUND-V2 — No Allow rule with `*` source on `*` port.
   nodeRule({
     id: "PSRULE.NSG.ANY-INBOUND-V2",
     source: {
@@ -84,7 +81,6 @@ export const EXPANSION_NSG_RULES: RuleEntry[] = [
     },
   }),
 
-  // 2. PSRULE.NSG.NO-INTERNET-RDP — No inbound Allow on TCP 3389 from Internet/*.
   nodeRule({
     id: "PSRULE.NSG.NO-INTERNET-RDP",
     source: {
@@ -113,7 +109,6 @@ export const EXPANSION_NSG_RULES: RuleEntry[] = [
     },
   }),
 
-  // 3. PSRULE.NSG.NO-INTERNET-SSH — No inbound Allow on TCP 22 from Internet/*.
   nodeRule({
     id: "PSRULE.NSG.NO-INTERNET-SSH",
     source: {
@@ -142,7 +137,6 @@ export const EXPANSION_NSG_RULES: RuleEntry[] = [
     },
   }),
 
-  // 4. PSRULE.NSG.LATERAL-TRAVERSAL — No inbound Allow on SMB (445) or NetBIOS (137-139).
   nodeRule({
     id: "PSRULE.NSG.LATERAL-TRAVERSAL",
     source: {
@@ -175,7 +169,6 @@ export const EXPANSION_NSG_RULES: RuleEntry[] = [
     },
   }),
 
-  // 5. CHECKOV.AZURE.160 — Disable forwarding inbound from internet.
   nodeRule({
     id: "CHECKOV.AZURE.160",
     source: {
@@ -201,7 +194,6 @@ export const EXPANSION_NSG_RULES: RuleEntry[] = [
     },
   }),
 
-  // 6. AZPOL.NSG.FLOW-LOGS — Flow logs configured (advisory; property not modelled).
   nodeRule({
     id: "AZPOL.NSG.FLOW-LOGS",
     source: {
@@ -222,7 +214,6 @@ export const EXPANSION_NSG_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 7. BUNYA.NET.NSG-UNATTACHED — NSG with no incoming network edge from a subnet.
   graphRule({
     id: "BUNYA.NET.NSG-UNATTACHED",
     source: {
@@ -242,12 +233,10 @@ export const EXPANSION_NSG_RULES: RuleEntry[] = [
       for (const nsg of nsgs) {
         const attached = graph.edges.some((e) => {
           if (e.kind !== "network") return false;
-          // Subnet -> NSG association.
           if (e.target === nsg.id) {
             const src = graph.nodes.find((n) => n.id === e.source);
             if (src?.type === "subnet") return true;
           }
-          // NSG -> Subnet association (less common but valid in some diagrams).
           if (e.source === nsg.id) {
             const tgt = graph.nodes.find((n) => n.id === e.target);
             if (tgt?.type === "subnet") return true;
@@ -260,7 +249,6 @@ export const EXPANSION_NSG_RULES: RuleEntry[] = [
     },
   }),
 
-  // 8. BUNYA.NET.NSG-AGW-SUBNET-GATEWAYMANAGER — AGW subnet NSG must allow 65200-65535 from GatewayManager.
   graphRule({
     id: "BUNYA.NET.NSG-AGW-SUBNET-GATEWAYMANAGER",
     source: {
@@ -279,7 +267,6 @@ export const EXPANSION_NSG_RULES: RuleEntry[] = [
       const findings: Array<{ nodeIds: string[] }> = [];
       const agws = graph.nodes.filter((n) => n.type === "applicationGateway");
       for (const agw of agws) {
-        // Find subnets the AGW joins via a network edge.
         const subnetIds = graph.edges
           .filter((e) => e.source === agw.id && e.kind === "network")
           .map((e) => e.target)
@@ -289,7 +276,6 @@ export const EXPANSION_NSG_RULES: RuleEntry[] = [
           });
         if (subnetIds.length === 0) continue;
         for (const subnetId of subnetIds) {
-          // Find NSGs attached to that subnet via a network edge in either direction.
           const nsgIds = new Set<string>();
           for (const e of graph.edges) {
             if (e.kind !== "network") continue;
@@ -323,7 +309,6 @@ export const EXPANSION_NSG_RULES: RuleEntry[] = [
     },
   }),
 
-  // 9. BUNYA.NET.NSG-OUTBOUND-INTERNET-WIDE-OPEN — Outbound Allow rule with `*` destination is overly permissive.
   graphRule({
     id: "BUNYA.NET.NSG-OUTBOUND-INTERNET-WIDE-OPEN",
     source: {

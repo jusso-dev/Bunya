@@ -1,11 +1,7 @@
-// Curated User-Assigned Managed Identity rule expansion, re-encoded for Bunya.
-// Upstream sources cited per-rule (Microsoft Learn, Microsoft Cloud Security
-// Benchmark v3, Azure Policy built-ins, Australian ISM). Each entry pins the
-// canonical doc URL on `source.url` and, where applicable, the upstream
-// `ruleId`. Advisory rules whose check cannot run against Bunya's property
-// model (UAI only exposes `notes`) are marked [advisory] and use
-// `predicate: () => false`.
-
+// User-Assigned Managed Identity rules curated from Microsoft Learn, MCSB v3,
+// Azure Policy built-ins and the Australian ISM.
+// Rules prefixed [advisory] document controls Bunya's property model cannot
+// evaluate; their predicates never fire.
 import { graphRule, nodeRule } from "@/lib/rules/builders";
 import { uaiUnsupportedTargetEdges } from "@/lib/rules/graph-rules/identity";
 import type { RuleEntry } from "@/lib/rules/schema";
@@ -13,7 +9,6 @@ import type { RuleEntry } from "@/lib/rules/schema";
 const MS_LEARN = "Microsoft Learn";
 
 export const EXPANSION_UAI_RULES: RuleEntry[] = [
-  // 1. BUNYA.NAM.UAI — Resource name must match the ARM charset/length pattern
   nodeRule({
     id: "BUNYA.NAM.UAI",
     source: {
@@ -34,7 +29,6 @@ export const EXPANSION_UAI_RULES: RuleEntry[] = [
     predicate: (n) => !/^[a-zA-Z0-9_-]{3,128}$/.test(n.resourceName),
   }),
 
-  // 2. MCSB.UAI.PA-7 — Prefer managed identities over service principals (advisory)
   nodeRule({
     id: "MCSB.UAI.PA-7",
     source: {
@@ -55,7 +49,6 @@ export const EXPANSION_UAI_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 3. AZPOL.UAI.LOCATION-MATCH — UAI region should match the resource group (advisory)
   nodeRule({
     id: "AZPOL.UAI.LOCATION-MATCH",
     source: {
@@ -76,7 +69,6 @@ export const EXPANSION_UAI_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 4. BUNYA.COMP.UAI-CMK — UAI used to wrap CMK needs Crypto Officer (advisory)
   nodeRule({
     id: "BUNYA.COMP.UAI-CMK",
     source: {
@@ -96,7 +88,6 @@ export const EXPANSION_UAI_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 5. ISM.0457.UAI — Privileged access logging covers managed identity activity (advisory)
   nodeRule({
     id: "ISM.0457.UAI",
     source: {
@@ -117,7 +108,6 @@ export const EXPANSION_UAI_RULES: RuleEntry[] = [
     predicate: () => false,
   }),
 
-  // 1. BUNYA.IDN.UAI-UNSUPPORTED-TARGET — UAI -> unsupported resource type
   graphRule({
     id: "BUNYA.IDN.UAI-UNSUPPORTED-TARGET",
     source: {
@@ -136,7 +126,6 @@ export const EXPANSION_UAI_RULES: RuleEntry[] = [
     predicate: uaiUnsupportedTargetEdges,
   }),
 
-  // 2. BUNYA.IDN.UAI-DUPLICATE-EDGE — Duplicate identity edges to same target
   graphRule({
     id: "BUNYA.IDN.UAI-DUPLICATE-EDGE",
     source: {
@@ -173,7 +162,6 @@ export const EXPANSION_UAI_RULES: RuleEntry[] = [
     },
   }),
 
-  // 3. BUNYA.IDN.UAI-NO-COMPUTE-USING — UAI not attached by any compute resource
   graphRule({
     id: "BUNYA.IDN.UAI-NO-COMPUTE-USING",
     source: {

@@ -1,7 +1,5 @@
-// Generated from Microsoft Learn — Azure Architecture Center + Well-Architected
-// Framework (revision 2026-04-01). Each entry encodes one reference pattern as
-// a Bunya RuleEntry that fires when the graph claims a pattern but is missing a
-// required complement. Do not hand-edit; rerun the importer.
+// Azure Architecture Center and Well-Architected reference patterns: each rule
+// fires when the graph uses a pattern but lacks a required complement.
 import { graphRule, nodeRule, getProp, nodesOfType } from "@/lib/rules/builders";
 import type { RuleEntry } from "@/lib/rules/schema";
 import type { GraphNode } from "@/lib/graph/schema";
@@ -14,7 +12,6 @@ const PATTERN_BASE = {
 } as const;
 
 export const WELL_KNOWN_PATTERN_RULES: RuleEntry[] = [
-  // 1. PATTERN.WEB-APP-MISSING-CDN — Prod App Service without Front Door / CDN.
   graphRule({
     id: "PATTERN.WEB-APP-MISSING-CDN",
     source: {
@@ -39,7 +36,6 @@ export const WELL_KNOWN_PATTERN_RULES: RuleEntry[] = [
     },
   }),
 
-  // 2. PATTERN.HUB-SPOKE-MISSING-NSG — VNet present but no NSG anywhere.
   graphRule({
     id: "PATTERN.HUB-SPOKE-MISSING-NSG",
     source: {
@@ -63,7 +59,6 @@ export const WELL_KNOWN_PATTERN_RULES: RuleEntry[] = [
     },
   }),
 
-  // 3. PATTERN.FUNCTION-WITHOUT-APP-INSIGHTS — Function App without App Insights edge.
   graphRule({
     id: "PATTERN.FUNCTION-WITHOUT-APP-INSIGHTS",
     source: {
@@ -94,7 +89,6 @@ export const WELL_KNOWN_PATTERN_RULES: RuleEntry[] = [
     },
   }),
 
-  // 4. PATTERN.STATIC-API-MISSING-FUNCTION — SWA without managed Function backend.
   graphRule({
     id: "PATTERN.STATIC-API-MISSING-FUNCTION",
     source: {
@@ -125,7 +119,6 @@ export const WELL_KNOWN_PATTERN_RULES: RuleEntry[] = [
     },
   }),
 
-  // 5. PATTERN.SQL-WITHOUT-PRIVATE-ENDPOINT — SQL + VNet but no PE on SQL.
   graphRule({
     id: "PATTERN.SQL-WITHOUT-PRIVATE-ENDPOINT",
     source: {
@@ -158,7 +151,6 @@ export const WELL_KNOWN_PATTERN_RULES: RuleEntry[] = [
     },
   }),
 
-  // 6. PATTERN.KEYVAULT-WITHOUT-LOGGING — KV without diagnostic edge to Log Analytics.
   graphRule({
     id: "PATTERN.KEYVAULT-WITHOUT-LOGGING",
     source: {
@@ -189,7 +181,6 @@ export const WELL_KNOWN_PATTERN_RULES: RuleEntry[] = [
     },
   }),
 
-  // 7. PATTERN.NO-MANAGED-IDENTITY — Compute -> data path with no identity edge anywhere.
   graphRule({
     id: "PATTERN.NO-MANAGED-IDENTITY",
     source: {
@@ -232,7 +223,6 @@ export const WELL_KNOWN_PATTERN_RULES: RuleEntry[] = [
     },
   }),
 
-  // 8. PATTERN.WAF-MISSING — App Gateway present but SKU is not WAF_v2.
   nodeRule({
     id: "PATTERN.WAF-MISSING",
     source: {
@@ -254,7 +244,6 @@ export const WELL_KNOWN_PATTERN_RULES: RuleEntry[] = [
     },
   }),
 
-  // 9. PATTERN.AVAILABILITY-ZONE-MISSING — Premium SKUs in prod without zone redundancy.
   graphRule({
     id: "PATTERN.AVAILABILITY-ZONE-MISSING",
     source: {
@@ -272,14 +261,12 @@ export const WELL_KNOWN_PATTERN_RULES: RuleEntry[] = [
     predicate: (graph) => {
       if (graph.metadata.environment !== "prod") return [];
       const findings: Array<{ nodeIds?: string[] }> = [];
-      // App Service Plan: P*v3 SKUs imply premium tier.
       for (const plan of nodesOfType(graph, "appServicePlan")) {
         const sku = getProp<string>(plan, "sku") ?? "";
         const isPremium = /^P\d+v3$/.test(sku);
         const zoneRedundant = getProp<boolean>(plan, "zoneRedundant");
         if (isPremium && zoneRedundant !== true) findings.push({ nodeIds: [plan.id] });
       }
-      // SQL Database: GP_* SKUs.
       for (const sql of nodesOfType(graph, "sqlDatabase")) {
         const sku = getProp<string>(sql, "sku") ?? "";
         const isPremium = sku.startsWith("GP_");
@@ -295,7 +282,6 @@ export const WELL_KNOWN_PATTERN_RULES: RuleEntry[] = [
     },
   }),
 
-  // 10. PATTERN.PROD-LRS — Standard_LRS storage in a prod environment.
   nodeRule({
     id: "PATTERN.PROD-LRS",
     source: {

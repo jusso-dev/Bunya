@@ -1,7 +1,5 @@
-// Generated from Azure/bicep-types-az@main. Each entry distills a single
-// enum / required-property / value-range constraint encoded in the upstream
-// type schema (generated/<provider>) into a Bunya RuleEntry whose predicate
-// inspects GraphNode.properties. Do not hand-edit; rerun the importer.
+// Enum, range and required-property constraints read by hand from
+// Azure/bicep-types-az (generated/<provider>).
 import { nodeRule, getProp } from "@/lib/rules/builders";
 import type { RuleEntry } from "@/lib/rules/schema";
 
@@ -57,7 +55,6 @@ const notIn = <T extends string>(value: unknown, allowed: readonly T[]): boolean
   typeof value === "string" && !(allowed as readonly string[]).includes(value);
 
 export const BICEP_TYPE_RULES: RuleEntry[] = [
-  // 1. Storage Account sku.name
   nodeRule({
     id: "BICEP.STG.SKU",
     source: bicepSource("microsoft.storage", "Microsoft.Storage/storageAccounts@2023-05-01"),
@@ -72,7 +69,6 @@ export const BICEP_TYPE_RULES: RuleEntry[] = [
     predicate: (n) => notIn(getProp(n, "sku"), STG_SKUS),
   }),
 
-  // 2. Storage Account kind
   nodeRule({
     id: "BICEP.STG.KIND",
     source: bicepSource("microsoft.storage", "Microsoft.Storage/storageAccounts@2023-05-01"),
@@ -86,7 +82,6 @@ export const BICEP_TYPE_RULES: RuleEntry[] = [
     predicate: (n) => notIn(getProp(n, "kind"), STG_KINDS),
   }),
 
-  // 3. Storage Account minimumTlsVersion
   nodeRule({
     id: "BICEP.STG.TLS",
     source: bicepSource("microsoft.storage", "Microsoft.Storage/storageAccounts@2023-05-01"),
@@ -100,7 +95,6 @@ export const BICEP_TYPE_RULES: RuleEntry[] = [
     predicate: (n) => notIn(getProp(n, "minTlsVersion"), STG_TLS),
   }),
 
-  // 4. App Service plan-os via runtime — runtime must indicate one of the supported runtimes
   nodeRule({
     id: "BICEP.WEB.PLAN-OS",
     source: bicepSource("microsoft.web", "Microsoft.Web/sites@2023-12-01"),
@@ -114,9 +108,6 @@ export const BICEP_TYPE_RULES: RuleEntry[] = [
     predicate: (n) => notIn(getProp(n, "runtime"), ["node", "python", "dotnet", "java"] as const),
   }),
 
-  // 5. App Service linuxFxVersion — runtimeVersion must be non-empty so the
-  //    derived siteConfig.linuxFxVersion ('NODE|<v>' / 'PYTHON|<v>' / 'DOTNETCORE|<v>')
-  //    is well-formed.
   nodeRule({
     id: "BICEP.WEB.RUNTIME",
     source: bicepSource("microsoft.web", "Microsoft.Web/sites@2023-12-01"),
@@ -133,8 +124,6 @@ export const BICEP_TYPE_RULES: RuleEntry[] = [
     },
   }),
 
-  // 6. Function App FUNCTIONS_EXTENSION_VERSION — runtimeVersion encodes the
-  //    runtime stack version; only Functions v3 / v4 are supported.
   nodeRule({
     id: "BICEP.FN.FUNCTIONS-VERSION",
     source: bicepSource("microsoft.web", "Microsoft.Web/sites@2023-12-01"),
@@ -160,7 +149,6 @@ export const BICEP_TYPE_RULES: RuleEntry[] = [
     },
   }),
 
-  // 7. SQL Server minimalTlsVersion
   nodeRule({
     id: "BICEP.SQL.TLS",
     source: bicepSource("microsoft.sql", "Microsoft.Sql/servers@2023-08-01-preview"),
@@ -178,7 +166,6 @@ export const BICEP_TYPE_RULES: RuleEntry[] = [
     },
   }),
 
-  // 8. SQL Server version — fixed at 12.0
   nodeRule({
     id: "BICEP.SQL.VERSION",
     source: bicepSource("microsoft.sql", "Microsoft.Sql/servers@2023-08-01-preview"),
@@ -196,7 +183,6 @@ export const BICEP_TYPE_RULES: RuleEntry[] = [
     },
   }),
 
-  // 9. Cosmos DB databaseAccountOfferType
   nodeRule({
     id: "BICEP.COS.OFFER",
     source: bicepSource(
@@ -217,7 +203,6 @@ export const BICEP_TYPE_RULES: RuleEntry[] = [
     },
   }),
 
-  // 10. Cosmos DB consistencyPolicy.defaultConsistencyLevel
   nodeRule({
     id: "BICEP.COS.CONSISTENCY",
     source: bicepSource(
@@ -235,7 +220,6 @@ export const BICEP_TYPE_RULES: RuleEntry[] = [
     predicate: (n) => notIn(getProp(n, "consistency"), COSMOS_CONSISTENCY),
   }),
 
-  // 11. Key Vault sku.name
   nodeRule({
     id: "BICEP.KV.SKU",
     source: bicepSource("microsoft.keyvault", "Microsoft.KeyVault/vaults@2023-07-01"),
@@ -249,7 +233,6 @@ export const BICEP_TYPE_RULES: RuleEntry[] = [
     predicate: (n) => notIn(getProp(n, "sku"), KV_SKUS),
   }),
 
-  // 12. Key Vault softDeleteRetentionInDays — 7..90
   nodeRule({
     id: "BICEP.KV.SOFT-DELETE-RANGE",
     source: bicepSource("microsoft.keyvault", "Microsoft.KeyVault/vaults@2023-07-01"),
@@ -267,7 +250,6 @@ export const BICEP_TYPE_RULES: RuleEntry[] = [
     },
   }),
 
-  // 13. Container Registry sku.name
   nodeRule({
     id: "BICEP.ACR.SKU",
     source: bicepSource(
@@ -284,7 +266,6 @@ export const BICEP_TYPE_RULES: RuleEntry[] = [
     predicate: (n) => notIn(getProp(n, "sku"), ACR_SKUS),
   }),
 
-  // 14. Application Gateway sku.name
   nodeRule({
     id: "BICEP.AGW.SKU",
     source: bicepSource(
@@ -301,7 +282,6 @@ export const BICEP_TYPE_RULES: RuleEntry[] = [
     predicate: (n) => notIn(getProp(n, "sku"), AGW_SKUS),
   }),
 
-  // 15. Application Gateway capacity — 1..125
   nodeRule({
     id: "BICEP.AGW.CAPACITY",
     source: bicepSource(
@@ -322,7 +302,6 @@ export const BICEP_TYPE_RULES: RuleEntry[] = [
     },
   }),
 
-  // 16. Front Door sku.name
   nodeRule({
     id: "BICEP.FD.SKU",
     source: bicepSource("microsoft.cdn", "Microsoft.Cdn/profiles@2024-02-01"),
@@ -336,7 +315,6 @@ export const BICEP_TYPE_RULES: RuleEntry[] = [
     predicate: (n) => notIn(getProp(n, "sku"), FD_SKUS),
   }),
 
-  // 17. API Management sku.name
   nodeRule({
     id: "BICEP.APIM.SKU",
     source: bicepSource(
@@ -354,7 +332,6 @@ export const BICEP_TYPE_RULES: RuleEntry[] = [
     predicate: (n) => notIn(getProp(n, "sku"), APIM_SKUS),
   }),
 
-  // 18. Log Analytics sku.name
   nodeRule({
     id: "BICEP.LA.SKU",
     source: bicepSource(
@@ -372,7 +349,6 @@ export const BICEP_TYPE_RULES: RuleEntry[] = [
     predicate: (n) => notIn(getProp(n, "sku"), LA_SKUS),
   }),
 
-  // 19. Log Analytics retentionInDays — 30..730
   nodeRule({
     id: "BICEP.LA.RETENTION-RANGE",
     source: bicepSource(
@@ -393,7 +369,6 @@ export const BICEP_TYPE_RULES: RuleEntry[] = [
     },
   }),
 
-  // 20. Application Insights kind
   nodeRule({
     id: "BICEP.AI.KIND",
     source: bicepSource("microsoft.insights", "Microsoft.Insights/components@2020-02-02"),
@@ -407,7 +382,6 @@ export const BICEP_TYPE_RULES: RuleEntry[] = [
     predicate: (n) => notIn(getProp(n, "type"), AI_KINDS),
   }),
 
-  // 21. Private Endpoint groupIds[0] non-empty
   nodeRule({
     id: "BICEP.PE.GROUP-ID",
     source: bicepSource(
