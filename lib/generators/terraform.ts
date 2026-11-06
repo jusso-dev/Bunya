@@ -51,6 +51,11 @@ function emitResourceGroup(node: GraphNode, ctx: GeneratorContext): string {
   ].filter(Boolean).join("\n");
 }
 
+function dnsServersLine(node: GraphNode, prefix: string): string[] {
+  const servers = Array.isArray(node.properties.dnsServers) ? (node.properties.dnsServers as string[]) : [];
+  return servers.length > 0 ? [`${prefix}[${servers.map((server) => `"${server}"`).join(", ")}]`] : [];
+}
+
 function emitVirtualNetwork(node: GraphNode, ctx: GeneratorContext): string {
   const ident = ctx.identifiers.get(node.id);
   const address = (node.properties.addressSpace as string) ?? "10.0.0.0/16";
@@ -61,6 +66,7 @@ function emitVirtualNetwork(node: GraphNode, ctx: GeneratorContext): string {
     `  resource_group_name = ${rgRef(ctx, node)}.name`,
     `  location            = ${rgRef(ctx, node)}.location`,
     `  address_space       = ["${address}"]`,
+    ...dnsServersLine(node, "  dns_servers         = "),
     tagsBlock(ctx, node),
     `}`,
   ].filter(Boolean).join("\n");
@@ -152,9 +158,25 @@ function emitPrivateEndpoint(node: GraphNode, ctx: GeneratorContext): string {
     `    is_manual_connection           = ${node.properties.manualApproval === true}`,
     `    subresource_names              = ["${groupId}"]`,
     `  }`,
+    ...privateDnsZoneGroup(ctx, node),
     tagsBlock(ctx, node),
     `}`,
   ].filter(Boolean).join("\n");
+}
+
+// Registers the endpoint's private IP in the zones it is wired to.
+function privateDnsZoneGroup(ctx: GeneratorContext, node: GraphNode): string[] {
+  const zones = outgoingOf(ctx, node.id, "network")
+    .map((edge) => ctx.nodesById.get(edge.target))
+    .filter((target): target is GraphNode => target?.type === "privateDnsZone");
+  if (zones.length === 0) return [];
+  return [
+    ``,
+    `  private_dns_zone_group {`,
+    `    name                 = "default"`,
+    `    private_dns_zone_ids = [${zones.map((zone) => `azurerm_private_dns_zone.${ctx.identifiers.get(zone.id)}.id`).join(", ")}]`,
+    `  }`,
+  ];
 }
 
 function emitAppServicePlan(node: GraphNode, ctx: GeneratorContext): string {
@@ -820,6 +842,19 @@ function emitPrivateDnsZone(node: GraphNode, ctx: GeneratorContext): string {
     `  resource_group_name = ${rgRef(ctx, node)}.name`,
     tagsBlock(ctx, node),
     `}`,
+    ...outgoingOf(ctx, node.id, "network")
+      .map((edge) => ctx.nodesById.get(edge.target))
+      .filter((target): target is GraphNode => target?.type === "virtualNetwork")
+      .flatMap((vnet) => [
+        ``,
+        `resource "azurerm_private_dns_zone_virtual_network_link" "${ident}_${ctx.identifiers.get(vnet.id)}" {`,
+        `  name                  = "${ctx.resourceNames.get(vnet.id)}-link"`,
+        `  resource_group_name   = ${rgRef(ctx, node)}.name`,
+        `  private_dns_zone_name = azurerm_private_dns_zone.${ident}.name`,
+        `  virtual_network_id    = azurerm_virtual_network.${ctx.identifiers.get(vnet.id)}.id`,
+        `  registration_enabled  = false`,
+        `}`,
+      ]),
   ].filter(Boolean).join("\n");
 }
 

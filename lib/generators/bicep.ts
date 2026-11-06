@@ -64,6 +64,9 @@ function emitVirtualNetwork(node: GraphNode, ctx: GeneratorContext): string {
     `        '${addressSpace}'`,
     `      ]`,
     `    }`,
+    ...(Array.isArray(node.properties.dnsServers) && (node.properties.dnsServers as string[]).length > 0
+      ? [`    dhcpOptions: {`, `      dnsServers: [`, ...(node.properties.dnsServers as string[]).map((server) => `        '${server}'`), `      ]`, `    }`]
+      : []),
     `  }`,
     tagsLiteral(ctx, node),
     `}`,
@@ -121,6 +124,33 @@ function emitNsg(node: GraphNode, ctx: GeneratorContext): string {
   ].filter(Boolean).join("\n");
 }
 
+// Registers the endpoint's private IP in the zones it is wired to.
+function bicepZoneGroup(ctx: GeneratorContext, node: GraphNode, ident: string): string[] {
+  const zones = outgoingOf(ctx, node.id, "network")
+    .map((edge) => ctx.nodesById.get(edge.target))
+    .filter((target): target is GraphNode => target?.type === "privateDnsZone");
+  if (zones.length === 0) return [];
+  return [
+    ``,
+    `resource ${ident}_dns 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups@2023-11-01' = {`,
+    `  parent: ${ident}`,
+    `  name: 'default'`,
+    `  properties: {`,
+    `    privateDnsZoneConfigs: [`,
+    ...zones.flatMap((zone) => [
+      `      {`,
+      `        name: '${String(zone.properties.zoneName ?? name(ctx, zone.id)).replace(/\./g, "-")}'`,
+      `        properties: {`,
+      `          privateDnsZoneId: ${nodeRef(ctx, zone.id)}.id`,
+      `        }`,
+      `      }`,
+    ]),
+    `    ]`,
+    `  }`,
+    `}`,
+  ];
+}
+
 function emitPrivateEndpoint(node: GraphNode, ctx: GeneratorContext): string {
   const ident = nodeRef(ctx, node.id);
   const subnetEdge = outgoingOf(ctx, node.id, "network").find(
@@ -155,6 +185,7 @@ function emitPrivateEndpoint(node: GraphNode, ctx: GeneratorContext): string {
     `  }`,
     tagsLiteral(ctx, node),
     `}`,
+    ...bicepZoneGroup(ctx, node, ident),
   ].filter(Boolean).join("\n");
 }
 
@@ -700,6 +731,23 @@ function emitPrivateDnsZone(node: GraphNode, ctx: GeneratorContext): string {
     `  location: 'global'`,
     tagsLiteral(ctx, node),
     `}`,
+    ...outgoingOf(ctx, node.id, "network")
+      .map((edge) => ctx.nodesById.get(edge.target))
+      .filter((target): target is GraphNode => target?.type === "virtualNetwork")
+      .flatMap((vnet) => [
+        ``,
+        `resource ${ident}_${ctx.identifiers.get(vnet.id)}_link 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2020-06-01' = {`,
+        `  parent: ${ident}`,
+        `  name: '${name(ctx, vnet.id)}-link'`,
+        `  location: 'global'`,
+        `  properties: {`,
+        `    registrationEnabled: false`,
+        `    virtualNetwork: {`,
+        `      id: ${nodeRef(ctx, vnet.id)}.id`,
+        `    }`,
+        `  }`,
+        `}`,
+      ]),
   ].filter(Boolean).join("\n");
 }
 

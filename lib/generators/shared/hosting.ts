@@ -96,6 +96,14 @@ export { integrationDelegation };
 // steps, some of them preview-only.
 export function needsTemplateDeployment(ctx: GeneratorContext): string | null {
   for (const node of ctx.document.nodes) {
+    // The CLIs create zones, links, zone groups and DNS servers in separate
+    // steps the scripts do not emit; the ARM template wires them together.
+    if (node.type === "privateDnsZone" && ctx.edges.some((edge) => edge.kind === "network" && (edge.source === node.id || edge.target === node.id))) {
+      return `Private DNS Zone "${node.resourceName}" is linked to endpoints or VNets`;
+    }
+    if (node.type === "virtualNetwork" && Array.isArray(node.properties.dnsServers) && node.properties.dnsServers.length > 0) {
+      return `Virtual Network "${node.resourceName}" uses custom DNS servers`;
+    }
     if (node.type === "appServicePlan") {
       const family = planFamily(node.properties.sku);
       if (family !== "dedicated") return `App Service Plan "${node.resourceName}" uses ${String(node.properties.sku)}`;

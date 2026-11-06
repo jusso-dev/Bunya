@@ -106,6 +106,9 @@ function emitVirtualNetwork(node: GraphNode, ctx: GeneratorContext): ArmResource
       addressSpace: {
         addressPrefixes: [(node.properties.addressSpace as string) ?? "10.0.0.0/16"],
       },
+      ...(Array.isArray(node.properties.dnsServers) && (node.properties.dnsServers as string[]).length > 0
+        ? { dhcpOptions: { dnsServers: node.properties.dnsServers as string[] } }
+        : {}),
     },
   };
 }

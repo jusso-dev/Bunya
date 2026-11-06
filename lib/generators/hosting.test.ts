@@ -138,7 +138,7 @@ describe("App Service hosting exports", () => {
     for (const result of [generateAzCli(hostingGraph), generatePowerShell(hostingGraph)]) {
       if (!result.ok) throw new Error(result.reason);
       expect(result.files.map((f) => f.path)).toContain("azuredeploy.json");
-      expect(result.files[0].content).toContain('App Service Plan "plan-flex" uses FC1');
+      expect(result.files[0].content).toContain("so this script deploys the included ARM template in one step");
     }
   });
 
@@ -309,6 +309,38 @@ describe("App Service hosting exports", () => {
         nodes: withoutDns.nodes.map((node) => (node.id === "vnet" ? { ...node, properties: { ...node.properties, dnsServers: ["10.20.0.4"] } } : node)),
       };
       expect(generateArm(custom).ok).toBe(true);
+    });
+  });
+
+  describe("private DNS wiring in every template format", () => {
+    it("emits zone groups and VNet links", () => {
+      const zoneGroup = armResources().find((r) => r.type === "Microsoft.Network/privateEndpoints" && r.name === "pe-blob") as Arm & { resources?: Arm[] };
+      expect(zoneGroup.resources?.[0]).toMatchObject({ type: "privateDnsZoneGroups", name: "default" });
+      const zone = armResources().find((r) => r.type === "Microsoft.Network/privateDnsZones") as Arm & { resources?: Arm[] };
+      expect(zone.resources?.[0]).toMatchObject({ type: "virtualNetworkLinks" });
+
+      const bicep = file(generateBicep(hostingGraph), "main.bicep");
+      expect(bicep).toContain("'Microsoft.Network/privateEndpoints/privateDnsZoneGroups@2023-11-01'");
+      expect(bicep).toContain("'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2020-06-01'");
+
+      const main = file(generateTerraform(hostingGraph), "main.tf");
+      expect(main).toMatch(/private_dns_zone_group \{\n\s+name\s+= "default"\n\s+private_dns_zone_ids = \[azurerm_private_dns_zone\./);
+      expect(main).toContain('resource "azurerm_private_dns_zone_virtual_network_link"');
+    });
+
+    it("emits custom DNS servers on the VNet", () => {
+      const custom = {
+        ...hostingGraph,
+        nodes: hostingGraph.nodes.map((node) => (node.id === "vnet" ? { ...node, properties: { ...node.properties, dnsServers: ["10.20.0.4"] } } : node)),
+      };
+      const vnet = (JSON.parse(file(generateArm(custom), "azuredeploy.json")).resources as Arm[]).find((r) => r.type === "Microsoft.Network/virtualNetworks");
+      expect(vnet?.properties.dhcpOptions).toEqual({ dnsServers: ["10.20.0.4"] });
+      expect(file(generateBicep(custom), "main.bicep")).toMatch(/dhcpOptions: \{\n\s+dnsServers: \[\n\s+'10\.20\.0\.4'/);
+      expect(file(generateTerraform(custom), "main.tf")).toContain('dns_servers         = ["10.20.0.4"]');
+      for (const result of [generateAzCli(custom), generatePowerShell(custom)]) {
+        if (!result.ok) throw new Error(result.reason);
+        expect(result.files.map((f) => f.path)).toContain("azuredeploy.json");
+      }
     });
   });
 });

@@ -51,7 +51,9 @@ project follows [Conventional Commits](https://www.conventionalcommits.org/).
   pre-created content share and `vnetContentShareEnabled`
   (`WEBSITE_CONTENTOVERVNET` in Terraform). Each of those endpoints needs its
   `privatelink` DNS zone linked to the app's VNet, unless the VNet uses custom
-  DNS servers.
+  DNS servers. Terraform and Bicep now emit Private Endpoint DNS zone groups
+  and zone-to-VNet links (ARM already did), and all three emit VNet custom DNS
+  servers; the shell exports deploy the ARM template when either is drawn.
 - Flex runtime versions are exported in the form Azure expects (`22-lts` as
   `22`, .NET `8` as `8.0`). Imports only match a pull identity that the
   reference names as a whole word (`id-pull` never matches `id-pull-external`). A warning rule explains first pulls with a system-assigned
