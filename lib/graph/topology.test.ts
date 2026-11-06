@@ -194,20 +194,6 @@ describe("starter templates", () => {
       expect(text).toContain('"fn2" has VNet integration, which the Consumption plan');
     });
 
-    it("blocks deployment exports for hosting the exporters do not emit yet", () => {
-      const document = doc([
-        node("rg", "resourceGroup", null),
-        node("ep", "appServicePlan", "rg", { sku: "EP1" }),
-        node("fn", "functionApp", "ep"),
-        node("stg", "storageAccount", "rg"),
-      ], [{ id: "e1", source: "fn", target: "stg", kind: "data" }]);
-      expect(topologyProblems(document)).toEqual([]);
-      for (const generate of [generateTerraform, generateBicep, generateArm, generateAzCli, generatePowerShell]) {
-        const result = generate(document);
-        expect(result.ok ? "ok" : result.reason).toContain('App Service Plan "ep" uses Elastic Premium (EP1)');
-      }
-    });
-
     it("exports the new dedicated SKUs", () => {
       for (const sku of ["B3", "S2", "S3", "P0v3", "P3v3", "P1v2", "P2v2", "P3v2"]) {
         const document = doc([

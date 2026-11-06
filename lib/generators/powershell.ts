@@ -9,6 +9,7 @@ import {
   resolveVirtualNetwork,
 } from "./shared/context";
 import { GeneratorResult } from "./types";
+import { needsTemplateDeployment } from "./shared/hosting";
 import { powerShellPlanSku } from "@/lib/catalogue/app-service-plans";
 
 function header(document: GraphDocument, includeSqlAdmin: boolean): string[] {
@@ -343,6 +344,8 @@ export function generatePowerShell(document: GraphDocument): GeneratorResult {
   if (!ctx.topo.ok) {
     return { ok: false, reason: "cycle detected", cycle: ctx.topo.cycle };
   }
+  const templateReason = needsTemplateDeployment(ctx);
+  if (templateReason) return generatePrivateDeployment(document, "powershell", `${templateReason}, so this script deploys the included ARM template in one step.`);
   const rg = ctx.rgNode ? ctx.resourceNames.get(ctx.rgNode.id) : document.metadata.resourceGroupName;
   const hasSql = ctx.document.nodes.some((n) => n.type === "sqlDatabase");
   const paramLines = [

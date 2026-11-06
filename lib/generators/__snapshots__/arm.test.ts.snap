@@ -19,12 +19,13 @@ exports[`generateArm > snapshots first-cut ARM output 1`] = `
   "resources": [
     {
       "type": "Microsoft.Web/serverfarms",
-      "apiVersion": "2023-12-01",
+      "apiVersion": "2024-04-01",
       "name": "plan-first-cut",
       "location": "[parameters('location')]",
       "kind": "linux",
       "sku": {
         "name": "B1",
+        "tier": "Basic",
         "capacity": 1
       },
       "properties": {
@@ -78,7 +79,7 @@ exports[`generateArm > snapshots first-cut ARM output 1`] = `
     },
     {
       "type": "Microsoft.Web/sites",
-      "apiVersion": "2023-12-01",
+      "apiVersion": "2024-04-01",
       "name": "app-first-cut",
       "location": "[parameters('location')]",
       "kind": "app,linux",
@@ -111,7 +112,7 @@ exports[`generateArm > snapshots first-cut ARM output 1`] = `
       "name": "[guid(resourceId('Microsoft.KeyVault/vaults', 'kv-first-cut-11vqlt'), 'app-first-cut', 'Key Vault Secrets User')]",
       "properties": {
         "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions','4633458b-17de-408a-b874-0445c86b69e6')]",
-        "principalId": "[reference(resourceId('Microsoft.Web/sites','app-first-cut'), '2023-12-01', 'Full').identity.principalId]",
+        "principalId": "[reference(resourceId('Microsoft.Web/sites','app-first-cut'), '2024-04-01', 'Full').identity.principalId]",
         "principalType": "ServicePrincipal"
       },
       "dependsOn": [

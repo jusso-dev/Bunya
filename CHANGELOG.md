@@ -22,9 +22,16 @@ project follows [Conventional Commits](https://www.conventionalcommits.org/).
   Consumption and Flex plans, VNet integration on Consumption, dedicated plans
   with 0 instances, and VNet integration subnets that need two delegations or
   also host other resources.
-- Deployment exports are blocked, with a clear message, for Elastic Premium,
-  Consumption and Flex Consumption plans and for container images until the
-  exporters emit them. Diagrams, cost estimates and JSON export still work.
+- Terraform, Bicep and ARM export Flex Consumption (`functionAppConfig`, a
+  deployment blob container, `azurerm_function_app_flex_consumption`), Linux
+  Consumption and Elastic Premium (content share settings), container images
+  with managed-identity pulls, VNet integration with the right subnet
+  delegation, and the App Insights connection string. Identity edges to a
+  registry or storage account generate AcrPull or Storage Blob Data
+  Contributor. The Terraform provider constraint is now `~> 4.35`.
+- The az CLI and PowerShell exports deploy the included ARM template in one
+  step for these hosting models, because the CLIs create them in several
+  separately-failing (some preview-only) steps.
 - Exports set plan instance counts, and PowerShell maps SKUs to the tier and
   worker size `New-AzAppServicePlan` expects.
 - App Service prices are current Linux pay-as-you-go rates for Australia East

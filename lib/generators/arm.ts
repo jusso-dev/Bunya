@@ -5,10 +5,13 @@ import {
   buildGeneratorContext,
   incomingOf,
   outgoingOf,
-  resolveAppServicePlan,
   resolveVirtualNetwork,
 } from "./shared/context";
 import { GeneratedFile, GeneratorResult } from "./types";
+import { expr, planBody, siteBody, toArm, type Refs } from "./shared/site-resource";
+import { siteHosting } from "./shared/hosting";
+import { ROLE_DEFINITION_IDS, defaultRoleNameFor } from "./shared/roles";
+import { subnetDelegations } from "@/lib/graph/topology";
 
 type ArmResource = {
   type: string;
@@ -117,6 +120,9 @@ function emitSubnet(node: GraphNode, ctx: GeneratorContext): ArmResource {
       addressPrefix: (node.properties.addressPrefix as string) ?? "10.0.1.0/24",
       privateEndpointNetworkPolicies:
         (node.properties.privateEndpointNetworkPolicies as string) ?? "Disabled",
+      ...(subnetDelegations(ctx.document, node).length > 0
+        ? { delegations: subnetDelegations(ctx.document, node).map((service) => ({ name: service.split("/")[1], properties: { serviceName: service } })) }
+        : {}),
     },
     dependsOn: [resourceId("Microsoft.Network/virtualNetworks", vnetName)],
   };
@@ -215,83 +221,78 @@ function emitPrivateDnsZone(node: GraphNode, ctx: GeneratorContext): ArmResource
   };
 }
 
+function armRefs(ctx: GeneratorContext): Refs {
+  const storageName = (storage: GraphNode | null) => (storage ? resourceName(ctx, storage.id) : "mainstorage");
+  return {
+    id: (node) => expr("", armResourceId(node, ctx).slice(1, -1)),
+    name: (node) => resourceName(ctx, node.id),
+    storageConnectionString: (storage) => {
+      const st = storageName(storage);
+      return expr("", `concat('DefaultEndpointsProtocol=https;AccountName=${st};EndpointSuffix=', environment().suffixes.storage, ';AccountKey=', listKeys(resourceId('Microsoft.Storage/storageAccounts','${st}'),'2023-05-01').keys[0].value)`);
+    },
+    blobEndpoint: (storage) => expr("", `reference(resourceId('Microsoft.Storage/storageAccounts', '${storageName(storage)}'), '2023-05-01').primaryEndpoints.blob`),
+    appInsightsConnectionString: (component) => expr("", `reference(resourceId('Microsoft.Insights/components', '${resourceName(ctx, component.id)}'), '2020-02-02').ConnectionString`),
+    userIdentityClientId: (identity) => expr("", `reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', '${resourceName(ctx, identity.id)}'), '2023-01-31').clientId`),
+  };
+}
+
 function emitAppServicePlan(node: GraphNode, ctx: GeneratorContext): ArmResource {
-  const os = (node.properties.os as string) ?? "Linux";
+  const body = planBody(node);
   return {
     type: "Microsoft.Web/serverfarms",
-    apiVersion: "2023-12-01",
+    apiVersion: "2024-04-01",
     name: resourceName(ctx, node.id),
     location: "[parameters('location')]",
-    kind: os.toLowerCase(),
-    sku: { name: (node.properties.sku as string) ?? "B1", capacity: (node.properties.capacity as number) ?? 1 },
-    properties: { reserved: os === "Linux" },
+    kind: body.kind,
+    sku: toArm(body.sku) as Record<string, unknown>,
+    properties: toArm(body.properties) as Record<string, unknown>,
     tags: tags(ctx, node),
   };
 }
 
-function emitAppService(node: GraphNode, ctx: GeneratorContext): ArmResource {
-  const plan = resolveAppServicePlan(ctx, node);
-  const planName = plan ? resourceName(ctx, plan.id) : "main-plan";
-  return {
+function emitSite(node: GraphNode, ctx: GeneratorContext): ArmResource {
+  const body = siteBody(ctx, node, armRefs(ctx));
+  const flex = node.type === "functionApp" && body.hosting.family === "flex";
+  const storageName = body.hosting.storage ? resourceName(ctx, body.hosting.storage.id) : "mainstorage";
+  const containerId = `[resourceId('Microsoft.Storage/storageAccounts/blobServices/containers', '${storageName}', 'default', '${body.hosting.deploymentContainer}')]`;
+  if (flex) {
+    const config = (body.properties.functionAppConfig as Record<string, Record<string, Record<string, unknown>>>).deployment.storage;
+    config.value = expr("", `concat(reference(resourceId('Microsoft.Storage/storageAccounts', '${storageName}'), '2023-05-01').primaryEndpoints.blob, '${body.hosting.deploymentContainer}')`);
+  }
+  const resource: ArmResource = {
     type: "Microsoft.Web/sites",
-    apiVersion: "2023-12-01",
+    apiVersion: "2024-04-01",
     name: resourceName(ctx, node.id),
     location: "[parameters('location')]",
-    kind: "app,linux",
-    identity: { type: "SystemAssigned" },
-    properties: {
-      serverFarmId: resourceId("Microsoft.Web/serverfarms", planName),
-      publicNetworkAccess: node.properties.publicNetworkAccess === false ? "Disabled" : "Enabled",
-      httpsOnly: node.properties.httpsOnly !== false,
-      siteConfig: {
-        minTlsVersion: "1.2",
-        alwaysOn: node.properties.alwaysOn !== false,
-        linuxFxVersion: `${node.properties.runtime === "dotnet" ? "DOTNETCORE" : String(node.properties.runtime).toUpperCase()}|${node.properties.runtimeVersion}`,
-      },
-    },
+    kind: body.kind,
+    identity: toArm(body.identity) as Record<string, unknown>,
+    properties: toArm(body.properties) as Record<string, unknown>,
     tags: tags(ctx, node),
-    dependsOn: [resourceId("Microsoft.Web/serverfarms", planName)],
+    dependsOn: [...new Set([...body.dependsOn.map((dep) => armResourceId(dep, ctx)), ...(flex ? [containerId] : [])])],
   };
+  return resource;
 }
 
-function emitFunctionApp(node: GraphNode, ctx: GeneratorContext): ArmResource {
-  const plan = resolveAppServicePlan(ctx, node);
-  const planName = plan ? resourceName(ctx, plan.id) : "main-plan";
-  const stEdge = outgoingOf(ctx, node.id, "data").find(
-    (e) => ctx.nodesById.get(e.target)?.type === "storageAccount",
-  );
-  const stName = stEdge ? resourceName(ctx, stEdge.target) : "mainstorage";
-  return {
-    type: "Microsoft.Web/sites",
-    apiVersion: "2023-12-01",
-    name: resourceName(ctx, node.id),
-    location: "[parameters('location')]",
-    kind: "functionapp,linux",
-    identity: { type: "SystemAssigned" },
-    properties: {
-      serverFarmId: resourceId("Microsoft.Web/serverfarms", planName),
-      publicNetworkAccess: node.properties.publicNetworkAccess === false ? "Disabled" : "Enabled",
-      httpsOnly: node.properties.httpsOnly !== false,
-      siteConfig: {
-        minTlsVersion: "1.2",
-        linuxFxVersion: `${String(node.properties.runtime).toUpperCase()}|${node.properties.runtimeVersion}`,
-        appSettings: [
-          {
-            name: "AzureWebJobsStorage",
-            value: `[concat('DefaultEndpointsProtocol=https;AccountName=${stName};EndpointSuffix=', environment().suffixes.storage, ';AccountKey=', listKeys(resourceId('Microsoft.Storage/storageAccounts','${stName}'),'2023-05-01').keys[0].value)]`,
-          },
-          { name: "FUNCTIONS_EXTENSION_VERSION", value: "~4" },
-          { name: "FUNCTIONS_WORKER_RUNTIME", value: String(node.properties.runtime) },
-        ],
-      },
-    },
-    tags: tags(ctx, node),
-    dependsOn: [
-      resourceId("Microsoft.Web/serverfarms", planName),
-      resourceId("Microsoft.Storage/storageAccounts", stName),
-    ],
-  };
+// Flex Consumption deploys packages from this blob container.
+function flexDeploymentContainers(ctx: GeneratorContext): ArmResource[] {
+  return ctx.document.nodes
+    .filter((node) => node.type === "functionApp")
+    .map((node) => siteHosting(ctx, node))
+    .filter((hosting) => hosting.family === "flex")
+    .map((hosting) => {
+      const storageName = hosting.storage ? resourceName(ctx, hosting.storage.id) : "mainstorage";
+      return {
+        type: "Microsoft.Storage/storageAccounts/blobServices/containers",
+        apiVersion: "2023-05-01",
+        name: `${storageName}/default/${hosting.deploymentContainer}`,
+        properties: { publicAccess: "None" },
+        dependsOn: [resourceId("Microsoft.Storage/storageAccounts", storageName)],
+      };
+    });
 }
+
+const emitAppService = emitSite;
+const emitFunctionApp = emitSite;
 
 function emitStaticWebApp(node: GraphNode, ctx: GeneratorContext): ArmResource {
   const sku = (node.properties.sku as string) ?? "Standard";
@@ -703,42 +704,18 @@ function emitUserAssignedIdentity(node: GraphNode, ctx: GeneratorContext): ArmRe
   };
 }
 
-const ROLE_DEFINITION_IDS: Record<string, string> = {
-  AcrPull: "7f951dda-4ed3-4680-a7ca-43fe172d538d",
-  "Key Vault Secrets User": "4633458b-17de-408a-b874-0445c86b69e6",
-  "Storage Blob Data Contributor": "ba92f5b4-2d11-453d-a403-e96b0029c9fe",
-  "Storage Queue Data Contributor": "974c5e8b-45b9-4653-ba55-5f855dd0fb88",
-  "Monitoring Metrics Publisher": "3913510d-42f4-4e42-8a64-420c390055eb",
-  Reader: "acdd72a7-3385-48ef-bd42-f606fba81ae7",
-  Contributor: "b24988ac-6180-42a0-ab88-20f7382dd24c",
-};
-
-function defaultRoleNameFor(target: GraphNode): string {
-  switch (target.type) {
-    case "containerRegistry":
-      return "AcrPull";
-    case "keyVault":
-      return "Key Vault Secrets User";
-    case "storageAccount":
-      return "Storage Blob Data Contributor";
-    case "logAnalytics":
-      return "Monitoring Metrics Publisher";
-    default:
-      return "Reader";
-  }
-}
-
-function principalIdExpression(source: GraphNode): string | undefined {
+function principalIdExpression(source: GraphNode, ctx: GeneratorContext): string | undefined {
+  const sourceName = resourceName(ctx, source.id);
   switch (source.type) {
     case "userAssignedIdentity":
-      return `[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities','${source.resourceName}'), '2023-01-31').principalId]`;
+      return `[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities','${sourceName}'), '2023-01-31').principalId]`;
     case "appService":
     case "functionApp":
-      return `[reference(resourceId('Microsoft.Web/sites','${source.resourceName}'), '2023-12-01', 'Full').identity.principalId]`;
+      return `[reference(resourceId('Microsoft.Web/sites','${sourceName}'), '2024-04-01', 'Full').identity.principalId]`;
     case "aksCluster":
-      return `[reference(resourceId('Microsoft.ContainerService/managedClusters','${source.resourceName}'), '2024-07-01', 'Full').identity.principalId]`;
+      return `[reference(resourceId('Microsoft.ContainerService/managedClusters','${sourceName}'), '2024-07-01', 'Full').identity.principalId]`;
     case "virtualMachineScaleSet":
-      return `[reference(resourceId('Microsoft.Compute/virtualMachineScaleSets','${source.resourceName}'), '2024-07-01', 'Full').identity.principalId]`;
+      return `[reference(resourceId('Microsoft.Compute/virtualMachineScaleSets','${sourceName}'), '2024-07-01', 'Full').identity.principalId]`;
     default:
       return undefined;
   }
@@ -753,7 +730,7 @@ function emitRoleAssignmentNode(node: GraphNode, ctx: GeneratorContext): ArmReso
     .find((target): target is GraphNode => !!target);
   if (!principal || !scope) return null;
   const roleName = (node.properties.roleDefinitionName as string) ?? defaultRoleNameFor(scope);
-  const principalId = principalIdExpression(principal);
+  const principalId = principalIdExpression(principal, ctx);
   if (!principalId) return null;
   return {
     type: "Microsoft.Authorization/roleAssignments",
@@ -778,7 +755,7 @@ function emitRoleAssignments(ctx: GeneratorContext): ArmResource[] {
     const target = ctx.nodesById.get(edge.target);
     if (!source || !target) continue;
     if (source.type === "roleAssignment" || target.type === "roleAssignment") continue;
-    const principalId = principalIdExpression(source);
+    const principalId = principalIdExpression(source, ctx);
     if (!principalId) continue;
     const roleName = defaultRoleNameFor(target);
     out.push({
@@ -872,6 +849,7 @@ export function generateArm(document: GraphDocument): GeneratorResult {
     if (deps) resource.dependsOn = [...(resource.dependsOn ?? []), ...deps];
     resources.push(resource);
   }
+  resources.push(...flexDeploymentContainers(ctx));
   resources.push(...emitRoleAssignments(ctx));
   resources.push(...emitDiagnosticSettings(ctx));
 

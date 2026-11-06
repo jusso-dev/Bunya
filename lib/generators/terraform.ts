@@ -9,13 +9,15 @@ import {
   autoComment,
   buildGeneratorContext,
   effectiveResourceGroup,
-  findFirstOfType,
   incomingOf,
   outgoingOf,
-  resolveAppServicePlan,
   resolveVirtualNetwork,
 } from "./shared/context";
 import { GeneratorResult, GeneratedFile } from "./types";
+import { siteHosting, type SiteHosting } from "./shared/hosting";
+import { roleAssignmentsFor } from "./shared/roles";
+import { subnetDelegations } from "@/lib/graph/topology";
+import { planFamily } from "@/lib/catalogue/app-service-plans";
 
 function rgRef(ctx: GeneratorContext, node?: GraphNode): string {
   const rg = node ? effectiveResourceGroup(ctx, node) : ctx.rgNode;
@@ -79,6 +81,16 @@ function emitSubnet(node: GraphNode, ctx: GeneratorContext): string {
     `  virtual_network_name              = ${vnetRef}`,
     `  address_prefixes                  = ["${prefix}"]`,
     `  private_endpoint_network_policies = "${policies}"`,
+    ...subnetDelegations(ctx.document, node).flatMap((service) => [
+      ``,
+      `  delegation {`,
+      `    name = "${service.split("/")[1]}"`,
+      `    service_delegation {`,
+      `      name    = "${service}"`,
+      `      actions = ["Microsoft.Network/virtualNetworks/subnets/action"]`,
+      `    }`,
+      `  }`,
+    ]),
     `}`,
   ].filter(Boolean).join("\n");
 }
@@ -122,7 +134,7 @@ function emitPrivateEndpoint(node: GraphNode, ctx: GeneratorContext): string {
       appService: "azurerm_linux_web_app",
       functionApp: "azurerm_linux_function_app",
     };
-    const tfType = map[target.type];
+    const tfType = target.type === "appService" || target.type === "functionApp" ? siteResource(ctx, target) : map[target.type];
     if (tfType) targetId = `${tfType}.${ctx.identifiers.get(target.id)}.id`;
   }
   return [
@@ -156,54 +168,81 @@ function emitAppServicePlan(node: GraphNode, ctx: GeneratorContext): string {
     `  location            = ${rgRef(ctx, node)}.location`,
     `  os_type             = "${os}"`,
     `  sku_name            = "${sku}"`,
-    `  worker_count        = ${(node.properties.capacity as number) ?? 1}`,
+    ...(planFamily(sku) === "consumption" || planFamily(sku) === "flex" ? [] : [`  worker_count        = ${(node.properties.capacity as number) ?? 1}`]),
     tagsBlock(ctx, node),
     `}`,
   ].filter(Boolean).join("\n");
 }
 
-function emitAppService(node: GraphNode, ctx: GeneratorContext): string {
-  const ident = ctx.identifiers.get(node.id);
-  const httpsOnly = node.properties.httpsOnly !== false;
-  const alwaysOn = node.properties.alwaysOn !== false;
-  const runtime = (node.properties.runtime as string) ?? "node";
-  const runtimeVersion = (node.properties.runtimeVersion as string) ?? "22-lts";
-  const publicNetworkAccess = node.properties.publicNetworkAccess !== false;
-  const plan = resolveAppServicePlan(ctx, node);
-  const planRef = plan
-    ? `azurerm_service_plan.${ctx.identifiers.get(plan.id)}.id`
-    : `azurerm_service_plan.main.id`;
+// Terraform resource type for a site, by plan family.
+function siteResource(ctx: GeneratorContext, node: GraphNode): string {
+  if (node.type === "appService") return "azurerm_linux_web_app";
+  return siteHosting(ctx, node).family === "flex" ? "azurerm_function_app_flex_consumption" : "azurerm_linux_function_app";
+}
+
+function siteRef(ctx: GeneratorContext, node: GraphNode): string {
+  return `${siteResource(ctx, node)}.${ctx.identifiers.get(node.id)}`;
+}
+
+function storageRef(ctx: GeneratorContext, storage: GraphNode | null): string {
+  return storage ? `azurerm_storage_account.${ctx.identifiers.get(storage.id)}` : `azurerm_storage_account.main`;
+}
+
+// App settings shared by web and function apps, from data/identity/diagnostic edges.
+function connectionSettings(ctx: GeneratorContext, node: GraphNode, hosting: SiteHosting, includeStorage: boolean): string[] {
   const settings: string[] = [];
   for (const edge of outgoingOf(ctx, node.id, "data")) {
     const t = ctx.nodesById.get(edge.target);
-    if (t?.type === "storageAccount") {
-      settings.push(
-        `    AZURE_STORAGE_CONNECTION_STRING = azurerm_storage_account.${ctx.identifiers.get(t.id)}.primary_connection_string`,
-      );
+    if (t?.type === "storageAccount" && includeStorage) {
+      settings.push(`    AZURE_STORAGE_CONNECTION_STRING = azurerm_storage_account.${ctx.identifiers.get(t.id)}.primary_connection_string`);
     }
     if (t?.type === "sqlDatabase") {
-      settings.push(
-        `    SQL_CONNECTION_STRING = "Server=tcp:\${azurerm_mssql_server.${ctx.identifiers.get(t.id)}.fully_qualified_domain_name},1433;Database=${ctx.resourceNames.get(t.id)};"`,
-      );
+      settings.push(`    SQL_CONNECTION_STRING = "Server=tcp:\${azurerm_mssql_server.${ctx.identifiers.get(t.id)}.fully_qualified_domain_name},1433;Database=${ctx.resourceNames.get(t.id)};"`);
     }
     if (t?.type === "cosmosDb") {
-      settings.push(
-        `    COSMOS_ENDPOINT = azurerm_cosmosdb_account.${ctx.identifiers.get(t.id)}.endpoint`,
-      );
+      settings.push(`    COSMOS_ENDPOINT = azurerm_cosmosdb_account.${ctx.identifiers.get(t.id)}.endpoint`);
     }
   }
   for (const edge of outgoingOf(ctx, node.id, "identity")) {
     const t = ctx.nodesById.get(edge.target);
-    if (t?.type === "keyVault") {
-      settings.push(`    KEY_VAULT_URI = azurerm_key_vault.${ctx.identifiers.get(t.id)}.vault_uri`);
-    }
+    if (t?.type === "keyVault") settings.push(`    KEY_VAULT_URI = azurerm_key_vault.${ctx.identifiers.get(t.id)}.vault_uri`);
   }
-  const ai = findFirstOfType(ctx, "applicationInsights");
-  if (ai && outgoingOf(ctx, node.id, "diagnostic").some((e) => e.target === ai.id)) {
-    settings.push(
-      `    APPLICATIONINSIGHTS_CONNECTION_STRING = azurerm_application_insights.${ctx.identifiers.get(ai.id)}.connection_string`,
-    );
+  if (hosting.appInsights && node.type === "appService") {
+    settings.push(`    APPLICATIONINSIGHTS_CONNECTION_STRING = azurerm_application_insights.${ctx.identifiers.get(hosting.appInsights.id)}.connection_string`);
   }
+  return settings;
+}
+
+function identityBlock(ctx: GeneratorContext, hosting: SiteHosting): string[] {
+  if (hosting.userIdentities.length === 0) return [`  identity {`, `    type = "SystemAssigned"`, `  }`];
+  const ids = hosting.userIdentities.map((identity) => `azurerm_user_assigned_identity.${ctx.identifiers.get(identity.id)}.id`);
+  return [`  identity {`, `    type         = "SystemAssigned, UserAssigned"`, `    identity_ids = [${ids.join(", ")}]`, `  }`];
+}
+
+// site_config lines for registry pulls with managed identity.
+function registryConfig(ctx: GeneratorContext, hosting: SiteHosting): string[] {
+  if (!hosting.image || !hosting.pullIdentity) return [];
+  const lines = [`    container_registry_use_managed_identity = true`];
+  if (hosting.pullIdentity.kind === "user") {
+    lines.push(`    container_registry_managed_identity_client_id = azurerm_user_assigned_identity.${ctx.identifiers.get(hosting.pullIdentity.node.id)}.client_id`);
+  }
+  return lines;
+}
+
+function subnetLine(ctx: GeneratorContext, hosting: SiteHosting): string[] {
+  return hosting.subnet ? [`  virtual_network_subnet_id     = azurerm_subnet.${ctx.identifiers.get(hosting.subnet.id)}.id`] : [];
+}
+
+function emitAppService(node: GraphNode, ctx: GeneratorContext): string {
+  const ident = ctx.identifiers.get(node.id);
+  const hosting = siteHosting(ctx, node);
+  const runtime = (node.properties.runtime as string) ?? "node";
+  const runtimeVersion = (node.properties.runtimeVersion as string) ?? "22-lts";
+  const planRef = hosting.plan ? `azurerm_service_plan.${ctx.identifiers.get(hosting.plan.id)}.id` : `azurerm_service_plan.main.id`;
+  const settings = connectionSettings(ctx, node, hosting, true);
+  const stack = hosting.image
+    ? [`      docker_image_name   = "${hosting.image.imageAndTag}"`, `      docker_registry_url = "${hosting.image.registryUrl}"`]
+    : [`      ${runtime}_version = "${runtimeVersion}"`];
   const lines = [
     autoComment(ctx, node.id),
     `resource "azurerm_linux_web_app" "${ident}" {`,
@@ -211,71 +250,123 @@ function emitAppService(node: GraphNode, ctx: GeneratorContext): string {
     `  resource_group_name           = ${rgRef(ctx, node)}.name`,
     `  location                      = ${rgRef(ctx, node)}.location`,
     `  service_plan_id               = ${planRef}`,
-    `  https_only                    = ${httpsOnly}`,
-    `  public_network_access_enabled = ${publicNetworkAccess}`,
+    `  https_only                    = ${node.properties.httpsOnly !== false}`,
+    `  public_network_access_enabled = ${node.properties.publicNetworkAccess !== false}`,
+    ...subnetLine(ctx, hosting),
     ``,
     `  site_config {`,
-    `    always_on           = ${alwaysOn}`,
+    `    always_on           = ${node.properties.alwaysOn !== false}`,
     `    minimum_tls_version = "1.2"`,
+    ...(hosting.subnet ? [`    vnet_route_all_enabled = true`] : []),
+    ...registryConfig(ctx, hosting),
     `    application_stack {`,
-    `      ${runtime}_version = "${runtimeVersion}"`,
+    ...stack,
     `    }`,
     `  }`,
     ``,
-    `  identity {`,
-    `    type = "SystemAssigned"`,
-    `  }`,
+    ...identityBlock(ctx, hosting),
   ];
-  if (settings.length > 0) {
-    lines.push("", `  app_settings = {`, ...settings, `  }`);
-  }
+  if (settings.length > 0) lines.push("", `  app_settings = {`, ...settings, `  }`);
   lines.push(tagsBlock(ctx, node), `}`);
   return lines.filter(Boolean).join("\n");
 }
 
 function emitFunctionApp(node: GraphNode, ctx: GeneratorContext): string {
+  const hosting = siteHosting(ctx, node);
+  return hosting.family === "flex" ? emitFlexFunctionApp(node, ctx, hosting) : emitLinuxFunctionApp(node, ctx, hosting);
+}
+
+function emitLinuxFunctionApp(node: GraphNode, ctx: GeneratorContext, hosting: SiteHosting): string {
   const ident = ctx.identifiers.get(node.id);
-  const httpsOnly = node.properties.httpsOnly !== false;
   const runtime = (node.properties.runtime as string) ?? "node";
   const runtimeVersion = (node.properties.runtimeVersion as string) ?? "22";
-  const plan = resolveAppServicePlan(ctx, node);
-  const planRef = plan
-    ? `azurerm_service_plan.${ctx.identifiers.get(plan.id)}.id`
-    : `azurerm_service_plan.main.id`;
-  const storageEdge = outgoingOf(ctx, node.id, "data").find(
-    (e) => ctx.nodesById.get(e.target)?.type === "storageAccount",
-  );
-  const storageName = storageEdge
-    ? `azurerm_storage_account.${ctx.identifiers.get(storageEdge.target)}.name`
-    : `azurerm_storage_account.main.name`;
-  const storageKey = storageEdge
-    ? `azurerm_storage_account.${ctx.identifiers.get(storageEdge.target)}.primary_access_key`
-    : `azurerm_storage_account.main.primary_access_key`;
-  return [
+  const planRef = hosting.plan ? `azurerm_service_plan.${ctx.identifiers.get(hosting.plan.id)}.id` : `azurerm_service_plan.main.id`;
+  const storage = storageRef(ctx, hosting.storage);
+  const settings = connectionSettings(ctx, node, hosting, false);
+  const stack = hosting.image
+    ? [
+        `      docker {`,
+        `        registry_url = "${hosting.image.registryUrl}"`,
+        `        image_name   = "${hosting.image.repository}"`,
+        `        image_tag    = "${hosting.image.tag}"`,
+        `      }`,
+      ]
+    : runtime === "dotnet"
+      ? [`      dotnet_version              = "${runtimeVersion}"`, `      use_dotnet_isolated_runtime = true`]
+      : [`      ${runtime === "powershell" ? "powershell_core" : runtime}_version = "${runtimeVersion}"`];
+  const lines = [
     autoComment(ctx, node.id),
     `resource "azurerm_linux_function_app" "${ident}" {`,
     `  name                          = "${ctx.resourceNames.get(node.id)}"`,
     `  resource_group_name           = ${rgRef(ctx, node)}.name`,
     `  location                      = ${rgRef(ctx, node)}.location`,
     `  service_plan_id               = ${planRef}`,
-    `  storage_account_name          = ${storageName}`,
-    `  storage_account_access_key    = ${storageKey}`,
+    `  storage_account_name          = ${storage}.name`,
+    `  storage_account_access_key    = ${storage}.primary_access_key`,
     `  public_network_access_enabled = ${node.properties.publicNetworkAccess !== false}`,
-    `  https_only                    = ${httpsOnly}`,
+    `  https_only                    = ${node.properties.httpsOnly !== false}`,
+    ...subnetLine(ctx, hosting),
     ``,
     `  site_config {`,
     `    minimum_tls_version = "1.2"`,
+    ...(hosting.family === "dedicated" ? [`    always_on           = true`] : []),
+    ...(hosting.subnet ? [`    vnet_route_all_enabled = true`] : []),
+    ...(hosting.appInsights ? [`    application_insights_connection_string = azurerm_application_insights.${ctx.identifiers.get(hosting.appInsights.id)}.connection_string`] : []),
+    ...registryConfig(ctx, hosting),
     `    application_stack {`,
-    `      ${runtime}_version = "${runtimeVersion}"`,
+    ...stack,
     `    }`,
     `  }`,
     ``,
-    `  identity {`,
-    `    type = "SystemAssigned"`,
-    `  }`,
-    tagsBlock(ctx, node),
+    ...identityBlock(ctx, hosting),
+  ];
+  if (settings.length > 0) lines.push("", `  app_settings = {`, ...settings, `  }`);
+  lines.push(tagsBlock(ctx, node), `}`);
+  return lines.filter(Boolean).join("\n");
+}
+
+// Flex Consumption: azurerm_function_app_flex_consumption deploys packages
+// from a blob container and takes runtime and scale settings directly.
+function emitFlexFunctionApp(node: GraphNode, ctx: GeneratorContext, hosting: SiteHosting): string {
+  const ident = ctx.identifiers.get(node.id);
+  const planRef = hosting.plan ? `azurerm_service_plan.${ctx.identifiers.get(hosting.plan.id)}.id` : `azurerm_service_plan.main.id`;
+  const storage = storageRef(ctx, hosting.storage);
+  const settings = connectionSettings(ctx, node, hosting, false);
+  const lines = [
+    autoComment(ctx, node.id),
+    `resource "azurerm_storage_container" "${ident}_deployment" {`,
+    `  name                  = "${hosting.deploymentContainer}"`,
+    `  storage_account_id    = ${storage}.id`,
+    `  container_access_type = "private"`,
     `}`,
-  ].filter(Boolean).join("\n");
+    ``,
+    `resource "azurerm_function_app_flex_consumption" "${ident}" {`,
+    `  name                          = "${ctx.resourceNames.get(node.id)}"`,
+    `  resource_group_name           = ${rgRef(ctx, node)}.name`,
+    `  location                      = ${rgRef(ctx, node)}.location`,
+    `  service_plan_id               = ${planRef}`,
+    `  storage_container_type        = "blobContainer"`,
+    `  storage_container_endpoint    = "\${${storage}.primary_blob_endpoint}\${azurerm_storage_container.${ident}_deployment.name}"`,
+    `  storage_authentication_type   = "StorageAccountConnectionString"`,
+    `  storage_access_key            = ${storage}.primary_access_key`,
+    `  runtime_name                  = "${hosting.workerRuntime}"`,
+    `  runtime_version               = "${(node.properties.runtimeVersion as string) ?? "22"}"`,
+    `  maximum_instance_count        = ${(node.properties.maximumInstanceCount as number) ?? 100}`,
+    `  instance_memory_in_mb         = ${(node.properties.instanceMemoryMB as number) ?? 2048}`,
+    `  public_network_access_enabled = ${node.properties.publicNetworkAccess !== false}`,
+    `  https_only                    = ${node.properties.httpsOnly !== false}`,
+    ...subnetLine(ctx, hosting),
+    ``,
+    `  site_config {`,
+    `    minimum_tls_version = "1.2"`,
+    ...(hosting.appInsights ? [`    application_insights_connection_string = azurerm_application_insights.${ctx.identifiers.get(hosting.appInsights.id)}.connection_string`] : []),
+    `  }`,
+    ``,
+    ...identityBlock(ctx, hosting),
+  ];
+  if (settings.length > 0) lines.push("", `  app_settings = {`, ...settings, `  }`);
+  lines.push(tagsBlock(ctx, node), `}`);
+  return lines.filter(Boolean).join("\n");
 }
 
 function emitStaticWebApp(node: GraphNode, ctx: GeneratorContext): string {
@@ -445,7 +536,7 @@ function emitStorageAccount(node: GraphNode, ctx: GeneratorContext): string {
       ``,
       `resource "azurerm_storage_container" "${ident}_${c}" {`,
       `  name                  = "${c}"`,
-      `  storage_account_name  = azurerm_storage_account.${ident}.name`,
+      `  storage_account_id    = azurerm_storage_account.${ident}.id`,
       `  container_access_type = "private"`,
       `}`,
     );
@@ -541,7 +632,7 @@ function emitKeyVault(node: GraphNode, ctx: GeneratorContext): string {
         `resource "azurerm_role_assignment" "${sIdent}_${ident}_secrets" {`,
         `  scope                = azurerm_key_vault.${ident}.id`,
         `  role_definition_name = "Key Vault Secrets User"`,
-        `  principal_id         = azurerm_linux_web_app.${sIdent}.identity[0].principal_id`,
+        `  principal_id         = ${siteRef(ctx, src)}.identity[0].principal_id`,
         `}`,
       );
     }
@@ -551,7 +642,7 @@ function emitKeyVault(node: GraphNode, ctx: GeneratorContext): string {
         `resource "azurerm_role_assignment" "${sIdent}_${ident}_secrets" {`,
         `  scope                = azurerm_key_vault.${ident}.id`,
         `  role_definition_name = "Key Vault Secrets User"`,
-        `  principal_id         = azurerm_linux_function_app.${sIdent}.identity[0].principal_id`,
+        `  principal_id         = ${siteRef(ctx, src)}.identity[0].principal_id`,
         `}`,
       );
     }
@@ -826,7 +917,7 @@ function emitDiagnostics(ctx: GeneratorContext): string {
       frontDoor: "azurerm_cdn_frontdoor_profile",
       apiManagement: "azurerm_api_management",
     };
-    const tf = tfResource[source.type];
+    const tf = source.type === "appService" || source.type === "functionApp" ? siteResource(ctx, source) : tfResource[source.type];
     if (!tf) continue;
     blocks.push(
       [
@@ -847,6 +938,31 @@ function emitDiagnostics(ctx: GeneratorContext): string {
   return blocks.join("\n\n");
 }
 
+// Roles implied by identity edges, e.g. AcrPull for registry pulls.
+function emitRoleGrants(ctx: GeneratorContext): string {
+  const tfScope: Partial<Record<ServiceType, string>> = {
+    containerRegistry: "azurerm_container_registry",
+    storageAccount: "azurerm_storage_account",
+  };
+  return roleAssignmentsFor(ctx)
+    .map(({ principal, scope, role }) => {
+      const pIdent = ctx.identifiers.get(principal.id);
+      const sIdent = ctx.identifiers.get(scope.id);
+      const principalId = principal.type === "userAssignedIdentity"
+        ? `azurerm_user_assigned_identity.${pIdent}.principal_id`
+        : `${siteRef(ctx, principal)}.identity[0].principal_id`;
+      const slug = role.toLowerCase().replace(/[^a-z0-9]+/g, "_");
+      return [
+        `resource "azurerm_role_assignment" "${pIdent}_${sIdent}_${slug}" {`,
+        `  scope                = ${tfScope[scope.type]}.${sIdent}.id`,
+        `  role_definition_name = "${role}"`,
+        `  principal_id         = ${principalId}`,
+        `}`,
+      ].join("\n");
+    })
+    .join("\n\n");
+}
+
 function renderVersionsFile(): GeneratedFile {
   return {
     path: "versions.tf",
@@ -857,7 +973,7 @@ function renderVersionsFile(): GeneratedFile {
       `  required_providers {`,
       `    azurerm = {`,
       `      source  = "hashicorp/azurerm"`,
-      `      version = "~> 4.0"`,
+      `      version = "~> 4.35"`,
       `    }`,
       `  }`,
       `}`,
@@ -930,7 +1046,7 @@ function renderOutputsFile(ctx: GeneratorContext): GeneratedFile {
     if (node.type === "functionApp") {
       lines.push(
         `output "${ident}_hostname" {`,
-        `  value = azurerm_linux_function_app.${ident}.default_hostname`,
+        `  value = ${siteRef(ctx, node)}.default_hostname`,
         `}`,
         ``,
       );
@@ -979,6 +1095,8 @@ export function generateTerraform(document: GraphDocument): GeneratorResult {
   }
   const diag = emitDiagnostics(ctx);
   if (diag) blocks.push(diag, "");
+  const roles = emitRoleGrants(ctx);
+  if (roles) blocks.push(roles, "");
 
   const hasSql = ctx.document.nodes.some((n) => n.type === "sqlDatabase");
   const hasVmss = ctx.document.nodes.some((n) => n.type === "virtualMachineScaleSet");

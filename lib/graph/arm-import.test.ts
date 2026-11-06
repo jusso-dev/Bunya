@@ -610,15 +610,9 @@ describe("parseArmTemplate", () => {
     expect(result.warning).toContain("Skipped resource types Bunya does not model: Microsoft.Sql/servers x1.");
     expect(result.warning).not.toContain("locations could not be represented");
 
-    // Container apps block deployment exports until exporters emit images.
     const terraform = generateTerraform(result.document);
-    expect(terraform.ok ? "ok" : terraform.reason).toContain('Web App "app-dashboard" runs container image');
-    const codeOnly = {
-      ...result.document,
-      nodes: result.document.nodes.map((node) => (node.resourceName === "app-dashboard" ? { ...node, properties: { ...node.properties, containerImage: "" } } : node)),
-    };
-    const exported = generateTerraform(codeOnly);
-    expect(exported.ok ? "ok" : exported.reason).toBe("ok");
+    if (!terraform.ok) throw new Error(terraform.reason);
+    expect(terraform.files.find((file) => file.path === "main.tf")?.content).toContain('docker_image_name   = "app-dashboard:latest"');
   });
 
   it("imports Flex Consumption, VNet integration, App Insights links and managed-identity registry pulls", () => {

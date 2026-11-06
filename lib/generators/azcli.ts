@@ -10,6 +10,7 @@ import {
   resolveVirtualNetwork,
 } from "./shared/context";
 import { GeneratorResult } from "./types";
+import { needsTemplateDeployment } from "./shared/hosting";
 
 function rgName(ctx: GeneratorContext, node?: GraphNode): string {
   if (node) {
@@ -234,6 +235,8 @@ export function generateAzCli(document: GraphDocument): GeneratorResult {
   if (!ctx.topo.ok) {
     return { ok: false, reason: "cycle detected", cycle: ctx.topo.cycle };
   }
+  const templateReason = needsTemplateDeployment(ctx);
+  if (templateReason) return generatePrivateDeployment(document, "bash", `${templateReason}, so this script deploys the included ARM template in one step.`);
   const hasSql = ctx.document.nodes.some((n) => n.type === "sqlDatabase");
   const lines: string[] = [
     `#!/usr/bin/env bash`,

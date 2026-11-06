@@ -1,0 +1,143 @@
+import { describe, expect, it } from "vitest";
+import { hostingGraph } from "./__fixtures__/hosting";
+import { generateArm } from "./arm";
+import { generateAzCli } from "./azcli";
+import { generateBicep } from "./bicep";
+import { generatePowerShell } from "./powershell";
+import { generateTerraform } from "./terraform";
+import { topologyProblems } from "@/lib/graph/topology";
+import type { GeneratorResult } from "./types";
+
+function file(result: GeneratorResult, path: string): string {
+  if (!result.ok) throw new Error(result.reason);
+  const found = result.files.find((candidate) => candidate.path === path);
+  if (!found) throw new Error(`missing ${path}`);
+  return found.content;
+}
+
+// Parsed template JSON; tests read nested fields directly.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Json = any;
+type Arm = { type: string; name: string; kind?: string; sku?: Record<string, unknown>; properties?: Json; identity?: Json; dependsOn?: string[] };
+
+function armResources(): Arm[] {
+  return JSON.parse(file(generateArm(hostingGraph), "azuredeploy.json")).resources as Arm[];
+}
+
+const site = (name: string) => armResources().find((r) => r.type === "Microsoft.Web/sites" && r.name === name)!;
+const settings = (resource: Arm) => (resource.properties?.siteConfig?.appSettings ?? []).map((s: { name: string }) => s.name) as string[];
+
+describe("App Service hosting exports", () => {
+  it("is a deployable diagram", () => {
+    expect(topologyProblems(hostingGraph)).toEqual([]);
+  });
+
+  describe("ARM and Bicep", () => {
+    it("emits plan SKUs, tiers and kinds per family", () => {
+      const plans = Object.fromEntries(armResources().filter((r) => r.type === "Microsoft.Web/serverfarms").map((r) => [r.name, r]));
+      expect(plans["plan-flex"]).toMatchObject({ kind: "functionapp", sku: { name: "FC1", tier: "FlexConsumption" } });
+      expect(plans["plan-flex"].sku).not.toHaveProperty("capacity");
+      expect(plans["plan-y1"]).toMatchObject({ kind: "functionapp", sku: { name: "Y1", tier: "Dynamic" } });
+      expect(plans["plan-ep"]).toMatchObject({ kind: "elastic", sku: { name: "EP1", tier: "ElasticPremium", capacity: 1 }, properties: { reserved: true, maximumElasticWorkerCount: 20 } });
+      expect(plans["plan-web"]).toMatchObject({ kind: "linux", sku: { name: "P0v3", tier: "Premium0V3", capacity: 2 } });
+    });
+
+    it("configures Flex through functionAppConfig without the settings Flex rejects", () => {
+      const flex = site("fn-flex");
+      expect(flex.properties?.functionAppConfig).toMatchObject({
+        deployment: { storage: { type: "blobContainer", authentication: { type: "StorageAccountConnectionString", storageAccountConnectionStringName: "DEPLOYMENT_STORAGE_CONNECTION_STRING" } } },
+        scaleAndConcurrency: { instanceMemoryMB: 4096, maximumInstanceCount: 40 },
+        runtime: { name: "python", version: "3.11" },
+      });
+      expect(flex.properties?.siteConfig).not.toHaveProperty("linuxFxVersion");
+      expect(settings(flex)).not.toContain("FUNCTIONS_WORKER_RUNTIME");
+      expect(settings(flex)).not.toContain("FUNCTIONS_EXTENSION_VERSION");
+      expect(settings(flex)).toEqual(expect.arrayContaining(["AzureWebJobsStorage", "DEPLOYMENT_STORAGE_CONNECTION_STRING", "APPLICATIONINSIGHTS_CONNECTION_STRING"]));
+      expect(flex.properties?.virtualNetworkSubnetId).toContain("'snet-flex'");
+      const container = armResources().find((r) => r.type === "Microsoft.Storage/storageAccounts/blobServices/containers");
+      expect(container?.name).toMatch(/\/default\/app-package-fn-flex$/);
+      expect(flex.dependsOn?.some((dep) => dep.includes("blobServices/containers"))).toBe(true);
+    });
+
+    it("adds content share settings for Consumption and Elastic Premium only", () => {
+      expect(settings(site("fn-y1"))).toEqual(expect.arrayContaining(["WEBSITE_CONTENTAZUREFILECONNECTIONSTRING", "WEBSITE_CONTENTSHARE", "FUNCTIONS_WORKER_RUNTIME"]));
+      expect(settings(site("fn-ep"))).toContain("WEBSITE_CONTENTSHARE");
+      expect(settings(site("fn-flex"))).not.toContain("WEBSITE_CONTENTSHARE");
+    });
+
+    it("runs container images and pulls them with managed identity", () => {
+      const web = site("app-hosting");
+      expect(web.kind).toBe("app,linux,container");
+      expect(web.properties?.siteConfig).toMatchObject({ linuxFxVersion: "DOCKER|acrhosting.azurecr.io/api:1.4", acrUseManagedIdentityCreds: true });
+      const worker = site("fn-ep");
+      expect(worker.kind).toBe("functionapp,linux,container");
+      expect(worker.properties?.siteConfig.linuxFxVersion).toBe("DOCKER|acrhosting.azurecr.io/worker:2.0");
+      expect(worker.properties?.siteConfig.acrUserManagedIdentityID).toContain("'id-pull'");
+      expect(worker.identity?.type).toBe("SystemAssigned, UserAssigned");
+      expect(Object.keys(worker.identity?.userAssignedIdentities ?? {})[0]).toContain("Microsoft.ManagedIdentity/userAssignedIdentities");
+      expect(settings(worker)).not.toContain("FUNCTIONS_WORKER_RUNTIME");
+    });
+
+    it("grants AcrPull to the identity that pulls the image", () => {
+      const pulls = armResources().filter((r) => r.type === "Microsoft.Authorization/roleAssignments" && String(r.properties?.roleDefinitionId).includes("7f951dda-4ed3-4680-a7ca-43fe172d538d"));
+      const principals = pulls.map((r) => String(r.properties?.principalId));
+      expect(principals.some((p) => p.includes("'app-hosting'"))).toBe(true);
+      expect(principals.some((p) => p.includes("'id-pull'"))).toBe(true);
+
+      const bicep = file(generateBicep(hostingGraph), "main.bicep");
+      expect(bicep.match(/7f951dda-4ed3-4680-a7ca-43fe172d538d/g)).toHaveLength(2);
+    });
+
+    it("delegates integration subnets to the right service", () => {
+      const subnets = Object.fromEntries(armResources().filter((r) => r.type === "Microsoft.Network/virtualNetworks/subnets").map((r) => [r.name.split("/")[1], r.properties?.delegations]));
+      expect(subnets["snet-flex"]).toEqual([{ name: "environments", properties: { serviceName: "Microsoft.App/environments" } }]);
+      expect(subnets["snet-web"]).toEqual([{ name: "serverFarms", properties: { serviceName: "Microsoft.Web/serverFarms" } }]);
+      const bicep = file(generateBicep(hostingGraph), "main.bicep");
+      expect(bicep).toContain("serviceName: 'Microsoft.App/environments'");
+      expect(bicep).toContain("serviceName: 'Microsoft.Web/serverFarms'");
+    });
+  });
+
+  describe("Terraform", () => {
+    const main = () => file(generateTerraform(hostingGraph), "main.tf");
+
+    it("uses the Flex resource with a deployment container", () => {
+      expect(main()).toContain('resource "azurerm_function_app_flex_consumption" "fn_flex"');
+      expect(main()).toContain('resource "azurerm_storage_container" "fn_flex_deployment"');
+      expect(main()).toMatch(/runtime_name\s+= "python"/);
+      expect(main()).toMatch(/instance_memory_in_mb\s+= 4096/);
+      expect(main()).toMatch(/maximum_instance_count\s+= 40/);
+      expect(main()).toContain("virtual_network_subnet_id     = azurerm_subnet.snet_flex.id");
+    });
+
+    it("runs containers on web and function apps", () => {
+      expect(main()).toContain('docker_image_name   = "api:1.4"');
+      expect(main()).toContain('docker_registry_url = "https://acrhosting.azurecr.io"');
+      expect(main()).toContain('image_name   = "worker"');
+      expect(main()).toContain("container_registry_managed_identity_client_id = azurerm_user_assigned_identity.id_pull.client_id");
+    });
+
+    it("grants AcrPull and delegates subnets", () => {
+      expect(main()).toContain('role_definition_name = "AcrPull"');
+      expect(main()).toContain("principal_id         = azurerm_user_assigned_identity.id_pull.principal_id");
+      expect(main()).toContain("principal_id         = azurerm_linux_web_app.app_hosting.identity[0].principal_id");
+      expect(main()).toContain('name    = "Microsoft.App/environments"');
+      expect(main()).toContain('name    = "Microsoft.Web/serverFarms"');
+    });
+
+    it("leaves worker_count off serverless plans", () => {
+      const plan = (ident: string) => main().split(`resource "azurerm_service_plan" "${ident}"`)[1].split("\n}")[0];
+      expect(plan("plan_flex")).not.toContain("worker_count");
+      expect(plan("plan_y1")).not.toContain("worker_count");
+      expect(plan("plan_web")).toContain("worker_count        = 2");
+    });
+  });
+
+  it("shell exports deploy the ARM template in one step", () => {
+    for (const result of [generateAzCli(hostingGraph), generatePowerShell(hostingGraph)]) {
+      if (!result.ok) throw new Error(result.reason);
+      expect(result.files.map((f) => f.path)).toContain("azuredeploy.json");
+      expect(result.files[0].content).toContain('App Service Plan "plan-flex" uses FC1');
+    }
+  });
+});

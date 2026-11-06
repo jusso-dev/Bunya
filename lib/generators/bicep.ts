@@ -6,10 +6,12 @@ import {
   buildGeneratorContext,
   incomingOf,
   outgoingOf,
-  resolveAppServicePlan,
   resolveVirtualNetwork,
 } from "./shared/context";
 import { GeneratedFile, GeneratorResult } from "./types";
+import { expr, planBody, siteBody, toBicep, type Refs } from "./shared/site-resource";
+import { roleAssignmentsFor } from "./shared/roles";
+import { subnetDelegations } from "@/lib/graph/topology";
 
 function bicepIdent(raw: string): string {
   const cleaned = raw.toLowerCase().replace(/[^a-z0-9]/g, "_");
@@ -79,9 +81,27 @@ function emitSubnet(node: GraphNode, ctx: GeneratorContext): string {
     `  properties: {`,
     `    addressPrefix: '${prefix}'`,
     `    privateEndpointNetworkPolicies: '${(node.properties.privateEndpointNetworkPolicies as string) ?? "Disabled"}'`,
+    ...delegationLines(ctx, node),
     `  }`,
     `}`,
   ].filter(Boolean).join("\n");
+}
+
+function delegationLines(ctx: GeneratorContext, node: GraphNode): string[] {
+  const services = subnetDelegations(ctx.document, node);
+  if (services.length === 0) return [];
+  return [
+    `    delegations: [`,
+    ...services.flatMap((service) => [
+      `      {`,
+      `        name: '${service.split("/")[1]}'`,
+      `        properties: {`,
+      `          serviceName: '${service}'`,
+      `        }`,
+      `      }`,
+    ]),
+    `    ]`,
+  ];
 }
 
 function emitNsg(node: GraphNode, ctx: GeneratorContext): string {
@@ -136,101 +156,74 @@ function emitPrivateEndpoint(node: GraphNode, ctx: GeneratorContext): string {
   ].filter(Boolean).join("\n");
 }
 
+function bicepRefs(ctx: GeneratorContext): Refs {
+  const storageIdent = (storage: GraphNode | null) => (storage ? nodeRef(ctx, storage.id) : "mainStorage");
+  return {
+    id: (node) => expr(`${nodeRef(ctx, node.id)}.id`, ""),
+    name: (node) => name(ctx, node.id),
+    storageConnectionString: (storage) => {
+      const ident = storageIdent(storage);
+      return expr(`'DefaultEndpointsProtocol=https;AccountName=\${${ident}.name};EndpointSuffix=\${environment().suffixes.storage};AccountKey=\${${ident}.listKeys().keys[0].value}'`, "");
+    },
+    // emitSite fills in the container path for Flex apps.
+    blobEndpoint: (storage) => expr(`${storageIdent(storage)}.properties.primaryEndpoints.blob`, ""),
+    appInsightsConnectionString: (component) => expr(`${nodeRef(ctx, component.id)}.properties.ConnectionString`, ""),
+    userIdentityClientId: (identity) => expr(`${nodeRef(ctx, identity.id)}.properties.clientId`, ""),
+  };
+}
+
 function emitAppServicePlan(node: GraphNode, ctx: GeneratorContext): string {
   const ident = nodeRef(ctx, node.id);
-  const sku = (node.properties.sku as string) ?? "B1";
-  const os = (node.properties.os as string) ?? "Linux";
+  const body = planBody(node);
   return [
     autoComment(ctx, node.id, "//"),
-    `resource ${ident} 'Microsoft.Web/serverfarms@2023-12-01' = {`,
+    `resource ${ident} 'Microsoft.Web/serverfarms@2024-04-01' = {`,
     `  name: '${name(ctx, node.id)}'`,
     `  location: location`,
-    `  sku: {`,
-    `    name: '${sku}'`,
-    `    capacity: ${(node.properties.capacity as number) ?? 1}`,
-    `  }`,
-    `  kind: '${os.toLowerCase()}'`,
-    `  properties: {`,
-    `    reserved: ${os === "Linux"}`,
-    `  }`,
+    `  kind: '${body.kind}'`,
+    `  sku: ${toBicep(body.sku, 1)}`,
+    `  properties: ${toBicep(body.properties, 1)}`,
     tagsLiteral(ctx, node),
     `}`,
   ].filter(Boolean).join("\n");
 }
 
-function emitAppService(node: GraphNode, ctx: GeneratorContext): string {
+function emitSite(node: GraphNode, ctx: GeneratorContext): string {
   const ident = nodeRef(ctx, node.id);
-  const plan = resolveAppServicePlan(ctx, node);
-  const planIdent = plan ? nodeRef(ctx, plan.id) : "mainPlan";
-  const httpsOnly = node.properties.httpsOnly !== false;
-  return [
-    autoComment(ctx, node.id, "//"),
-    `resource ${ident} 'Microsoft.Web/sites@2023-12-01' = {`,
+  const body = siteBody(ctx, node, bicepRefs(ctx));
+  const lines = [autoComment(ctx, node.id, "//")];
+  if (body.hosting.family === "flex" && node.type === "functionApp") {
+    // Flex Consumption deploys packages from a blob container.
+    const storage = body.hosting.storage;
+    const storageIdent = storage ? nodeRef(ctx, storage.id) : "mainStorage";
+    lines.push(
+      `resource ${ident}_deployment 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {`,
+      `  name: '\${${storageIdent}.name}/default/${body.hosting.deploymentContainer}'`,
+      `  properties: {`,
+      `    publicAccess: 'None'`,
+      `  }`,
+      `}`,
+      ``,
+    );
+    const config = (body.properties.functionAppConfig as Record<string, Record<string, Record<string, unknown>>>).deployment.storage;
+    config.value = expr(`'\${${storageIdent}.properties.primaryEndpoints.blob}${body.hosting.deploymentContainer}'`, "");
+  }
+  lines.push(
+    `resource ${ident} 'Microsoft.Web/sites@2024-04-01' = {`,
     `  name: '${name(ctx, node.id)}'`,
     `  location: location`,
-    `  kind: 'app,linux'`,
-    `  identity: {`,
-    `    type: 'SystemAssigned'`,
-    `  }`,
-    `  properties: {`,
-    `    serverFarmId: ${planIdent}.id`,
-    `    publicNetworkAccess: '${node.properties.publicNetworkAccess === false ? "Disabled" : "Enabled"}'`,
-    `    httpsOnly: ${httpsOnly}`,
-    `    siteConfig: {`,
-    `      minTlsVersion: '1.2'`,
-    `      alwaysOn: ${node.properties.alwaysOn !== false}`,
-    `      linuxFxVersion: '${node.properties.runtime === "dotnet" ? "DOTNETCORE" : String(node.properties.runtime).toUpperCase()}|${node.properties.runtimeVersion}'`,
-    `    }`,
-    `  }`,
+    `  kind: '${body.kind}'`,
+    `  identity: ${toBicep(body.identity, 1)}`,
+    `  properties: ${toBicep(body.properties, 1)}`,
     tagsLiteral(ctx, node),
+    ...(body.hosting.family === "flex" && node.type === "functionApp" ? [`  dependsOn: [`, `    ${ident}_deployment`, `  ]`] : []),
     `}`,
-  ].filter(Boolean).join("\n");
-}
-
-function emitFunctionApp(node: GraphNode, ctx: GeneratorContext): string {
-  const ident = nodeRef(ctx, node.id);
-  const plan = resolveAppServicePlan(ctx, node);
-  const planIdent = plan ? nodeRef(ctx, plan.id) : "mainPlan";
-  const storageEdge = outgoingOf(ctx, node.id, "data").find(
-    (e) => ctx.nodesById.get(e.target)?.type === "storageAccount",
   );
-  const stIdent = storageEdge ? nodeRef(ctx, storageEdge.target) : "mainStorage";
-  return [
-    autoComment(ctx, node.id, "//"),
-    `resource ${ident} 'Microsoft.Web/sites@2023-12-01' = {`,
-    `  name: '${name(ctx, node.id)}'`,
-    `  location: location`,
-    `  kind: 'functionapp,linux'`,
-    `  identity: {`,
-    `    type: 'SystemAssigned'`,
-    `  }`,
-    `  properties: {`,
-    `    serverFarmId: ${planIdent}.id`,
-    `    publicNetworkAccess: '${node.properties.publicNetworkAccess === false ? "Disabled" : "Enabled"}'`,
-    `    httpsOnly: ${node.properties.httpsOnly !== false}`,
-    `    siteConfig: {`,
-    `      minTlsVersion: '1.2'`,
-    `      linuxFxVersion: '${String(node.properties.runtime).toUpperCase()}|${node.properties.runtimeVersion}'`,
-    `      appSettings: [`,
-    `        {`,
-    `          name: 'FUNCTIONS_WORKER_RUNTIME'`,
-    `          value: '${node.properties.runtime}'`,
-    `        }`,
-    `        {`,
-    `          name: 'AzureWebJobsStorage'`,
-    `          value: 'DefaultEndpointsProtocol=https;AccountName=\${${stIdent}.name};EndpointSuffix=\${environment().suffixes.storage};AccountKey=\${${stIdent}.listKeys().keys[0].value}'`,
-    `        }`,
-    `        {`,
-    `          name: 'FUNCTIONS_EXTENSION_VERSION'`,
-    `          value: '~4'`,
-    `        }`,
-    `      ]`,
-    `    }`,
-    `  }`,
-    tagsLiteral(ctx, node),
-    `}`,
-  ].filter(Boolean).join("\n");
+  return lines.filter(Boolean).join("\n");
 }
+
+const emitAppService = emitSite;
+const emitFunctionApp = emitSite;
 
 function emitStaticWebApp(node: GraphNode, ctx: GeneratorContext): string {
   const ident = nodeRef(ctx, node.id);
@@ -813,6 +806,28 @@ function emitDiagnostics(ctx: GeneratorContext): string {
   return blocks.join("\n\n");
 }
 
+// Roles implied by identity edges, e.g. AcrPull for registry pulls.
+function emitRoleGrants(ctx: GeneratorContext): string {
+  return roleAssignmentsFor(ctx)
+    .map(({ principal, scope, role, roleId }) => {
+      const pIdent = nodeRef(ctx, principal.id);
+      const sIdent = nodeRef(ctx, scope.id);
+      const principalId = principal.type === "userAssignedIdentity" ? `${pIdent}.properties.principalId` : `${pIdent}.identity.principalId`;
+      return [
+        `resource ${pIdent}_${sIdent}_${role.toLowerCase().replace(/[^a-z0-9]+/g, "_")} 'Microsoft.Authorization/roleAssignments@2022-04-01' = {`,
+        `  scope: ${sIdent}`,
+        `  name: guid(${sIdent}.id, ${pIdent}.id, '${role}')`,
+        `  properties: {`,
+        `    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '${roleId}')`,
+        `    principalId: ${principalId}`,
+        `    principalType: 'ServicePrincipal'`,
+        `  }`,
+        `}`,
+      ].join("\n");
+    })
+    .join("\n\n");
+}
+
 function renderParametersFile(
   document: GraphDocument,
   includeSqlAdmin: boolean,
@@ -897,6 +912,8 @@ export function generateBicep(document: GraphDocument): GeneratorResult {
   }
   const diag = emitDiagnostics(ctx);
   if (diag) lines.push(diag, "");
+  const roles = emitRoleGrants(ctx);
+  if (roles) lines.push(roles, "");
 
   const files: GeneratedFile[] = [
     {

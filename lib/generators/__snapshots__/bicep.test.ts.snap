@@ -21,14 +21,15 @@ param environmentTag string = 'dev'
 // Bunya emits per-resource-group templates; deploy with:
 //   az deployment sub create --location <region> --template-file main.bicep
 
-resource node_1_plan_first_cut_resource 'Microsoft.Web/serverfarms@2023-12-01' = {
+resource node_1_plan_first_cut_resource 'Microsoft.Web/serverfarms@2024-04-01' = {
   name: 'plan-first-cut'
   location: location
+  kind: 'linux'
   sku: {
     name: 'B1'
+    tier: 'Basic'
     capacity: 1
   }
-  kind: 'linux'
   properties: {
     reserved: true
   }
@@ -86,7 +87,7 @@ resource node_2_app_first_cut_resource_node_4_kv_first_cut_resource_secrets 'Mic
   }
 }
 
-resource node_2_app_first_cut_resource 'Microsoft.Web/sites@2023-12-01' = {
+resource node_2_app_first_cut_resource 'Microsoft.Web/sites@2024-04-01' = {
   name: 'app-first-cut'
   location: location
   kind: 'app,linux'

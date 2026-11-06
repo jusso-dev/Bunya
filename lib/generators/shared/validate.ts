@@ -2,26 +2,6 @@ import { getServiceDefinition } from "../../catalogue/services";
 import { GraphDocumentSchema, type GraphDocument } from "../../graph/schema";
 import { checkImportText, checkObjectDepth } from "../../graph/limits";
 import { topologyProblems } from "../../graph/topology";
-import { planFamily } from "../../catalogue/app-service-plans";
-
-// Hosting the exporters cannot emit faithfully yet. Blocking beats generating
-// a code-deployed app on a plan that Azure would reject.
-function unsupportedHosting(document: GraphDocument): string[] {
-  const reasons: string[] = [];
-  for (const node of document.nodes) {
-    if (node.type === "appServicePlan") {
-      const family = planFamily(node.properties.sku);
-      if (family !== "dedicated") {
-        const name = family === "flex" ? "Flex Consumption" : family === "consumption" ? "Consumption" : "Elastic Premium";
-        reasons.push(`App Service Plan "${node.resourceName}" uses ${name} (${String(node.properties.sku)}).`);
-      }
-    }
-    if ((node.type === "appService" || node.type === "functionApp") && node.properties.containerImage) {
-      reasons.push(`${node.type === "appService" ? "Web App" : "Function App"} "${node.resourceName}" runs container image ${String(node.properties.containerImage)}.`);
-    }
-  }
-  return reasons;
-}
 
 // These exporters emit literal deployment values, never user-provided code.
 // Keep one conservative literal grammar across Bash, PowerShell, HCL, Bicep
@@ -69,8 +49,6 @@ export function validateGeneration(document: GraphDocument, deployment = true): 
     if (deployment) {
       const problems = topologyProblems(parsed);
       if (problems.length > 0) throw new Error(`This diagram cannot be deployed to Azure as drawn: ${problems.map((problem) => problem.message).join(" ")}`);
-      const unsupported = unsupportedHosting(parsed);
-      if (unsupported.length > 0) throw new Error(`Deployment exports do not support this hosting yet, so export is blocked rather than emitting code that deploys something different: ${unsupported.join(" ")} The diagram, cost estimate and JSON export still work.`);
     }
     return { ok: true, document: parsed };
   } catch (error) {
