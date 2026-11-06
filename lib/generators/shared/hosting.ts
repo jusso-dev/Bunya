@@ -5,7 +5,7 @@ import { parseContainerImage, planFamily, type ContainerImage, type PlanFamily }
 import type { GraphNode } from "@/lib/graph/schema";
 import { flexRuntimeVersion, integrationDelegation, siteIntegrationSubnet } from "@/lib/graph/topology";
 import { storagePublicNetwork } from "@/lib/catalogue/services";
-import { GeneratorContext, outgoingOf, resolveAppServicePlan } from "./context";
+import { GeneratorContext, outgoingOf, resolveAppServicePlan, resolveVirtualNetwork } from "./context";
 
 export type SiteHosting = {
   plan: GraphNode | null;
@@ -32,9 +32,16 @@ export type SiteHosting = {
   // Private Endpoints to private backing storage. The host reaches storage
   // as soon as the app exists, so the app waits for these (and their DNS).
   storageEndpoints: { pe: GraphNode; hasDns: boolean }[];
+  // Links from those endpoints' DNS zones to the app's VNet: until they
+  // exist the storage name does not resolve privately from the app.
+  storageDnsLinks: { zone: GraphNode; vnet: GraphNode }[];
 };
 
 export function siteHosting(ctx: GeneratorContext, node: GraphNode): SiteHosting {
+  return withDnsLinks(ctx, baseHosting(ctx, node));
+}
+
+function baseHosting(ctx: GeneratorContext, node: GraphNode): SiteHosting {
   const plan = resolveAppServicePlan(ctx, node);
   const family = planFamily(plan?.properties.sku ?? "B1");
   const image = parseContainerImage(String(node.properties.containerImage ?? ""));
@@ -88,7 +95,25 @@ export function siteHosting(ctx: GeneratorContext, node: GraphNode): SiteHosting
               hasDns: outgoingOf(ctx, pe.id, "network").some((edge) => ctx.nodesById.get(edge.target)?.type === "privateDnsZone"),
             }))
         : [],
+    storageDnsLinks: [],
   };
+}
+
+// Fills storageDnsLinks from storageEndpoints and the app's integration VNet.
+function withDnsLinks(ctx: GeneratorContext, hosting: SiteHosting): SiteHosting {
+  const subnet = hosting.subnet;
+  const vnet = subnet ? resolveVirtualNetwork(ctx, subnet) : null;
+  if (!vnet || hosting.storageEndpoints.length === 0) return hosting;
+  const links: { zone: GraphNode; vnet: GraphNode }[] = [];
+  for (const { pe } of hosting.storageEndpoints) {
+    for (const edge of outgoingOf(ctx, pe.id, "network")) {
+      const zone = ctx.nodesById.get(edge.target);
+      if (zone?.type !== "privateDnsZone") continue;
+      if (!outgoingOf(ctx, zone.id, "network").some((link) => link.target === vnet.id)) continue;
+      if (!links.some((link) => link.zone.id === zone.id)) links.push({ zone, vnet });
+    }
+  }
+  return { ...hosting, storageDnsLinks: links };
 }
 
 // Content share for event-driven Function plans (Consumption and Elastic

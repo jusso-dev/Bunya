@@ -301,12 +301,17 @@ function acrPullGrantId(ctx: GeneratorContext, hosting: ReturnType<typeof siteHo
 // Private storage: the host starts as soon as the app exists, so wait for the
 // storage Private Endpoints and their DNS zone groups.
 function storageEndpointDependencies(ctx: GeneratorContext, hosting: ReturnType<typeof siteHosting>): string[] {
-  return hosting.storageEndpoints.flatMap(({ pe, hasDns }) => {
-    const id = resourceId("Microsoft.Network/privateEndpoints", resourceName(ctx, pe.id));
-    return hasDns
-      ? [id, `[resourceId('Microsoft.Network/privateEndpoints/privateDnsZoneGroups', '${resourceName(ctx, pe.id)}', 'default')]`]
-      : [id];
-  });
+  return [
+    ...hosting.storageEndpoints.flatMap(({ pe, hasDns }) => {
+      const id = resourceId("Microsoft.Network/privateEndpoints", resourceName(ctx, pe.id));
+      return hasDns
+        ? [id, `[resourceId('Microsoft.Network/privateEndpoints/privateDnsZoneGroups', '${resourceName(ctx, pe.id)}', 'default')]`]
+        : [id];
+    }),
+    ...hosting.storageDnsLinks.map(({ zone, vnet }) =>
+      `[resourceId('Microsoft.Network/privateDnsZones/virtualNetworkLinks', '${(zone.properties.zoneName as string) ?? resourceName(ctx, zone.id)}', '${resourceName(ctx, vnet.id)}-link')]`,
+    ),
+  ];
 }
 
 // Secured storage: the content share must exist before the app is created.

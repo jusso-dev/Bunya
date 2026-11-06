@@ -258,6 +258,9 @@ function siteDependsOn(ctx: GeneratorContext, hosting: SiteHosting): string[] {
     deps.push(`azurerm_role_assignment.${ctx.identifiers.get(hosting.pullIdentity.node.id)}_${ctx.identifiers.get(hosting.registry.id)}_acrpull`);
   }
   for (const { pe } of hosting.storageEndpoints) deps.push(`azurerm_private_endpoint.${ctx.identifiers.get(pe.id)}`);
+  for (const { zone, vnet } of hosting.storageDnsLinks) {
+    deps.push(`azurerm_private_dns_zone_virtual_network_link.${ctx.identifiers.get(zone.id)}_${ctx.identifiers.get(vnet.id)}`);
+  }
   return deps.length > 0 ? ["", `  depends_on = [${deps.join(", ")}]`] : [];
 }
 

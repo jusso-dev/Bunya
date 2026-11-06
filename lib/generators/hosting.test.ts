@@ -429,9 +429,16 @@ describe("App Service hosting exports", () => {
     const bicep = file(generateBicep(hostingGraph), "main.bicep");
     const flexBicep = bicep.split(/resource node_\d+_fn_flex_resource 'Microsoft.Web\/sites/)[1].split("\n}")[0];
     expect(flexBicep).toMatch(/dependsOn: \[[^\]]*node_\d+_pe_blob_resource\n[^\]]*node_\d+_pe_blob_resource_dns/);
+    expect(flexBicep).toMatch(/node_\d+_privatelink_blob_core_windows_net_resource_vnet_hosting_link/);
+    expect(bicep).toMatch(/resource node_\d+_privatelink_blob_core_windows_net_resource_vnet_hosting_link 'Microsoft.Network\/privateDnsZones\/virtualNetworkLinks/);
     const main = file(generateTerraform(hostingGraph), "main.tf");
     const flexTf = main.split('resource "azurerm_function_app_flex_consumption" "fn_flex"')[1].split("\n}")[0];
-    expect(flexTf).toContain("depends_on = [azurerm_private_endpoint.pe_blob]");
+    expect(flexTf).toContain("depends_on = [azurerm_private_endpoint.pe_blob, azurerm_private_dns_zone_virtual_network_link.privatelink_blob_core_windows_net_vnet_hosting]");
+    expect(main).toContain('resource "azurerm_private_dns_zone_virtual_network_link" "privatelink_blob_core_windows_net_vnet_hosting"');
+    const flexArm = site("fn-flex");
+    expect(flexArm.dependsOn).toContain("[resourceId('Microsoft.Network/privateDnsZones/virtualNetworkLinks', 'privatelink.blob.core.windows.net', 'vnet-hosting-link')]");
+    const link = (armResources().find((r) => r.type === "Microsoft.Network/privateDnsZones") as Arm & { resources?: Arm[] }).resources?.[0];
+    expect(link?.name).toBe("vnet-hosting-link");
     // Apps on public storage do not wait for anything extra.
     const y1Tf = main.split('resource "azurerm_linux_function_app" "fn_y1"')[1].split("\n}")[0];
     expect(y1Tf).not.toContain("depends_on");

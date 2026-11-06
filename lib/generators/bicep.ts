@@ -274,6 +274,7 @@ function siteDependsOn(ctx: GeneratorContext, node: GraphNode, hosting: ReturnTy
     deps.push(nodeRef(ctx, pe.id));
     if (hasDns) deps.push(`${nodeRef(ctx, pe.id)}_dns`);
   }
+  for (const { zone, vnet } of hosting.storageDnsLinks) deps.push(`${nodeRef(ctx, zone.id)}_${ctx.identifiers.get(vnet.id)}_link`);
   if (hosting.registry && hosting.pullIdentity?.kind === "user") {
     deps.push(`${nodeRef(ctx, hosting.pullIdentity.node.id)}_${nodeRef(ctx, hosting.registry.id)}_acrpull`);
   }
