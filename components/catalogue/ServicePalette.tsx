@@ -3,11 +3,11 @@
 import { useMemo, useState } from "react";
 import { listServices, ServiceDefinition } from "@/lib/catalogue/services";
 import { ServiceType } from "@/lib/graph/schema";
-import { useGraphStore } from "@/lib/graph/store";
+import { COMPACT_LAYOUT_QUERY, useGraphStore } from "@/lib/graph/store";
 import { CATEGORY_THEME, ServiceIcon } from "@/lib/catalogue/icons";
 import { gridPosition, newNode } from "@/lib/session/new-node";
 import { placeAt } from "@/lib/session/geometry";
-import { COMPACT_LAYOUT_QUERY, useSessionUi } from "@/lib/session/ui";
+import { useSessionUi } from "@/lib/session/ui";
 
 const CATEGORY_ORDER: ServiceDefinition["category"][] = [
   "scaffold",

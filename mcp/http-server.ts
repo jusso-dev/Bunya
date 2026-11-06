@@ -1,9 +1,9 @@
 import { createServer, type IncomingMessage } from "node:http";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { MAX_IMPORT_BYTES, checkObjectDepth } from "../lib/graph/limits";
+import { MAX_IMPORT_BYTES, parseJsonInput } from "../lib/graph/limits";
+import { createBunyaMcpServer } from "./create-server";
 
 const MAX_IMPORT_MIB = MAX_IMPORT_BYTES / (1024 * 1024);
-import { createBunyaMcpServer } from "./create-server";
 
 async function readBody(request: IncomingMessage): Promise<unknown> {
   let size = 0;
@@ -13,9 +13,7 @@ async function readBody(request: IncomingMessage): Promise<unknown> {
     if (size > MAX_IMPORT_BYTES) throw new Error("body-too-large");
     chunks.push(Buffer.from(chunk));
   }
-  const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-  checkObjectDepth(parsed);
-  return parsed;
+  return parseJsonInput(Buffer.concat(chunks).toString("utf8"));
 }
 
 export function createBunyaHttpServer(options: { allowedHosts?: string[]; allowedOrigins?: string[] } = {}) {

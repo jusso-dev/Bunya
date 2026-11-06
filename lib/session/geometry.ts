@@ -1,22 +1,13 @@
 import {
-  DEFAULT_CONTAINER_SIZE,
   isContainerType,
+  nodeSize,
   type GraphDocument,
   type GraphNode,
   type ServiceType,
 } from "@/lib/graph/schema";
 import { acceptsChild } from "@/lib/graph/topology";
 
-// TODO(untangle): use SERVICE_NODE_SIZE from lib/graph/schema
-export const SERVICE_NODE_SIZE = { width: 220, height: 50 } as const;
-
 export type Point = { x: number; y: number };
-
-export function nodeSize(node: Pick<GraphNode, "type" | "size">): { width: number; height: number } {
-  if (node.size) return node.size;
-  if (isContainerType(node.type)) return DEFAULT_CONTAINER_SIZE[node.type];
-  return SERVICE_NODE_SIZE;
-}
 
 // Node positions are relative to their parent container.
 export function absolutePosition(document: GraphDocument, node: Pick<GraphNode, "id" | "position" | "parentId">): Point {

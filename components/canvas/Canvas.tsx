@@ -26,12 +26,13 @@ import {
   ServiceType,
   SERVICE_TYPES,
   isContainerType,
+  nodeSize,
 } from "@/lib/graph/schema";
 import { ServiceNode, type CanvasNodeData } from "./ServiceNode";
 import { ContainerNode } from "./ContainerNode";
 import { isPortableFile } from "@/lib/graph/portable";
 import { downloadDataUrl, imageFilename, renderDiagramImage, type ImageFormat } from "@/lib/graph/image-export";
-import { absolutePosition, nodeSize, placeAt } from "@/lib/session/geometry";
+import { absolutePosition, placeAt } from "@/lib/session/geometry";
 import { newNode } from "@/lib/session/new-node";
 import { useSessionUi } from "@/lib/session/ui";
 
@@ -232,7 +233,7 @@ function CanvasInner() {
       event.preventDefault();
       const files = Array.from(event.dataTransfer.files);
       if (files.length > 0) {
-        void importDiagram(files.find(isPortableFile) ?? files[0]);
+        void importDiagram(files.find(isPortableFile) ?? files[0]).then((loaded) => { if (loaded) setConnectionError(null); });
         return;
       }
       const type = event.dataTransfer.getData("application/bunya-service") as ServiceType | "";

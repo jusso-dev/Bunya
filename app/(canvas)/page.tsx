@@ -7,8 +7,7 @@ import { Canvas } from "@/components/canvas/Canvas";
 import { PropertiesPanel } from "@/components/properties/PropertiesPanel";
 import { Toolbar } from "@/components/canvas/Toolbar";
 import { ValidationPanel } from "@/components/canvas/ValidationPanel";
-import { useGraphStore } from "@/lib/graph/store";
-import { COMPACT_LAYOUT_QUERY } from "@/lib/session/ui";
+import { COMPACT_LAYOUT_QUERY, useGraphStore } from "@/lib/graph/store";
 
 function CollapsedRail({
   label,

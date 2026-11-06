@@ -36,5 +36,7 @@ export function loadDocument(document: GraphDocument, imported?: ImportNotes): v
   graph.replaceDocument(document);
   graph.setImportNotes(imported && imported.notes.length > 0 ? imported : null);
   window.history.replaceState(null, "", "#");
-  useSessionUi.getState().requestFit();
+  const ui = useSessionUi.getState();
+  ui.setImportNotesOpen(false);
+  ui.requestFit();
 }

@@ -4,8 +4,7 @@ import { memo } from "react";
 import { Handle, NodeProps, Position } from "reactflow";
 import { CATEGORY_THEME, ServiceIcon } from "@/lib/catalogue/icons";
 import { getServiceDefinition } from "@/lib/catalogue/services";
-import { ServiceType } from "@/lib/graph/schema";
-import { SERVICE_NODE_SIZE } from "@/lib/session/geometry";
+import { SERVICE_NODE_SIZE, ServiceType } from "@/lib/graph/schema";
 
 export type CanvasNodeData = {
   serviceType: ServiceType;

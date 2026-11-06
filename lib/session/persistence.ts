@@ -1,11 +1,9 @@
 import { toast } from "sonner";
 import { deserialiseFromFragment, loadStoredDocument, saveToLocalStorage, type StoredLoad } from "@/lib/graph/serialise";
-import { useGraphStore } from "@/lib/graph/store";
+import { FX_RATE_STORAGE_KEY, useGraphStore } from "@/lib/graph/store";
 import { buildOrganisationRulesEnvelope, parseOrganisationRulesText, type OrganisationRule } from "@/lib/rules/organisation";
 import { useSessionUi } from "./ui";
 
-// TODO(untangle): use FX_RATE_STORAGE_KEY from lib/graph/store
-const FX_RATE_STORAGE_KEY = "bunya.settings.fxAudPerUsd";
 const ORGANISATION_RULES_STORAGE_KEY = "bunya.organisationRules";
 const SAVE_DELAY_MS = 250;
 
@@ -33,14 +31,16 @@ function saveOrganisationRules(rules: OrganisationRule[]): void {
 // browser, and restores the saved exchange rate and organisation rules.
 async function restore(isStopped: () => boolean): Promise<void> {
   const graph = useGraphStore.getState();
+  // TODO(untangle): use isShareFragment from lib/graph/serialise (its URL_PREFIX is private)
   const fragment = window.location.hash.slice(1);
-  const shared = fragment ? await deserialiseFromFragment(fragment) : null;
+  const isShareLink = fragment.startsWith("bunya1:");
+  const shared = isShareLink ? await deserialiseFromFragment(fragment) : null;
   if (isStopped()) return;
   const stored = loadStoredDocument();
   if (shared) {
     graph.replaceDocument(shared);
   } else {
-    if (fragment) toast.warning("Shared diagram is invalid or too large. Restored your saved diagram.");
+    if (isShareLink) toast.warning("Shared diagram is invalid or too large. Restored your saved diagram.");
     if (stored.status === "ok" || stored.status === "recovered") graph.replaceDocument(stored.document);
     STORED_LOAD_NOTICE[stored.status]?.();
   }
@@ -69,17 +69,16 @@ function debounce(run: () => void): { schedule: () => void; cancel: () => void }
 // after each change. Returns a function that stops saving.
 export function startPersistence(): () => void {
   let stopped = false;
-  let unsubscribe = () => {};
   const document = debounce(saveDocument);
   const rules = debounce(() => saveOrganisationRules(useGraphStore.getState().organisationRules));
-  void restore(() => stopped).then(() => {
-    if (stopped) return;
-    document.schedule();
-    unsubscribe = useGraphStore.subscribe((state, previous) => {
-      if (state.document !== previous.document) document.schedule();
-      if (state.organisationRules !== previous.organisationRules) rules.schedule();
-    });
+  const unsubscribe = useGraphStore.subscribe((state, previous) => {
+    if (state.document !== previous.document) document.schedule();
+    if (state.organisationRules !== previous.organisationRules) rules.schedule();
   });
+  void restore(() => stopped)
+    .catch((error) => console.error("Bunya could not restore the saved session:", error))
+    // Save once even when nothing changed, so blocked storage is reported straight away.
+    .finally(() => { if (!stopped) document.schedule(); });
   return () => {
     stopped = true;
     unsubscribe();

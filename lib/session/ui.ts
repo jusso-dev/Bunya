@@ -1,9 +1,5 @@
 import { create } from "zustand";
 
-// TODO(untangle): use COMPACT_LAYOUT_QUERY from lib/graph/store
-// Must match the compact breakpoint in app/globals.css.
-export const COMPACT_LAYOUT_QUERY = "(max-width: 1023px)";
-
 type SessionUi = {
   importDialog: { open: boolean; message: string | null };
   importNotesOpen: boolean;
