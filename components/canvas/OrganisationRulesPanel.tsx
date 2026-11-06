@@ -1,5 +1,6 @@
 "use client";
 
+import { toast } from "sonner";
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { Dialog } from "@/components/Dialog";
 import { getServiceDefinition } from "@/lib/catalogue/services";
@@ -115,7 +116,7 @@ export function OrganisationRulesPanel() {
     const timer = window.setTimeout(() => { try { window.localStorage.setItem(
       ORG_RULES_STORAGE_KEY,
       JSON.stringify({ format: "bunya-organisation-rules", version: 1, rules: organisationRules }),
-    ); } catch { setMessage("Rules could not be saved. Export them to keep your changes."); } }, 250);
+    ); } catch { toast.error("Rules could not be saved. Export them to keep your changes."); } }, 250);
     return () => window.clearTimeout(timer);
   }, [organisationRules]);
 
@@ -139,7 +140,8 @@ export function OrganisationRulesPanel() {
       for (const rule of organisationRules) merged.set(rule.id, rule);
       for (const rule of incoming) merged.set(rule.id, rule);
       replaceOrganisationRules([...merged.values()]);
-      setMessage(`Imported ${incoming.length} rule${incoming.length === 1 ? "" : "s"} from ${source}.`);
+      setMessage(null);
+      toast.success(`Imported ${incoming.length} rule${incoming.length === 1 ? "" : "s"} from ${source}.`);
     },
     [organisationRules, replaceOrganisationRules],
   );
@@ -187,7 +189,8 @@ export function OrganisationRulesPanel() {
     };
     addOrganisationRule(rule);
     setForm((current) => ({ ...current, name: "", description: "" }));
-    setMessage(`Added ${rule.name}.`);
+    setMessage(null);
+    toast.success(`Added ${rule.name}.`);
   };
 
   const importRulesText = () => {
@@ -237,7 +240,7 @@ export function OrganisationRulesPanel() {
     a.download = `organisation-rules${ORGANISATION_RULES_EXTENSION}`;
     a.click();
     URL.revokeObjectURL(url);
-    setMessage(`Exported ${a.download}.`);
+    toast.success(`Exported ${a.download}.`);
   };
 
   const addPublicIngressPreset = () => {

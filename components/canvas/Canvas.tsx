@@ -1,5 +1,6 @@
 "use client";
 
+import { toast } from "sonner";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactFlow, {
   Background,
@@ -37,6 +38,7 @@ import { acceptsChild, freeSubnetPrefix, subnetVirtualNetwork } from "@/lib/grap
 import { ServiceNode, ServiceNodeData } from "./ServiceNode";
 import { ContainerNode } from "./ContainerNode";
 import { isPortableFile, parseImportText, readFileAsText } from "@/lib/graph/portable";
+import { downloadDataUrl, imageFilename, renderDiagramImage, type ImageFormat } from "@/lib/graph/image-export";
 
 const NODE_TYPES = {
   service: ServiceNode,
@@ -123,6 +125,13 @@ function isEditableTarget(target: EventTarget | null): boolean {
   );
 }
 
+// isValidConnection fires repeatedly while dragging, so one toast id keeps a
+// single connection warning on screen.
+function setConnectionError(message: string | null) {
+  if (message) toast.error(message, { id: "connection-error" });
+  else toast.dismiss("connection-error");
+}
+
 function CanvasInner() {
   const document = useGraphStore((s) => s.document);
   const selectedEdgeId = useGraphStore((s) => s.selectedEdgeId);
@@ -140,8 +149,26 @@ function CanvasInner() {
 
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const [rfInstance, setRfInstance] = useState<ReactFlowInstance | null>(null);
-  const { screenToFlowPosition, fitView } = useReactFlow();
-  const [connectionError, setConnectionError] = useState<string | null>(null);
+  const { screenToFlowPosition, fitView, getNodes } = useReactFlow();
+  const [exportingImage, setExportingImage] = useState(false);
+
+  // Renders every node, not just the visible area, in the current theme colour.
+  const exportImage = useCallback(async (format: ImageFormat) => {
+    const wrapper = reactFlowWrapper.current;
+    if (!wrapper) return;
+    setExportingImage(true);
+    try {
+      const background = window.getComputedStyle(wrapper).backgroundColor || "#fafafa";
+      const dataUrl = await renderDiagramImage(wrapper, getNodes(), format, background);
+      const filename = imageFilename(document.metadata.name, format);
+      downloadDataUrl(dataUrl, filename);
+      toast.success(`Exported ${filename}.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not export the diagram image.");
+    } finally {
+      setExportingImage(false);
+    }
+  }, [document.metadata.name, getNodes]);
   const previousNodeCount = useRef(0);
 
   useEffect(() => {
@@ -339,7 +366,9 @@ function CanvasInner() {
             if (result.ok) {
               replaceDocument(result.document);
               if (typeof window !== "undefined") window.history.replaceState(null, "", "#");
-              setConnectionError(result.warning ?? null);
+              toast.dismiss("connection-error");
+              if (result.warning) toast.warning(`Imported ${file.name} (${result.document.nodes.length} node${result.document.nodes.length === 1 ? "" : "s"}).`, { description: `Import notes:\n${result.warning}`, duration: Infinity });
+              else toast.success(`Imported ${file.name} (${result.document.nodes.length} node${result.document.nodes.length === 1 ? "" : "s"}).`);
             } else {
               setConnectionError(`Import failed: ${result.reason}`);
             }
@@ -442,24 +471,26 @@ function CanvasInner() {
         <MiniMap pannable zoomable />
         <Controls />
       </ReactFlow>
+      {document.nodes.length > 0 && (
+        <div className="absolute right-4 top-4 z-10 flex overflow-hidden rounded-md border border-zinc-200 bg-white text-xs font-medium shadow-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" role="group" aria-label="Export diagram image">
+          <span className="px-2 py-1 text-zinc-500 dark:text-zinc-400">Image</span>
+          {(["jpeg", "png"] as const).map((format) => (
+            <button
+              key={format}
+              type="button"
+              disabled={exportingImage}
+              onClick={() => void exportImage(format)}
+              className="border-l border-zinc-200 px-2 py-1 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+              title={`Download the whole diagram as ${format === "jpeg" ? "a JPEG" : "a PNG"}`}
+            >
+              {format === "jpeg" ? "JPEG" : "PNG"}
+            </button>
+          ))}
+        </div>
+      )}
       {document.nodes.length === 0 && <div className="pointer-events-none absolute inset-x-4 top-12 text-center text-sm text-zinc-600">
         <p className="font-semibold">Start your Azure architecture</p><p>Add a service from the palette or choose a starter template.</p>
       </div>}
-      {connectionError ? (
-        <div role="alert" className="pointer-events-auto absolute right-4 top-4 max-w-sm rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800 shadow dark:bg-red-950/40 dark:text-red-200">
-          <div className="flex items-start justify-between gap-2">
-            <span className="whitespace-pre-line">{connectionError}</span>
-            <button
-              type="button"
-              onClick={() => setConnectionError(null)}
-              className="text-red-500 hover:text-red-700"
-              aria-label="Dismiss"
-            >
-              x
-            </button>
-          </div>
-        </div>
-      ) : null}
       {selectedEdge ? (
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs shadow-md dark:border-zinc-700 dark:bg-zinc-900">
           <span className="mr-2 font-semibold text-zinc-700 dark:text-zinc-200">

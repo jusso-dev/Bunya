@@ -8,7 +8,7 @@ test("keyboard can add services, reset and recover work", async ({ page }) => {
   await expect(page.locator(".react-flow__node")).toHaveCount(1);
   await page.getByRole("button", { name: "New", exact: true }).click();
   await expect(page.locator(".react-flow__node")).toHaveCount(0);
-  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await page.getByRole("banner").getByRole("button", { name: "Undo", exact: true }).click();
   await expect(page.locator(".react-flow__node")).toHaveCount(1);
 });
 
@@ -41,7 +41,7 @@ test("local recovery survives reload and invalid share links", async ({ page }) 
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("bunya.document.v1") ?? "{}").nodes?.length)).toBe(1);
   await page.goto("/#bunya1:invalid"); await page.reload();
   await expect(page.locator(".react-flow__node")).toHaveCount(1);
-  await expect(page.getByRole("status")).toContainText("Shared diagram is invalid");
+  await expect(page.locator("[data-sonner-toast]").filter({ hasText: "Shared diagram is invalid" })).toBeVisible();
 });
 
 test("unavailable browser storage keeps editor usable with warning", async ({ page }) => {

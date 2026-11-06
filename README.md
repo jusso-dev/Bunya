@@ -116,6 +116,7 @@ The whole thing is client-side. No backend, no accounts, no telemetry.
 Persistence is `localStorage` plus three escape hatches:
 
 - **Share URL** - gzips the graph into the URL fragment. Paste, open, same canvas.
+- **Image (JPEG / PNG)** - the buttons at the top right of the canvas download the whole diagram as a picture, in the current light or dark theme, for documents and slides.
 - **Export** - downloads a versioned `.bunya.json` envelope (`{ format, version, exportedAt, generator, document }`). Hand it to a colleague, attach it to a Jira ticket, check it into a repo. It survives schema migrations because it pins `schemaVersion` and runs through `lib/graph/migrate.ts` on load.
 - **Import** - via the toolbar button OR by dragging a `.bunya.json` or ARM
   template JSON file onto the canvas. You can also paste Azure Portal

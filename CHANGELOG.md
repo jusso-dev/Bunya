@@ -6,6 +6,16 @@ project follows [Conventional Commits](https://www.conventionalcommits.org/).
 
 ## [Unreleased]
 
+### Image export and toast notifications
+
+- The canvas has **Image: JPEG / PNG** buttons that download the whole
+  diagram (not just the visible area) at 2x resolution, in the current light
+  or dark theme, without the minimap or zoom controls. Nothing is uploaded.
+- Notifications use themed Sonner toasts that follow the system light or dark
+  mode: share, export, import (import notes stay open until dismissed),
+  copy, download and connection errors. Form validation messages stay inline.
+- Creating a new diagram shows an Undo action in its toast.
+
 ### App Service plans, container images and import links
 
 - App Service Plans support B3, S2, S3, P1v2–P3v2, P0v3, P3v3, Elastic

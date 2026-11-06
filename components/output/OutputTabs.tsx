@@ -1,5 +1,6 @@
 "use client";
 
+import { toast } from "sonner";
 import { useMemo, useState } from "react";
 import JSZip from "jszip";
 import { useGraphStore } from "@/lib/graph/store";
@@ -81,7 +82,6 @@ export function OutputTabs() {
     [document, fxAudPerUsd],
   );
 
-  const [downloadMessage, setDownloadMessage] = useState<string | null>(null);
   const failed = results.some(({ result }) => !result.ok);
   const active = results.find((r) => r.tab.id === activeId);
 
@@ -118,7 +118,7 @@ export function OutputTabs() {
           type="button"
           disabled={failed}
           title={failed ? "Resolve generation errors before downloading the complete bundle." : undefined}
-          onClick={() => { void downloadZip(results, document.metadata.name || "bunya").then(() => setDownloadMessage("ZIP downloaded.")).catch(() => setDownloadMessage("Download failed. Try exporting individual files.")); }}
+          onClick={() => { void downloadZip(results, document.metadata.name || "bunya").then(() => toast.success("ZIP downloaded.")).catch(() => toast.error("Download failed. Try downloading individual files.")); }}
           className="ml-auto rounded border border-zinc-200 px-2 py-1 text-xs font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-100 dark:hover:bg-zinc-800"
         >
           Download all (.zip)
@@ -126,7 +126,6 @@ export function OutputTabs() {
       </div>
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-3 py-2">
         {failed && <p role="alert" className="mb-2 text-sm text-red-700 dark:text-red-300">Some outputs cannot be generated. Complete ZIP download is unavailable; review the affected tabs.</p>}
-        {downloadMessage && <p role="status">{downloadMessage}</p>}
         {activeId === "cost" ? (
           <CostPanel document={document} />
         ) : active ? (
@@ -138,7 +137,6 @@ export function OutputTabs() {
 }
 
 function ActivePanel({ tab, result }: { tab: Tab; result: GeneratorResult }) {
-  const [copyMessage, setCopyMessage] = useState<string | null>(null);
   if (!result.ok) {
     return (
       <pre tabIndex={0} role="alert" className="whitespace-pre-wrap break-words rounded-md bg-red-50 p-3 text-xs text-red-700 dark:bg-red-950/40 dark:text-red-200">
@@ -149,7 +147,6 @@ function ActivePanel({ tab, result }: { tab: Tab; result: GeneratorResult }) {
   }
   return (
     <div className="flex flex-col gap-3">
-      {copyMessage && <p role="status" className="text-xs">{copyMessage}</p>}
       {result.files.map((file) => (
         <div key={file.path} className="rounded-md border border-zinc-200 dark:border-zinc-800">
           <header className="flex items-center justify-between px-3 py-1.5">
@@ -161,8 +158,8 @@ function ActivePanel({ tab, result }: { tab: Tab; result: GeneratorResult }) {
                 type="button"
                 aria-label={`Copy ${file.path}`}
                 onClick={async () => {
-                  try { await navigator.clipboard.writeText(file.content); setCopyMessage(`Copied ${file.path}.`); }
-                  catch { setCopyMessage(`Could not copy ${file.path}. Use Download instead.`); }
+                  try { await navigator.clipboard.writeText(file.content); toast.success(`Copied ${file.path}.`); }
+                  catch { toast.error(`Could not copy ${file.path}. Use Download instead.`); }
                 }}
                 className="rounded border border-zinc-200 px-1.5 py-0.5 text-[10px] uppercase hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
               >

@@ -1,5 +1,6 @@
 "use client";
 
+import { toast } from "sonner";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useGraphStore } from "@/lib/graph/store";
 import { STARTER_TEMPLATES, getTemplateById } from "@/lib/catalogue/templates";
@@ -56,6 +57,13 @@ function PanelToggles() {
   );
 }
 
+// Import notes can be long, so they stay open until dismissed.
+function importedToast(source: string, nodes: number, notes: string | undefined) {
+  const title = `Imported ${source} (${nodes} node${nodes === 1 ? "" : "s"}).`;
+  if (notes) toast.warning(title, { description: `Import notes:\n${notes}`, duration: Infinity });
+  else toast.success(title);
+}
+
 export function Toolbar() {
   const document = useGraphStore((s) => s.document);
   const undo = useGraphStore((s) => s.undo);
@@ -66,7 +74,6 @@ export function Toolbar() {
 
   const [ready, setReady] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
-  const [shareMessage, setShareMessage] = useState<string | null>(null);
   const [templateOpen, setTemplateOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [importMessage, setImportMessage] = useState<string | null>(null);
@@ -82,7 +89,7 @@ export function Toolbar() {
       if (cancelled) return;
       if (shared) replaceDocument(shared);
       else if (stored) replaceDocument(stored);
-      if (hash.startsWith("bunya1:") && !shared) setShareMessage("Shared diagram is invalid or too large. Restored your saved diagram.");
+      if (hash.startsWith("bunya1:") && !shared) toast.warning("Shared diagram is invalid or too large. Restored your saved diagram.");
       try {
         const fx = Number(localStorage.getItem("bunya.settings.fxAudPerUsd"));
         if (Number.isFinite(fx) && fx > 0) useGraphStore.getState().setFxAudPerUsd(fx);
@@ -102,21 +109,19 @@ export function Toolbar() {
   const onShare = useCallback(async () => {
     let fragment: string;
     try { fragment = await serialiseToFragment(document); }
-    catch { setShareMessage("Could not create share link. Export your diagram instead."); return; }
+    catch { toast.error("Could not create share link. Export your diagram instead."); return; }
     const size = fragmentByteLength(fragment);
     if (size > FRAGMENT_SIZE_WARNING_BYTES) {
-      setShareMessage(
-        `Fragment is ${size} bytes; some browsers may truncate. Use Download instead.`,
-      );
+      toast.warning(`Share link is ${size} bytes, which some browsers truncate. Export the diagram instead.`);
       return;
     }
     const url = shareUrlFromFragment(fragment);
     if (typeof window !== "undefined") window.history.replaceState(null, "", `#${fragment}`);
     try {
       await navigator.clipboard.writeText(url);
-      setShareMessage("Share URL copied to clipboard.");
+      toast.success("Share URL copied to clipboard.");
     } catch {
-      setShareMessage(`Share URL: ${url}`);
+      toast.info("Copy the share URL", { description: url, duration: Infinity });
     }
   }, [document]);
 
@@ -129,7 +134,10 @@ export function Toolbar() {
 
   const onNew = () => {
     replaceDocument(emptyGraph("untitled"));
-    setShareMessage("New diagram created. Undo restores your previous diagram.");
+    toast.success("New diagram created.", {
+      description: "Undo restores your previous diagram.",
+      action: { label: "Undo", onClick: () => useGraphStore.getState().undo() },
+    });
     if (typeof window !== "undefined") window.history.replaceState(null, "", "#");
   };
 
@@ -142,7 +150,11 @@ export function Toolbar() {
     a.download = suggestedFilename(document);
     a.click();
     URL.revokeObjectURL(url);
-    setShareMessage(`Exported ${a.download}.${blob.size > MAX_IMPORT_BYTES ? " This file exceeds the 1 MiB import limit and cannot be reimported without reducing its size." : ""}`);
+    if (blob.size > MAX_IMPORT_BYTES) {
+      toast.warning(`Exported ${a.download}.`, { description: "This file exceeds the 1 MiB import limit and cannot be reimported without reducing its size." });
+    } else {
+      toast.success(`Exported ${a.download}.`);
+    }
   }, [document]);
 
   const importFromFile = useCallback(
@@ -163,7 +175,7 @@ export function Toolbar() {
       }
       replaceDocument(result.document);
       if (typeof window !== "undefined") window.history.replaceState(null, "", "#");
-      setShareMessage(`Imported ${file.name} (${result.document.nodes.length} nodes).${result.warning ? `\nImport notes:\n${result.warning}` : ""}`);
+      importedToast(file.name, result.document.nodes.length, result.warning);
       setImportMessage(null);
       setImportOpen(false);
     },
@@ -188,7 +200,7 @@ export function Toolbar() {
     setImportText("");
     setImportMessage(null);
     setImportOpen(false);
-    setShareMessage(`Imported pasted JSON (${result.document.nodes.length} nodes).${result.warning ? `\nImport notes:\n${result.warning}` : ""}`);
+    importedToast("pasted JSON", result.document.nodes.length, result.warning);
   }, [importText, replaceDocument]);
 
   const onFileChange = useCallback(
@@ -358,19 +370,6 @@ export function Toolbar() {
         />
       </div>
       {saveFailed && <p role="alert" className="w-full text-sm text-red-700 dark:text-red-300">Changes cannot be saved in this browser. Export your diagram to keep your work.</p>}
-      {shareMessage ? (
-        <div role="status" className="absolute left-2 right-2 top-full z-40 mt-1 flex items-start justify-between gap-2 rounded-md border border-zinc-200 bg-white px-3 py-1 text-xs shadow dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
-          <p className="max-h-60 overflow-auto whitespace-pre-line break-words">{shareMessage}</p>
-          <button
-            type="button"
-            aria-label="Dismiss notification"
-            onClick={() => setShareMessage(null)}
-            className="ml-2 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100"
-          >
-            x
-          </button>
-        </div>
-      ) : null}
     </header>
   );
 }
