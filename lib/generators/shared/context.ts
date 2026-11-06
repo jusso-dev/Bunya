@@ -32,7 +32,7 @@ export function buildGeneratorContext(document: GraphDocument): GeneratorContext
   const seenIdents = new Set<string>();
 
   for (const node of expandedDoc.nodes) {
-    const name = azureResourceName(node.type, node.resourceName, seed);
+    const name = node.exactName ? node.resourceName : azureResourceName(node.type, node.resourceName, seed);
     resourceNames.set(node.id, name);
     let ident = terraformIdentifier(node.resourceName);
     let suffix = 1;

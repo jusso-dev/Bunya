@@ -54,6 +54,9 @@ export const GraphNodeSchema = z.object({
   position: z.object({ x: z.number(), y: z.number() }),
   name: z.string().min(1).max(256),
   resourceName: z.string().min(1).max(256),
+  // resourceName is an existing Azure name (set on import), so exporters use
+  // it as is instead of adding a uniqueness suffix.
+  exactName: z.boolean().optional(),
   properties: z.record(z.string(), z.unknown()),
   parentId: z.string().nullable().optional(),
   size: z.object({ width: z.number(), height: z.number() }).optional(),

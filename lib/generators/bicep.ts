@@ -269,6 +269,11 @@ function siteDependsOn(ctx: GeneratorContext, node: GraphNode, hosting: ReturnTy
   const deps: string[] = [];
   if (hosting.family === "flex" && node.type === "functionApp") deps.push(`${nodeRef(ctx, node.id)}_deployment`);
   if (hosting.privateContentShare) deps.push(`${nodeRef(ctx, node.id)}_contentshare`);
+  // Private storage: wait for its endpoints and their DNS zone groups.
+  for (const { pe, hasDns } of hosting.storageEndpoints) {
+    deps.push(nodeRef(ctx, pe.id));
+    if (hasDns) deps.push(`${nodeRef(ctx, pe.id)}_dns`);
+  }
   if (hosting.registry && hosting.pullIdentity?.kind === "user") {
     deps.push(`${nodeRef(ctx, hosting.pullIdentity.node.id)}_${nodeRef(ctx, hosting.registry.id)}_acrpull`);
   }

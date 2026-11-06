@@ -1126,6 +1126,9 @@ export function parseArmTemplate(text: string): ArmImportResult {
         type,
         name: def.label,
         resourceName,
+        // Names that exports suffix for global uniqueness are already unique
+        // Azure names here; keep them unless the import had to rename them.
+        ...(resourceName === armName && (type === "storageAccount" || type === "keyVault") ? { exactName: true } : {}),
         position: { x: 0, y: 0 },
         properties: validatedProperties(type, resource, baseProperties(type, resource, flat, parameters, variables, warnings), warnings),
       };

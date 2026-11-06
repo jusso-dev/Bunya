@@ -63,7 +63,11 @@ project follows [Conventional Commits](https://www.conventionalcommits.org/).
   Vault Secrets User and Storage Blob Data Contributor assignments become the
   identity edges exporters grant them from (so they are not granted twice),
   and the location parameter is resolved. ARM never emits the same role
-  assignment twice.
+  assignment twice. Imported Storage Account and Key Vault names are kept
+  exactly (no second uniqueness suffix) until the resource is renamed, so a
+  re-exported template updates the same accounts.
+- Function Apps on private storage wait for its Private Endpoints and DNS zone
+  groups in Bicep and Terraform as well as ARM.
 - Flex runtime versions are exported in the form Azure expects (`22-lts` as
   `22`, .NET `8` as `8.0`). Imports only match a pull identity that the
   reference names as a whole word (`id-pull` never matches `id-pull-external`). A warning rule explains first pulls with a system-assigned

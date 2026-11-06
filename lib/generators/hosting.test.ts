@@ -424,4 +424,16 @@ describe("App Service hosting exports", () => {
       expect(grants.filter((name) => name.includes("'app-hosting', 'AcrPull'"))).toHaveLength(1);
     });
   });
+
+  it("starts Function Apps on private storage after its endpoints in Bicep and Terraform", () => {
+    const bicep = file(generateBicep(hostingGraph), "main.bicep");
+    const flexBicep = bicep.split(/resource node_\d+_fn_flex_resource 'Microsoft.Web\/sites/)[1].split("\n}")[0];
+    expect(flexBicep).toMatch(/dependsOn: \[[^\]]*node_\d+_pe_blob_resource\n[^\]]*node_\d+_pe_blob_resource_dns/);
+    const main = file(generateTerraform(hostingGraph), "main.tf");
+    const flexTf = main.split('resource "azurerm_function_app_flex_consumption" "fn_flex"')[1].split("\n}")[0];
+    expect(flexTf).toContain("depends_on = [azurerm_private_endpoint.pe_blob]");
+    // Apps on public storage do not wait for anything extra.
+    const y1Tf = main.split('resource "azurerm_linux_function_app" "fn_y1"')[1].split("\n}")[0];
+    expect(y1Tf).not.toContain("depends_on");
+  });
 });

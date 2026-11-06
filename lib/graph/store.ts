@@ -200,7 +200,14 @@ const graphStoreInitializer: StateCreator<GraphStore> = (set, get) => ({
       ...pushHistory(state),
       document: {
         ...state.document,
-        nodes: state.document.nodes.map((n) => (n.id === id ? { ...n, ...patch } : n)),
+        nodes: state.document.nodes.map((n) => {
+          if (n.id !== id) return n;
+          const next = { ...n, ...patch };
+          // A renamed resource is a new Azure resource, so it gets the usual
+          // uniqueness suffix again.
+          if (patch.resourceName !== undefined && patch.resourceName !== n.resourceName && !("exactName" in patch)) delete next.exactName;
+          return next;
+        }),
       },
     }));
   },

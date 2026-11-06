@@ -250,10 +250,15 @@ function registryConfig(ctx: GeneratorContext, hosting: SiteHosting): string[] {
 
 // A user-assigned pull identity is granted AcrPull before the app starts, so
 // the first image pull succeeds.
-function pullGrantDependsOn(ctx: GeneratorContext, hosting: SiteHosting): string[] {
-  if (!hosting.registry || hosting.pullIdentity?.kind !== "user") return [];
-  const grant = `azurerm_role_assignment.${ctx.identifiers.get(hosting.pullIdentity.node.id)}_${ctx.identifiers.get(hosting.registry.id)}_acrpull`;
-  return ["", `  depends_on = [${grant}]`];
+// Private storage: the app waits for its storage Private Endpoints (whose
+// DNS zone group is inline) so the host can reach storage on first start.
+function siteDependsOn(ctx: GeneratorContext, hosting: SiteHosting): string[] {
+  const deps: string[] = [];
+  if (hosting.registry && hosting.pullIdentity?.kind === "user") {
+    deps.push(`azurerm_role_assignment.${ctx.identifiers.get(hosting.pullIdentity.node.id)}_${ctx.identifiers.get(hosting.registry.id)}_acrpull`);
+  }
+  for (const { pe } of hosting.storageEndpoints) deps.push(`azurerm_private_endpoint.${ctx.identifiers.get(pe.id)}`);
+  return deps.length > 0 ? ["", `  depends_on = [${deps.join(", ")}]`] : [];
 }
 
 function subnetLine(ctx: GeneratorContext, hosting: SiteHosting): string[] {
@@ -294,7 +299,7 @@ function emitAppService(node: GraphNode, ctx: GeneratorContext): string {
     ...identityBlock(ctx, hosting),
   ];
   if (settings.length > 0) lines.push("", `  app_settings = {`, ...settings, `  }`);
-  lines.push(...pullGrantDependsOn(ctx, hosting), tagsBlock(ctx, node), `}`);
+  lines.push(...siteDependsOn(ctx, hosting), tagsBlock(ctx, node), `}`);
   return lines.filter(Boolean).join("\n");
 }
 
@@ -363,7 +368,7 @@ function emitLinuxFunctionApp(node: GraphNode, ctx: GeneratorContext, hosting: S
     ...identityBlock(ctx, hosting),
   ];
   if (settings.length > 0) lines.push("", `  app_settings = {`, ...settings, `  }`);
-  lines.push(...pullGrantDependsOn(ctx, hosting), tagsBlock(ctx, node), `}`);
+  lines.push(...siteDependsOn(ctx, hosting), tagsBlock(ctx, node), `}`);
   return lines.filter(Boolean).join("\n");
 }
 
@@ -407,7 +412,7 @@ function emitFlexFunctionApp(node: GraphNode, ctx: GeneratorContext, hosting: Si
     ...identityBlock(ctx, hosting),
   ];
   if (settings.length > 0) lines.push("", `  app_settings = {`, ...settings, `  }`);
-  lines.push(...pullGrantDependsOn(ctx, hosting), tagsBlock(ctx, node), `}`);
+  lines.push(...siteDependsOn(ctx, hosting), tagsBlock(ctx, node), `}`);
   return lines.filter(Boolean).join("\n");
 }
 

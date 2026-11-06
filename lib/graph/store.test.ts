@@ -33,4 +33,12 @@ describe("useGraphStore", () => {
     expect(inferDefaultEdgeKind("appService", "keyVault")).toBe("identity");
     expect(inferDefaultEdgeKind("appService", "storageAccount")).toBe("data");
   });
+
+  it("drops the exact-name flag when a resource is renamed", () => {
+    const id = useGraphStore.getState().addNode({ ...baseNode, type: "storageAccount", resourceName: "stimported", exactName: true });
+    useGraphStore.getState().updateNode(id, { name: "Renamed label" });
+    expect(useGraphStore.getState().document.nodes[0].exactName).toBe(true);
+    useGraphStore.getState().updateNode(id, { resourceName: "stnew" });
+    expect(useGraphStore.getState().document.nodes[0].exactName).toBeUndefined();
+  });
 });

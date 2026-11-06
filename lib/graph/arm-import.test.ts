@@ -816,4 +816,21 @@ describe("parseArmTemplate", () => {
     if (!imported.ok) throw new Error(imported.reason);
     expect(imported.document.nodes.find((node) => node.type === "virtualNetwork")?.properties.dnsServers).toEqual(["10.20.0.4", "10.20.0.5"]);
   });
+
+  it("keeps globally unique names when re-importing an export", async () => {
+    const { hostingGraph } = await import("@/lib/generators/__fixtures__/hosting");
+    const { generateArm } = await import("@/lib/generators/arm");
+    const names = (template: string) =>
+      (JSON.parse(template).resources as { type: string; name: string }[])
+        .filter((resource) => /storageAccounts$|vaults$/.test(resource.type))
+        .map((resource) => resource.name)
+        .sort();
+    const first = generateArm(hostingGraph);
+    if (!first.ok) throw new Error(first.reason);
+    const imported = parseArmTemplate(first.files[0].content);
+    if (!imported.ok) throw new Error(imported.reason);
+    const second = generateArm(imported.document);
+    if (!second.ok) throw new Error(second.reason);
+    expect(names(second.files[0].content)).toEqual(names(first.files[0].content));
+  });
 });

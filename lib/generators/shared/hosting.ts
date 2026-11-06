@@ -29,6 +29,9 @@ export type SiteHosting = {
   // Content share reached over the VNet because storage has no public
   // endpoint: needs vnetContentShareEnabled and a pre-created file share.
   privateContentShare: boolean;
+  // Private Endpoints to private backing storage. The host reaches storage
+  // as soon as the app exists, so the app waits for these (and their DNS).
+  storageEndpoints: { pe: GraphNode; hasDns: boolean }[];
 };
 
 export function siteHosting(ctx: GeneratorContext, node: GraphNode): SiteHosting {
@@ -76,6 +79,15 @@ export function siteHosting(ctx: GeneratorContext, node: GraphNode): SiteHosting
     workerRuntime: runtime === "dotnet" ? "dotnet-isolated" : runtime,
     flexVersion: flexRuntimeVersion(runtime, String(node.properties.runtimeVersion ?? "22")),
     privateContentShare: node.type === "functionApp" && (family === "consumption" || family === "elastic") && !!storage && !storagePublicNetwork(storage.properties),
+    storageEndpoints:
+      node.type === "functionApp" && storage && !storagePublicNetwork(storage.properties)
+        ? ctx.document.nodes
+            .filter((pe) => pe.type === "privateEndpoint" && outgoingOf(ctx, pe.id, "network").some((edge) => edge.target === storage.id))
+            .map((pe) => ({
+              pe,
+              hasDns: outgoingOf(ctx, pe.id, "network").some((edge) => ctx.nodesById.get(edge.target)?.type === "privateDnsZone"),
+            }))
+        : [],
   };
 }
 
