@@ -11,7 +11,7 @@ exports[`generateCostEstimate > snapshots the full-stack cost markdown 1`] = `
 
 - Indicative monthly figures. Real bills depend on traffic, region, reservations, and tier features Bunya does not model.
 - Currency: A$ (AUD). AUD figures use 1.5000 AUD/USD. Override the rate in the Cost panel for accuracy.
-- Snapshot date: 2026-05-19. Source: https://prices.azure.com/api/retail/prices.
+- Snapshot date: 2026-05-19 (App Service and Functions: 2026-11-06, Linux rates). Source: https://prices.azure.com/api/retail/prices.
 - Egress, premium-feature add-ons, backup retention, and per-call billing are excluded.
 
 ## Line items
@@ -23,9 +23,9 @@ exports[`generateCostEstimate > snapshots the full-stack cost markdown 1`] = `
 | \`snet-app\` | Subnet | child | A$0.00 | No direct cost for the subnet |
 | \`nsg-app\` | Network Security Group | ruleset | A$0.00 | No direct cost |
 | \`pe-stg\` | Private Endpoint | per-endpoint | A$10.95 | Per-endpoint fixed cost + data processing |
-| \`plan-full-stack\` | App Service Plan | B1 x 1 | A$82.13 | Basic B1, 1 instance, Linux |
+| \`plan-full-stack\` | App Service Plan | B1 x 1 | A$20.80 | Basic B1, Linux, per instance |
 | \`app-full-stack\` | App Service | (plan) | A$0.00 | Compute billed via App Service Plan |
-| \`fn-full-stack\` | Function App | Consumption | A$0.00 | Consumption plan: first 1M executions/month free |
+| \`fn-full-stack\` | Function App | (plan) | A$0.00 | Billed via the App Service Plan |
 | \`swa-full-stack\` | Static Web App | Standard | A$13.50 | Static Web Apps Standard tier baseline |
 | \`aks-full-stack\` | Azure Kubernetes Service | Standard_D2s_v5 x 3 | A$315.36 | AKS control plane is free; estimate is per D2s v5 node |
 | \`vmss-full-stack\` | Virtual Machine Scale Set | Standard_B2s x 2 | A$94.17 | Linux VMSS, per B2s instance |
@@ -41,6 +41,6 @@ exports[`generateCostEstimate > snapshots the full-stack cost markdown 1`] = `
 | \`acrfullstack\` | Container Registry | Basic | A$7.50 | Basic SKU |
 | \`umi-full-stack\` | User-Assigned Identity | identity | A$0.00 | No direct cost |
 
-**Total (indicative):** A$1051.45 per month
+**Total (indicative):** A$990.13 per month
 "
 `;

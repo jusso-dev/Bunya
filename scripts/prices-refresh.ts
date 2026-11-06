@@ -1,168 +1,129 @@
 /**
- * Refreshes Bunya's offline pricing snapshot from the Azure Retail Prices API.
+ * Entry point for `pnpm prices:refresh`.
  *
- *   pnpm prices:refresh
+ * Read-only drift check of Bunya's App Service and Functions prices against
+ * the Azure Retail Prices API (Linux, pay-as-you-go, Australia East). The
+ * API is unauthenticated. Nothing in lib/ is changed: prices are reviewed and
+ * applied to lib/pricing/data.ts by hand, so a bad API response can never
+ * reach the site.
  *
- * The API is unauthenticated, paginated, and supports OData filters. We pull
- * one armRegionName=australiaeast page per meter we care about, derive monthly
- * figures, and write a JSON snapshot under `lib/pricing/data/prices.json` plus
- * an audit trail to `scripts/prices-refresh.log.json`.
+ * Usage: pnpm prices:refresh [--report report.md] [--tolerance 0.02]
  *
- * No app code reads `lib/pricing/data/prices.json` at runtime; it is consumed
- * only by `lib/pricing/data.ts` updates. Treat this script as a tool that
- * suggests price diffs for the human to apply.
+ * Exit codes: 0 when the check ran (drift or not), 1 when the API could not
+ * be read. In GitHub Actions `attention=true` is written to GITHUB_OUTPUT
+ * when any price drifted beyond the tolerance or could not be found.
  */
 import { promises as fs } from "node:fs";
-import * as path from "node:path";
-import { fileURLToPath } from "node:url";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-const PROJECT_ROOT = path.resolve(__dirname, "..");
-const DATA_DIR = path.join(PROJECT_ROOT, "lib", "pricing", "data");
-const SNAPSHOT_PATH = path.join(DATA_DIR, "prices.json");
-const LOG_PATH = path.join(__dirname, "prices-refresh.log.json");
+import { PRICE_BOOK } from "../lib/pricing/data";
 
 const REGION = "australiaeast";
 const API = "https://prices.azure.com/api/retail/prices";
+const HOURS_PER_MONTH = 730;
 
-type Meter = {
-  bunyaKey: string;
-  filter: string;
-  multiplier?: number;
-  note?: string;
-};
-
-// Keep this list narrow. Each meter is one Retail Prices API filter.
-const METERS: Meter[] = [
-  {
-    bunyaKey: "appServicePlan.B1",
-    filter: `serviceName eq 'Azure App Service' and skuName eq 'B1' and armRegionName eq '${REGION}' and priceType eq 'Consumption'`,
-    multiplier: 730,
-    note: "Basic B1 hourly * 730h",
-  },
-  {
-    bunyaKey: "appServicePlan.S1",
-    filter: `serviceName eq 'Azure App Service' and skuName eq 'S1' and armRegionName eq '${REGION}' and priceType eq 'Consumption'`,
-    multiplier: 730,
-  },
-  {
-    bunyaKey: "appServicePlan.P1v3",
-    filter: `serviceName eq 'Azure App Service' and skuName eq 'P1 v3' and armRegionName eq '${REGION}' and priceType eq 'Consumption'`,
-    multiplier: 730,
-  },
-  {
-    bunyaKey: "storageAccount.Standard_LRS",
-    filter: `serviceName eq 'Storage' and skuName eq 'Standard LRS' and armRegionName eq '${REGION}' and meterName eq 'Hot LRS Data Stored'`,
-    multiplier: 100,
-    note: "100GB Hot Blob LRS",
-  },
-  {
-    bunyaKey: "keyVault.standard",
-    filter: `serviceName eq 'Key Vault' and skuName eq 'A1 Standard' and armRegionName eq '${REGION}'`,
-    multiplier: 10,
-    note: "~10k operations / month",
-  },
-  {
-    bunyaKey: "sqlDatabase.S0",
-    filter: `serviceName eq 'SQL Database' and skuName eq 'Standard' and armRegionName eq '${REGION}' and productName eq 'SQL DB Single Standard S0'`,
-    multiplier: 730,
-  },
-];
-
-type Result = {
-  bunyaKey: string;
-  monthlyUsd: number | null;
-  unitPrice: number | null;
+type RetailItem = {
+  skuName?: string;
+  productName?: string;
   meterName?: string;
-  note?: string;
-  filter: string;
-  error?: string;
+  retailPrice?: number;
+  unitOfMeasure?: string;
+  type?: string;
+  tierMinimumUnits?: number;
 };
 
-async function fetchMeter(meter: Meter): Promise<Result> {
-  const url = `${API}?$filter=${encodeURIComponent(meter.filter)}&$top=1`;
-  try {
-    const res = await fetch(url, { headers: { Accept: "application/json" } });
-    if (!res.ok) {
-      return {
-        bunyaKey: meter.bunyaKey,
-        monthlyUsd: null,
-        unitPrice: null,
-        filter: meter.filter,
-        error: `HTTP ${res.status}`,
-      };
-    }
-    const body = (await res.json()) as { Items?: Array<{ unitPrice?: number; retailPrice?: number; meterName?: string }> };
-    const item = body.Items?.[0];
-    if (!item) {
-      return {
-        bunyaKey: meter.bunyaKey,
-        monthlyUsd: null,
-        unitPrice: null,
-        filter: meter.filter,
-        error: "no items returned",
-      };
-    }
-    const unit = item.retailPrice ?? item.unitPrice ?? null;
-    if (unit === null) {
-      return {
-        bunyaKey: meter.bunyaKey,
-        monthlyUsd: null,
-        unitPrice: null,
-        meterName: item.meterName,
-        filter: meter.filter,
-        error: "missing price field",
-      };
-    }
-    const monthly = unit * (meter.multiplier ?? 1);
-    return {
-      bunyaKey: meter.bunyaKey,
-      monthlyUsd: Number(monthly.toFixed(2)),
-      unitPrice: unit,
-      meterName: item.meterName,
-      note: meter.note,
-      filter: meter.filter,
-    };
-  } catch (err) {
-    return {
-      bunyaKey: meter.bunyaKey,
-      monthlyUsd: null,
-      unitPrice: null,
-      filter: meter.filter,
-      error: err instanceof Error ? err.message : String(err),
-    };
-  }
+function arg(name: string): string | undefined {
+  const index = process.argv.indexOf(`--${name}`);
+  return index >= 0 ? process.argv[index + 1] : undefined;
 }
 
+async function fetchAll(filter: string): Promise<RetailItem[]> {
+  const items: RetailItem[] = [];
+  let url: string | null = `${API}?$filter=${encodeURIComponent(filter)}`;
+  // The API pages at 100 items; App Service in one region is a few pages.
+  for (let page = 0; url && page < 20; page++) {
+    const response = await fetch(url, { headers: { Accept: "application/json", "user-agent": "bunya-prices-refresh" } });
+    if (!response.ok) throw new Error(`GET ${API} returned ${response.status}`);
+    const body = (await response.json()) as { Items?: RetailItem[]; NextPageLink?: string | null };
+    items.push(...(body.Items ?? []));
+    url = body.NextPageLink ?? null;
+  }
+  return items;
+}
+
+// Bunya SKU -> Retail Prices API skuName on the "- Linux" App Service products.
+const PLAN_SKUS: Record<string, string> = {
+  B1: "B1", B2: "B2", B3: "B3",
+  S1: "S1", S2: "S2", S3: "S3",
+  P1v2: "P1 v2", P2v2: "P2 v2", P3v2: "P3 v2",
+  P0v3: "P0v3", P1v3: "P1 v3", P2v3: "P2 v3", P3v3: "P3 v3",
+};
+
+// Functions Premium instance sizes: vCPU and GiB per EP SKU.
+const ELASTIC: Record<string, { vcpu: number; gib: number }> = {
+  EP1: { vcpu: 1, gib: 3.5 },
+  EP2: { vcpu: 2, gib: 7 },
+  EP3: { vcpu: 4, gib: 14 },
+};
+
+type Row = { key: string; current: number; live: number | null; detail: string };
+
 async function main() {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  const force = process.argv.includes("--force");
-  console.log(`[prices] querying ${METERS.length} meters against ${API} (${REGION})…`);
-  const results: Result[] = [];
-  for (const meter of METERS) {
-    const result = await fetchMeter(meter);
-    results.push(result);
-    if (result.error) {
-      console.warn(`[prices] ${meter.bunyaKey}: ${result.error}`);
-    } else {
-      console.log(
-        `[prices] ${meter.bunyaKey}: $${result.monthlyUsd?.toFixed(2)} / month (unit $${result.unitPrice?.toFixed(4)})`,
+  const reportPath = arg("report");
+  const tolerance = Number(arg("tolerance") ?? 0.02);
+  const rows: Row[] = [];
+  let failed = false;
+  try {
+    const appService = await fetchAll(
+      `serviceName eq 'Azure App Service' and armRegionName eq '${REGION}' and priceType eq 'Consumption'`,
+    );
+    for (const [sku, apiSku] of Object.entries(PLAN_SKUS)) {
+      const item = appService.find(
+        (candidate) =>
+          candidate.skuName === apiSku &&
+          candidate.productName?.endsWith("- Linux") &&
+          candidate.unitOfMeasure === "1 Hour" &&
+          candidate.type === "Consumption",
       );
+      const live = item?.retailPrice !== undefined ? Number((item.retailPrice * HOURS_PER_MONTH).toFixed(2)) : null;
+      rows.push({ key: `appServicePlan.${sku}`, current: PRICE_BOOK[`appServicePlan.${sku}`]?.monthlyUsd ?? NaN, live, detail: item ? `${item.productName} ${item.skuName} $${item.retailPrice}/h` : "not found" });
+    }
+
+    const functions = await fetchAll(`serviceName eq 'Functions' and armRegionName eq '${REGION}' and priceType eq 'Consumption'`);
+    const meter = (name: string) => functions.find((item) => item.productName === "Premium Functions" && item.meterName === name)?.retailPrice;
+    const vcpu = meter("Premium vCPU Duration");
+    const memory = meter("Premium Memory Duration");
+    for (const [sku, size] of Object.entries(ELASTIC)) {
+      const live = vcpu !== undefined && memory !== undefined
+        ? Number(((size.vcpu * vcpu + size.gib * memory) * HOURS_PER_MONTH).toFixed(2))
+        : null;
+      rows.push({ key: `appServicePlan.${sku}`, current: PRICE_BOOK[`appServicePlan.${sku}`]?.monthlyUsd ?? NaN, live, detail: live === null ? "not found" : `${size.vcpu} vCPU x $${vcpu}/h + ${size.gib} GiB x $${memory}/h` });
+    }
+  } catch (error) {
+    failed = true;
+    console.error(`[prices] ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  const drifted = rows.filter(
+    (row) => row.live === null || !Number.isFinite(row.current) || Math.abs(row.live - row.current) > Math.max(0.01, row.current * tolerance),
+  );
+  const lines = ["### Azure retail prices (App Service and Functions, Linux, Australia East)", ""];
+  if (failed) {
+    lines.push("- ❌ Could not read the Azure Retail Prices API; see the run log.");
+  } else if (drifted.length === 0) {
+    lines.push(`- ✅ ${rows.length} prices in \`lib/pricing/data.ts\` match the Retail Prices API within ${(tolerance * 100).toFixed(0)}%.`);
+  } else {
+    lines.push(`- ⚠️ ${drifted.length} of ${rows.length} prices drifted. Update \`lib/pricing/data.ts\` and \`APP_SERVICE_PRICE_SNAPSHOT_DATE\` by hand:`, "");
+    lines.push("| Price key | Bunya (USD/month) | Live (USD/month) | Source |", "| --- | --- | --- | --- |");
+    for (const row of drifted) {
+      lines.push(`| \`${row.key}\` | ${Number.isFinite(row.current) ? row.current.toFixed(2) : "missing"} | ${row.live === null ? "not found" : row.live.toFixed(2)} | ${row.detail} |`);
     }
   }
-  const snapshot = {
-    refreshedAt: new Date().toISOString(),
-    region: REGION,
-    source: API,
-    results,
-  };
-  await fs.writeFile(SNAPSHOT_PATH, JSON.stringify(snapshot, null, 2), "utf8");
-  await fs.writeFile(LOG_PATH, JSON.stringify(snapshot, null, 2), "utf8");
-  console.log(`[prices] wrote ${SNAPSHOT_PATH}`);
-  console.log(`[prices] review the diff against \`lib/pricing/data.ts\` and update by hand.`);
-  if (force) console.log(`[prices] --force noted (no caching layer to bypass yet).`);
+  const body = `${lines.join("\n")}\n`;
+  if (reportPath) await fs.writeFile(reportPath, body, "utf8");
+  else console.log(body);
+  if (process.env.GITHUB_OUTPUT) {
+    await fs.appendFile(process.env.GITHUB_OUTPUT, `attention=${failed || drifted.length > 0}\n`);
+  }
+  process.exit(failed ? 1 : 0);
 }
 
 void main();

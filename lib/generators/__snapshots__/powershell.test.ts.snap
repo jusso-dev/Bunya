@@ -39,17 +39,16 @@ $rgParams = @{
 }
 New-AzResourceGroup @rgParams -Force | Out-Null
 
-# App Service Plan plan-first-cut
+# App Service Plan plan-first-cut (B1)
 $planParams = @{
     ResourceGroupName = $ResourceGroupName
     Name              = 'plan-first-cut'
     Location          = $Location
     Tier              = 'Basic'
     NumberofWorkers   = 1
-    WorkerSize        = 'B1'
-    Linux             = $true
+    WorkerSize        = 'Small'
 }
-New-AzAppServicePlan @planParams -Force | Out-Null
+New-AzAppServicePlan @planParams -Linux | Out-Null
 
 # Storage Account firstcutstg10rsix
 $stgParams = @{

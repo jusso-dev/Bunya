@@ -14,7 +14,7 @@ exports[`estimateCost > snapshots line-item structure for the full-stack fixture
       "sku": "(plan)",
     },
     {
-      "monthly": 82.13,
+      "monthly": 20.8,
       "service": "App Service Plan",
       "sku": "B1 x 1",
     },
@@ -56,7 +56,7 @@ exports[`estimateCost > snapshots line-item structure for the full-stack fixture
     {
       "monthly": 0,
       "service": "Function App",
-      "sku": "Consumption",
+      "sku": "(plan)",
     },
     {
       "monthly": 1.5,
@@ -116,6 +116,6 @@ exports[`estimateCost > snapshots line-item structure for the full-stack fixture
   ],
   "currency": "AUD",
   "snapshotDate": "2026-05-19",
-  "total": 1051.45,
+  "total": 990.13,
 }
 `;

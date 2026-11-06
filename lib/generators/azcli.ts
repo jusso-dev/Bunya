@@ -84,7 +84,7 @@ function emit(node: GraphNode, ctx: GeneratorContext): string[] {
     case "appServicePlan":
       return [
         `# App Service Plan ${name}`,
-        `az appservice plan create ${COMMON} --name "${name}" --location "${region}" --sku "${(node.properties.sku as string) ?? "B1"}" ${(node.properties.os as string) === "Linux" ? "--is-linux" : ""} >/dev/null`,
+        `az appservice plan create ${COMMON} --name "${name}" --location "${region}" --sku "${(node.properties.sku as string) ?? "B1"}" --number-of-workers ${(node.properties.capacity as number) ?? 1}${(node.properties.os as string) === "Linux" ? " --is-linux" : ""} >/dev/null`,
       ];
     case "appService": {
       const plan = resolveAppServicePlan(ctx, node);

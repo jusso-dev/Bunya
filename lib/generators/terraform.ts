@@ -156,6 +156,7 @@ function emitAppServicePlan(node: GraphNode, ctx: GeneratorContext): string {
     `  location            = ${rgRef(ctx, node)}.location`,
     `  os_type             = "${os}"`,
     `  sku_name            = "${sku}"`,
+    `  worker_count        = ${(node.properties.capacity as number) ?? 1}`,
     tagsBlock(ctx, node),
     `}`,
   ].filter(Boolean).join("\n");

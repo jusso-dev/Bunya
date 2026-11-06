@@ -4,6 +4,7 @@ name: Nightly upstream sync
 #   - Azure architecture icons (pnpm icons:sync)
 #   - Azure Policy built-in metadata and CIS control alignment (pnpm compliance:sync)
 #   - rule-source releases, AzureRM majors and Azure retirements (pnpm upstream:check)
+#   - App Service and Functions retail price drift (pnpm prices:refresh, report only)
 #
 # Mechanical updates (icons and policy metadata) are force-pushed to the
 # automation/nightly-upstream branch and offered as a single pull request. Anything that needs a human (failed checks,
@@ -36,7 +37,7 @@ env:
 
 jobs:
   sync:
-    name: Sync icons, policy metadata and upstream report
+    name: Sync icons, policy metadata, prices and upstream report
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     permissions:
@@ -111,6 +112,15 @@ jobs:
           gh issue list --state open --label "$ISSUE_LABEL" --limit 50 --json title,body \
             --jq "map(select(.title == \"$ISSUE_TITLE\")) | .[0].body // empty" > "$RUNNER_TEMP/previous-issue.md"
           pnpm --silent upstream:check --report "$RUNNER_TEMP/upstream.md" --days 14 --previous "$RUNNER_TEMP/previous-issue.md"
+          echo "exit=$?" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      # Prices are applied by hand, so drift is reported, never committed.
+      - name: Check Azure retail price drift
+        id: prices
+        run: |
+          set +e
+          pnpm --silent prices:refresh --report "$RUNNER_TEMP/prices.md"
           echo "exit=$?" >> "$GITHUB_OUTPUT"
           exit 0
 
@@ -221,12 +231,15 @@ jobs:
           PAGES_EXIT: ${{ steps.pages.outputs.exit }}
           UPSTREAM_EXIT: ${{ steps.upstream.outputs.exit }}
           UPSTREAM_ATTENTION: ${{ steps.upstream.outputs.attention }}
+          PRICES_EXIT: ${{ steps.prices.outputs.exit }}
+          PRICES_ATTENTION: ${{ steps.prices.outputs.attention }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           needs_human=false
           # Missing outputs mean a step did not run, which also needs a look.
           if [ "$UPSTREAM_ATTENTION" = "true" ] || [ "$COMPLIANCE_ATTENTION" = "true" ] || [ "$COMPLIANCE_REGEN" = "1" ] ||
-             [ "$COMPLIANCE_EXIT" != "0" ] || [ "$ICONS_EXIT" != "0" ] || [ "$PAGES_EXIT" != "0" ] || [ "$UPSTREAM_EXIT" != "0" ]; then
+             [ "$COMPLIANCE_EXIT" != "0" ] || [ "$ICONS_EXIT" != "0" ] || [ "$PAGES_EXIT" != "0" ] || [ "$UPSTREAM_EXIT" != "0" ] ||
+             [ "$PRICES_EXIT" != "0" ] || [ "$PRICES_ATTENTION" = "true" ]; then
             needs_human=true
           fi
           if [ "$CHANGED" = "true" ] && { [ "$TESTS_EXIT" != "0" ] || [ "$PR_FALLBACK" != "false" ]; }; then
@@ -270,6 +283,8 @@ jobs:
             cat "$RUNNER_TEMP/upstream.md" 2>/dev/null || echo "Upstream check did not produce a report."
             echo
             cat "$RUNNER_TEMP/compliance.md" "$RUNNER_TEMP/icons.md" 2>/dev/null || true
+            echo
+            cat "$RUNNER_TEMP/prices.md" 2>/dev/null || echo "Price drift check did not produce a report."
           } > "$RUNNER_TEMP/issue.md"
 
           gh label create "$ISSUE_LABEL" --color FBCA04 --description "Upstream source, icon or retirement changes" 2>/dev/null || true

@@ -15,6 +15,8 @@ export type Currency = "USD" | "AUD";
 
 export const DEFAULT_FX_AUD_PER_USD = 1.5;
 export const PRICE_SNAPSHOT_DATE = "2026-05-19";
+// App Service Plan and Functions rows were refreshed separately.
+export const APP_SERVICE_PRICE_SNAPSHOT_DATE = "2026-11-06";
 export const PRICE_SOURCE_URL = "https://prices.azure.com/api/retail/prices";
 
 export type PriceEntry = {
@@ -38,17 +40,34 @@ export function clampFxRate(rate: number): number {
 }
 
 export const PRICE_BOOK: PriceBook = {
-  // App Service Plans (Linux, Australia East, monthly assuming 1 instance @ 730h)
-  "appServicePlan.B1": { monthlyUsd: 54.75, note: "Basic B1, 1 instance, Linux" },
-  "appServicePlan.B2": { monthlyUsd: 109.5, note: "Basic B2, 1 instance, Linux" },
-  "appServicePlan.S1": { monthlyUsd: 73.0, note: "Standard S1, 1 instance, Linux" },
-  "appServicePlan.P1v3": { monthlyUsd: 226.3, note: "Premium v3 P1, 1 instance, Linux" },
-  "appServicePlan.P2v3": { monthlyUsd: 452.6, note: "Premium v3 P2, 1 instance, Linux" },
+  // App Service Plans: Linux pay-as-you-go, Australia East, per instance at 730h.
+  // Retail Prices API snapshot 2026-11-06 (`pnpm prices:refresh` checks drift).
+  "appServicePlan.B1": { monthlyUsd: 13.87, note: "Basic B1, Linux, per instance" },
+  "appServicePlan.B2": { monthlyUsd: 27.01, note: "Basic B2, Linux, per instance" },
+  "appServicePlan.B3": { monthlyUsd: 53.29, note: "Basic B3, Linux, per instance" },
+  "appServicePlan.S1": { monthlyUsd: 87.6, note: "Standard S1, Linux, per instance" },
+  "appServicePlan.S2": { monthlyUsd: 175.2, note: "Standard S2, Linux, per instance" },
+  "appServicePlan.S3": { monthlyUsd: 350.4, note: "Standard S3, Linux, per instance" },
+  "appServicePlan.P1v2": { monthlyUsd: 89.79, note: "Premium v2 P1, Linux, per instance" },
+  "appServicePlan.P2v2": { monthlyUsd: 178.85, note: "Premium v2 P2, Linux, per instance" },
+  "appServicePlan.P3v2": { monthlyUsd: 358.43, note: "Premium v2 P3, Linux, per instance" },
+  "appServicePlan.P0v3": { monthlyUsd: 67.16, note: "Premium v3 P0, Linux, per instance" },
+  "appServicePlan.P1v3": { monthlyUsd: 134.32, note: "Premium v3 P1, Linux, per instance" },
+  "appServicePlan.P2v3": { monthlyUsd: 268.64, note: "Premium v3 P2, Linux, per instance" },
+  "appServicePlan.P3v3": { monthlyUsd: 537.28, note: "Premium v3 P3, Linux, per instance" },
+  // Functions Premium bills vCPU ($0.182/h) and memory ($0.013/GiB-h) per
+  // always-ready instance: EP1 1 vCPU 3.5 GiB, EP2 2 vCPU 7 GiB, EP3 4 vCPU 14 GiB.
+  "appServicePlan.EP1": { monthlyUsd: 166.08, note: "Functions Premium EP1, per always-ready instance" },
+  "appServicePlan.EP2": { monthlyUsd: 332.15, note: "Functions Premium EP2, per always-ready instance" },
+  "appServicePlan.EP3": { monthlyUsd: 664.3, note: "Functions Premium EP3, per always-ready instance" },
+  // Serverless plans have no fixed charge; executions are billed per use.
+  "appServicePlan.Y1": { monthlyUsd: 0, note: "Consumption: 1M executions and 400,000 GB-s free per month, then per use" },
+  "appServicePlan.FC1": { monthlyUsd: 0, note: "Flex Consumption on demand: 250,000 executions and 100,000 GB-s free per month, then per use" },
 
-  // App Service / Function App — billing rolls up to the plan; compute itself is $0
+  // App Service / Function App: billing rolls up to the plan.
   "appService.base": { monthlyUsd: 0, note: "Compute billed via App Service Plan" },
-  "functionApp.consumption": { monthlyUsd: 0, note: "Consumption plan: first 1M executions/month free" },
-  "functionApp.premium": { monthlyUsd: 0, note: "Premium plan billed via App Service Plan" },
+  "functionApp.consumption": { monthlyUsd: 0, note: "Billed per execution on a Consumption or Flex Consumption plan" },
+  "functionApp.premium": { monthlyUsd: 0, note: "Billed via the App Service Plan" },
   "staticWebApp.Free": { monthlyUsd: 0, note: "Static Web Apps Free tier" },
   "staticWebApp.Standard": { monthlyUsd: 9.0, note: "Static Web Apps Standard tier baseline" },
 

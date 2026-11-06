@@ -16,7 +16,7 @@ az account show --only-show-errors >/dev/null || {
 az group create --name "rg-first-cut" --location "australiaeast" --only-show-errors >/dev/null
 
 # App Service Plan plan-first-cut
-az appservice plan create --only-show-errors --resource-group "rg-first-cut" --name "plan-first-cut" --location "australiaeast" --sku "B1" --is-linux >/dev/null
+az appservice plan create --only-show-errors --resource-group "rg-first-cut" --name "plan-first-cut" --location "australiaeast" --sku "B1" --number-of-workers 1 --is-linux >/dev/null
 
 # Storage Account firstcutstg10rsix
 az storage account create --only-show-errors --resource-group "rg-first-cut" --name "firstcutstg10rsix" --location "australiaeast" --sku "Standard_LRS" --kind "StorageV2" --min-tls-version TLS1_2 --allow-blob-public-access false --public-network-access Disabled >/dev/null

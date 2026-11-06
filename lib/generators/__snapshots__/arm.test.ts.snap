@@ -24,7 +24,8 @@ exports[`generateArm > snapshots first-cut ARM output 1`] = `
       "location": "[parameters('location')]",
       "kind": "linux",
       "sku": {
-        "name": "B1"
+        "name": "B1",
+        "capacity": 1
       },
       "properties": {
         "reserved": true

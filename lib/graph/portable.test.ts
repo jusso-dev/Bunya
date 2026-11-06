@@ -17,7 +17,7 @@ describe("portable export/import", () => {
 
   it("imports supported fields while warning about unsupported Azure settings", () => {
     const result = parseImportText(JSON.stringify({ resources: [
-      { type: "Microsoft.Web/serverfarms", name: "plan", location: "eastus", sku: { name: "P3v3", capacity: 2 } },
+      { type: "Microsoft.Web/serverfarms", name: "plan", location: "eastus", sku: { name: "I1v2", capacity: 2 } },
       { type: "Microsoft.Storage/storageAccounts", name: "storage", sku: { name: "Standard_RAGZRS" }, properties: { isHnsEnabled: true } },
       { type: "Microsoft.KeyVault/vaults", name: "vault", properties: { sku: { name: "premium" }, softDeleteRetentionInDays: 30 } },
       { name: "missing-type" },

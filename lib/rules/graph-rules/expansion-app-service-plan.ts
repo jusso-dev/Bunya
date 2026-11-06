@@ -23,11 +23,10 @@ const APP_SERVICE_HOSTING_SOURCE = {
 } as const;
 
 // SKUs that are friendly to a lone Function App (per-execution-style billing or
-// dedicated tiers that can scale efficiently for spiky compute). B1 / B2 / P1v3 /
-// P2v3 are Dedicated tiers; S1 and the P*v3 tiers expose Premium-plan style
-// scaling for Functions, so they are the recommended landing zone if you keep a
-// Function App on a real plan instead of consumption.
-const CONSUMPTION_FRIENDLY_SKUS = new Set(["S1", "P1v3", "P2v3"]);
+// dedicated tiers that can scale efficiently for spiky compute). Y1 and FC1 bill
+// per execution, EP* is Functions Premium, and Standard and P*v3 dedicated tiers
+// autoscale. Basic and Premium v2 tiers are the ones flagged.
+const CONSUMPTION_FRIENDLY_SKUS = new Set(["Y1", "FC1", "EP1", "EP2", "EP3", "S1", "S2", "S3", "P0v3", "P1v3", "P2v3", "P3v3"]);
 
 // App Service runtimes that Bunya deploys as Linux web apps. If the plan os is
 // Windows the deployment will fail at provisioning time.

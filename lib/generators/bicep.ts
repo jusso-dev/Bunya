@@ -147,6 +147,7 @@ function emitAppServicePlan(node: GraphNode, ctx: GeneratorContext): string {
     `  location: location`,
     `  sku: {`,
     `    name: '${sku}'`,
+    `    capacity: ${(node.properties.capacity as number) ?? 1}`,
     `  }`,
     `  kind: '${os.toLowerCase()}'`,
     `  properties: {`,

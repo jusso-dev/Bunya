@@ -600,15 +600,102 @@ describe("parseArmTemplate", () => {
     expect(byName("Application-Insights-Smart-Detection").type).toBe("actionGroup");
     for (const node of nodes) expect(node.resourceName).toMatch(/^[A-Za-z0-9_.-]+$/);
 
-    expect(result.warning).toContain('App Service Plan ASP-general-a897: unsupported sku "P0v3"');
+    expect(byName("ASP-general-a897").properties).toMatchObject({ sku: "P0v3", os: "Linux", capacity: 1 });
+    expect(byName("app-dashboard").properties.containerImage).toBe("acrexample.azurecr.io/app-dashboard:latest");
+    expect(result.warning).not.toContain("unsupported sku");
     expect(result.warning).toContain('renamed "Application Insights Smart Detection" to "Application-Insights-Smart-Detection"');
-    expect(result.warning).toContain("app-dashboard: container image deployments (DOCKER|acrexample.azurecr.io/app-dashboard:latest) are not modelled");
+    expect(result.warning).toContain("app-dashboard: pulls acrexample.azurecr.io/app-dashboard:latest with registry credentials");
     expect(result.warning).not.toContain("Container Registry acrexample: ARM configuration is not mapped");
     expect(result.warning).not.toContain("Azure SQL Database orders_db: ARM configuration is not mapped");
     expect(result.warning).toContain("Skipped resource types Bunya does not model: Microsoft.Sql/servers x1.");
     expect(result.warning).not.toContain("locations could not be represented");
 
+    // Container apps block deployment exports until exporters emit images.
     const terraform = generateTerraform(result.document);
-    expect(terraform.ok ? "ok" : terraform.reason).toBe("ok");
+    expect(terraform.ok ? "ok" : terraform.reason).toContain('Web App "app-dashboard" runs container image');
+    const codeOnly = {
+      ...result.document,
+      nodes: result.document.nodes.map((node) => (node.resourceName === "app-dashboard" ? { ...node, properties: { ...node.properties, containerImage: "" } } : node)),
+    };
+    const exported = generateTerraform(codeOnly);
+    expect(exported.ok ? "ok" : exported.reason).toBe("ok");
+  });
+
+  it("imports Flex Consumption, VNet integration, App Insights links and managed-identity registry pulls", () => {
+    const template = {
+      resources: [
+        { type: "Microsoft.Network/virtualNetworks", name: "vnet-app", location: "Australia East", properties: { addressSpace: { addressPrefixes: ["10.1.0.0/16"] } } },
+        { type: "Microsoft.Network/virtualNetworks/subnets", name: "vnet-app/snet-integration", properties: { addressPrefix: "10.1.1.0/24" } },
+        { type: "Microsoft.OperationalInsights/workspaces", name: "log-app", location: "Australia East", properties: { sku: { name: "PerGB2018" } } },
+        {
+          type: "Microsoft.Insights/components",
+          name: "appi-app",
+          location: "Australia East",
+          kind: "web",
+          tags: { "hidden-link:/subscriptions/x/resourceGroups/rg/providers/Microsoft.Web/sites/fn-flex": "Resource" },
+          properties: { Application_Type: "web", WorkspaceResourceId: "[resourceId('Microsoft.OperationalInsights/workspaces', 'log-app')]" },
+        },
+        { type: "Microsoft.ContainerRegistry/registries", name: "acrapp", location: "Australia East", sku: { name: "Basic" }, properties: {} },
+        { type: "Microsoft.Storage/storageAccounts", name: "stflex", location: "Australia East", sku: { name: "Standard_LRS" }, kind: "StorageV2", properties: {} },
+        { type: "Microsoft.Web/serverfarms", name: "plan-flex", location: "Australia East", kind: "functionapp", sku: { name: "FC1", tier: "FlexConsumption" }, properties: { reserved: true } },
+        { type: "Microsoft.Web/serverfarms", name: "plan-web", location: "Australia East", kind: "linux", sku: { name: "p1v3", capacity: 2 }, properties: { reserved: true } },
+        {
+          type: "Microsoft.Web/sites",
+          name: "fn-flex",
+          location: "Australia East",
+          kind: "functionapp,linux",
+          properties: {
+            serverFarmId: "[resourceId('Microsoft.Web/serverfarms', 'plan-flex')]",
+            virtualNetworkSubnetId: "[resourceId('Microsoft.Network/virtualNetworks/subnets', 'vnet-app', 'snet-integration')]",
+            functionAppConfig: {
+              deployment: { storage: { type: "blobContainer", value: "https://stflex.blob.core.windows.net/app-package" } },
+              runtime: { name: "python", version: "3.11" },
+              scaleAndConcurrency: { instanceMemoryMB: 4096, maximumInstanceCount: 40 },
+            },
+          },
+        },
+        {
+          type: "Microsoft.Web/sites",
+          name: "web-container",
+          location: "Australia East",
+          kind: "app,linux,container",
+          properties: {
+            serverFarmId: "[resourceId('Microsoft.Web/serverfarms', 'plan-web')]",
+            siteConfig: { linuxFxVersion: "DOCKER|acrapp.azurecr.io/api:1.4", acrUseManagedIdentityCreds: true },
+          },
+        },
+      ],
+    };
+    const result = parseArmTemplate(JSON.stringify(template));
+    if (!result.ok) throw new Error(result.reason);
+    const byName = (name: string) => result.document.nodes.find((node) => node.resourceName === name)!;
+    const edge = (source: string, target: string, kind: string) =>
+      result.document.edges.some((e) => e.source === byName(source).id && e.target === byName(target).id && e.kind === kind);
+
+    expect(byName("plan-flex").properties).toMatchObject({ sku: "FC1", os: "Linux", capacity: 0 });
+    expect(byName("plan-web").properties).toMatchObject({ sku: "P1v3", capacity: 2 });
+    expect(byName("fn-flex").properties).toMatchObject({
+      runtime: "python",
+      runtimeVersion: "3.11",
+      instanceMemoryMB: 4096,
+      maximumInstanceCount: 40,
+      vnetIntegration: true,
+      consumptionPlan: true,
+    });
+    expect(byName("web-container").properties.containerImage).toBe("acrapp.azurecr.io/api:1.4");
+    expect(edge("fn-flex", "snet-integration", "network")).toBe(true);
+    expect(edge("fn-flex", "appi-app", "diagnostic")).toBe(true);
+    expect(edge("appi-app", "log-app", "depends_on")).toBe(true);
+    expect(edge("web-container", "acrapp", "identity")).toBe(true);
+    expect(edge("fn-flex", "stflex", "data")).toBe(true);
+    expect(result.warning ?? "").not.toMatch(/unsupported sku|not modelled|container image/);
+  });
+
+  it("keeps Windows plans as Windows when the export sets reserved to false", () => {
+    const result = parseArmTemplate(JSON.stringify({
+      resources: [{ type: "Microsoft.Web/serverfarms", name: "plan-win", location: "australiaeast", kind: "app", sku: { name: "S1", capacity: 1 }, properties: { reserved: false } }],
+    }));
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.document.nodes.find((node) => node.resourceName === "plan-win")?.properties.os).toBe("Windows");
   });
 });

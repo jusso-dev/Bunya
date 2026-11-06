@@ -6,6 +6,32 @@ project follows [Conventional Commits](https://www.conventionalcommits.org/).
 
 ## [Unreleased]
 
+### App Service plans, container images and import links
+
+- App Service Plans support B3, S2, S3, P1v2–P3v2, P0v3, P3v3, Elastic
+  Premium EP1–EP3, Consumption (Y1) and Flex Consumption (FC1), and capacity 0
+  for the serverless plans. Imports keep these SKUs instead of falling back to B1.
+- Web and Function Apps have a container image setting. ARM import reads
+  `DOCKER|<image>` and Flex `functionAppConfig` (runtime, memory, maximum
+  instances), and keeps Windows plans as Windows.
+- ARM import draws app to subnet (VNet integration), App Insights to its Log
+  Analytics workspace, app to App Insights, and an identity edge from an app to
+  the registry it pulls from with its managed identity, so exports grant AcrPull.
+- `BUNYA.NET.013` also blocks web apps on Functions-only plans, Linux sites on
+  Windows plans, more than one app on a Flex plan, container images on
+  Consumption and Flex plans, VNet integration on Consumption, dedicated plans
+  with 0 instances, and VNet integration subnets that need two delegations or
+  also host other resources.
+- Deployment exports are blocked, with a clear message, for Elastic Premium,
+  Consumption and Flex Consumption plans and for container images until the
+  exporters emit them. Diagrams, cost estimates and JSON export still work.
+- Exports set plan instance counts, and PowerShell maps SKUs to the tier and
+  worker size `New-AzAppServicePlan` expects.
+- App Service prices are current Linux pay-as-you-go rates for Australia East
+  (B1 is now US$13.87 a month, not US$54.75) and cover every supported SKU.
+  Function Apps are priced by their plan. The nightly sync reports price drift
+  against the Azure Retail Prices API.
+
 ### ARM import fixes and deployability checks
 
 - ARM import nests web apps in their App Service Plan when the export

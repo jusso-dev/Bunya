@@ -26,6 +26,7 @@ resource node_1_plan_first_cut_resource 'Microsoft.Web/serverfarms@2023-12-01' =
   location: location
   sku: {
     name: 'B1'
+    capacity: 1
   }
   kind: 'linux'
   properties: {

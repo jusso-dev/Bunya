@@ -39,13 +39,13 @@ export const costRules: RuleEntry[] = [
     severity: "info",
     serviceTypes: ["appServicePlan"],
     message:
-      "Premium App Service Plan (P1v3/P2v3) has no App Service or Function App attached and is incurring fixed cost.",
+      "Premium App Service Plan (P*v2, P*v3 or EP*) has no App Service or Function App attached and is incurring fixed cost.",
     longExplanation:
       "Premium v3 App Service Plans bill per vCPU-hour regardless of workload. A premium plan with no attached compute is a common leftover from prototyping that quietly costs hundreds of dollars per month. Either attach a web/function app or downgrade the plan to a lower SKU.",
     tags: ["bunya", "cost", "app-service-plan"],
     predicate: (n, graph) => {
       const sku = (n.properties as { sku?: string }).sku;
-      if (sku !== "P1v3" && sku !== "P2v3") return false;
+      if (!sku || !/^(P\dv[23]|EP\d)$/.test(sku)) return false;
       const attached =
         graph.nodes.some(
           (child) =>

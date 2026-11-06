@@ -1,5 +1,8 @@
 import type { GraphDocument, GraphNode, ServiceType } from "@/lib/graph/schema";
+import { planFamily } from "@/lib/catalogue/app-service-plans";
+import { sitePlan } from "@/lib/graph/topology";
 import {
+  APP_SERVICE_PRICE_SNAPSHOT_DATE,
   Currency,
   DEFAULT_FX_AUD_PER_USD,
   PRICE_BOOK,
@@ -65,7 +68,7 @@ const SERVICE_LABELS: Record<ServiceType, string> = {
   roleAssignment: "Role Assignment",
 };
 
-function priceKeyFor(node: GraphNode): { key: string; sku: string } {
+function priceKeyFor(node: GraphNode, document: GraphDocument): { key: string; sku: string } {
   const props = node.properties as Record<string, unknown>;
   switch (node.type) {
     case "appServicePlan": {
@@ -74,11 +77,15 @@ function priceKeyFor(node: GraphNode): { key: string; sku: string } {
     }
     case "appService":
       return { key: "appService.base", sku: "(plan)" };
-    case "functionApp":
-      return {
-        key: props.consumptionPlan === false ? "functionApp.premium" : "functionApp.consumption",
-        sku: props.consumptionPlan === false ? "Premium" : "Consumption",
-      };
+    case "functionApp": {
+      // The plan decides billing; the flag only matters when no plan is drawn.
+      const plan = sitePlan(document, node);
+      const family = plan ? planFamily(plan.properties.sku) : props.consumptionPlan === false ? "dedicated" : "consumption";
+      if (family === "consumption" || family === "flex") {
+        return { key: "functionApp.consumption", sku: family === "flex" ? "Flex Consumption" : "Consumption" };
+      }
+      return { key: "functionApp.premium", sku: "(plan)" };
+    }
     case "staticWebApp": {
       const sku = String(props.sku ?? "Standard");
       return { key: `staticWebApp.${sku}`, sku };
@@ -166,7 +173,7 @@ export function estimateCost(
   let total = 0;
 
   for (const node of document.nodes) {
-    const { key, sku } = priceKeyFor(node);
+    const { key, sku } = priceKeyFor(node, document);
     const entry = PRICE_BOOK[key];
     const unmodelled = entry === undefined;
     const monthlyBase = entry?.monthlyUsd ?? 0;
@@ -183,6 +190,7 @@ export function estimateCost(
         sku: `${sku} x ${capacity}`,
         monthly: scaled,
         note: entry?.note,
+        unmodelled,
       });
       continue;
     }
@@ -239,7 +247,7 @@ export function estimateCost(
   const caveats = [
     `Indicative monthly figures. Real bills depend on traffic, region, reservations, and tier features Bunya does not model.`,
     `Currency: ${symbol(currency)} (${currency}). ${fxNote}`,
-    `Snapshot date: ${PRICE_SNAPSHOT_DATE}. Source: ${PRICE_SOURCE_URL}.`,
+    `Snapshot date: ${PRICE_SNAPSHOT_DATE} (App Service and Functions: ${APP_SERVICE_PRICE_SNAPSHOT_DATE}, Linux rates). Source: ${PRICE_SOURCE_URL}.`,
     `Egress, premium-feature add-ons, backup retention, and per-call billing are excluded.`,
   ];
 

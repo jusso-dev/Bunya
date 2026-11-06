@@ -223,7 +223,7 @@ function emitAppServicePlan(node: GraphNode, ctx: GeneratorContext): ArmResource
     name: resourceName(ctx, node.id),
     location: "[parameters('location')]",
     kind: os.toLowerCase(),
-    sku: { name: (node.properties.sku as string) ?? "B1" },
+    sku: { name: (node.properties.sku as string) ?? "B1", capacity: (node.properties.capacity as number) ?? 1 },
     properties: { reserved: os === "Linux" },
     tags: tags(ctx, node),
   };

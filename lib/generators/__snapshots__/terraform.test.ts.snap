@@ -20,6 +20,7 @@ resource "azurerm_service_plan" "plan_first_cut" {
   location            = azurerm_resource_group.rg_first_cut.location
   os_type             = "Linux"
   sku_name            = "B1"
+  worker_count        = 1
   tags = {
     "environment" = "dev"
     "managed_by" = "bunya"

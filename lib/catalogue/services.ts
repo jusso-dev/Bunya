@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { EdgeKind, ServiceType, AzureRegion } from "@/lib/graph/schema";
+import { APP_SERVICE_PLAN_SKUS, CONTAINER_IMAGE_PATTERN } from "./app-service-plans";
 
 export type ServiceCategory =
   | "compute"
@@ -98,10 +99,21 @@ export const privateDnsZoneSchema = z.object({
 });
 
 export const appServicePlanSchema = z.object({
-  sku: z.enum(["B1", "B2", "S1", "P1v3", "P2v3"]).default("B1"),
+  sku: z.enum(APP_SERVICE_PLAN_SKUS).default("B1"),
   os: z.enum(["Linux", "Windows"]).default("Linux"),
-  capacity: z.number().int().min(1).max(10).default(1),
+  // Consumption (Y1) and Flex Consumption (FC1) plans report 0 workers.
+  capacity: z.number().int().min(0).max(30).default(1),
 });
+
+// Empty means a code deployment on the runtime stack; otherwise a container
+// image such as "myacr.azurecr.io/api:1.2" (tag defaults to latest).
+const containerImage = z
+  .string()
+  .max(512)
+  .refine((value) => value === "" || CONTAINER_IMAGE_PATTERN.test(value), {
+    message: "Container image must look like registry.example.com/repository:tag.",
+  })
+  .default("");
 
 export const appServiceSchema = z.object({
   runtime: z.enum(["node", "python", "dotnet", "java"]).default("node"),
@@ -110,6 +122,7 @@ export const appServiceSchema = z.object({
   alwaysOn: z.boolean().default(true),
   vnetIntegration: z.boolean().default(false),
   publicNetworkAccess: z.boolean().default(true),
+  containerImage,
 });
 
 export const functionAppSchema = z.object({
@@ -119,6 +132,16 @@ export const functionAppSchema = z.object({
   httpsOnly: z.boolean().default(true),
   publicNetworkAccess: z.boolean().default(true),
   vnetIntegration: z.boolean().default(false),
+  containerImage,
+  // Flex Consumption (FC1) scale settings; ignored on other plans.
+  instanceMemoryMB: z
+    .number()
+    .int()
+    .min(512)
+    .max(4096)
+    .refine((value) => [512, 2048, 4096].includes(value), { message: "Flex Consumption instance memory must be 512, 2048 or 4096 MB." })
+    .default(2048),
+  maximumInstanceCount: z.number().int().min(1).max(1000).default(100),
 });
 
 export const staticWebAppSchema = z.object({
@@ -403,7 +426,7 @@ export const SERVICES: Record<ServiceType, ServiceDefinition> = {
     label: "Function App",
     shortLabel: "Fn",
     category: "compute",
-    description: "Serverless functions on consumption or premium plan.",
+    description: "Functions on a Consumption, Flex Consumption, Premium or dedicated plan.",
     propertiesSchema: functionAppSchema,
     defaultProperties: parseDefaults(functionAppSchema),
     allowedEdgeTargets: [

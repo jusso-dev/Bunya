@@ -125,4 +125,101 @@ describe("starter templates", () => {
       expect(topologyProblems(template.document), template.id).toEqual([]);
     }
   });
+
+  describe("App Service hosting", () => {
+    const messages = (document: GraphDocument) => topologyProblems(document).map((problem) => problem.message).join("\n");
+
+    it("blocks web apps on Functions-only plans and Windows plans", () => {
+      const document = doc([
+        node("rg", "resourceGroup", null),
+        node("flex", "appServicePlan", "rg", { sku: "FC1", capacity: 0 }),
+        node("web", "appService", "flex"),
+        node("win", "appServicePlan", "rg", { sku: "S1", os: "Windows" }),
+        node("web2", "appService", "win"),
+      ]);
+      expect(messages(document)).toContain('"web" is a web app, but App Service Plan "flex" (FC1) only hosts Function Apps');
+      expect(messages(document)).toContain('"web2" is exported as a Linux app, but App Service Plan "win" is a Windows plan');
+    });
+
+    it("allows one Function App per Flex plan and no container images on serverless plans", () => {
+      const document = doc([
+        node("rg", "resourceGroup", null),
+        node("flex", "appServicePlan", "rg", { sku: "FC1", capacity: 0 }),
+        node("fn1", "functionApp", "flex"),
+        node("fn2", "functionApp", "flex", { containerImage: "acr1.azurecr.io/fn:1" }),
+        node("y1", "appServicePlan", "rg", { sku: "Y1", capacity: 0 }),
+        node("fn3", "functionApp", "y1", { containerImage: "acr1.azurecr.io/fn:1" }),
+      ]);
+      const text = messages(document);
+      expect(text).toContain("is a Flex Consumption plan, which hosts one Function App");
+      expect(text).toContain('"fn2" runs a container image');
+      expect(text).toContain('"fn3" runs a container image');
+    });
+
+    it("requires instances on dedicated plans and allows zero on serverless plans", () => {
+      const document = doc([
+        node("rg", "resourceGroup", null),
+        node("b1", "appServicePlan", "rg", { sku: "B1", capacity: 0 }),
+        node("y1", "appServicePlan", "rg", { sku: "Y1", capacity: 0 }),
+      ]);
+      const problems = topologyProblems(document);
+      expect(problems).toHaveLength(1);
+      expect(problems[0].message).toContain('"b1" (B1) needs at least 1 instance');
+    });
+
+    it("keeps VNet integration subnets single-purpose", () => {
+      const document = doc(
+        [
+          node("rg", "resourceGroup", null),
+          node("vnet", "virtualNetwork", "rg", { addressSpace: "10.0.0.0/16" }),
+          node("snet", "subnet", "vnet", { addressPrefix: "10.0.1.0/24" }),
+          node("plan", "appServicePlan", "rg", { sku: "P1v3" }),
+          node("web", "appService", "plan"),
+          node("flex", "appServicePlan", "rg", { sku: "FC1", capacity: 0 }),
+          node("fn", "functionApp", "flex"),
+          node("pe", "privateEndpoint", "rg"),
+          node("y1", "appServicePlan", "rg", { sku: "Y1", capacity: 0 }),
+          node("fn2", "functionApp", "y1"),
+        ],
+        [
+          { id: "e1", source: "web", target: "snet", kind: "network" },
+          { id: "e2", source: "fn", target: "snet", kind: "network" },
+          { id: "e3", source: "pe", target: "snet", kind: "network" },
+          { id: "e4", source: "fn2", target: "snet", kind: "network" },
+        ],
+      );
+      const text = messages(document);
+      expect(text).toContain("would need several delegations (Microsoft.Web/serverFarms, Microsoft.App/environments)");
+      expect(text).toContain('Private Endpoint "pe" cannot join Subnet "snet"');
+      expect(text).toContain('"fn2" has VNet integration, which the Consumption plan');
+    });
+
+    it("blocks deployment exports for hosting the exporters do not emit yet", () => {
+      const document = doc([
+        node("rg", "resourceGroup", null),
+        node("ep", "appServicePlan", "rg", { sku: "EP1" }),
+        node("fn", "functionApp", "ep"),
+        node("stg", "storageAccount", "rg"),
+      ], [{ id: "e1", source: "fn", target: "stg", kind: "data" }]);
+      expect(topologyProblems(document)).toEqual([]);
+      for (const generate of [generateTerraform, generateBicep, generateArm, generateAzCli, generatePowerShell]) {
+        const result = generate(document);
+        expect(result.ok ? "ok" : result.reason).toContain('App Service Plan "ep" uses Elastic Premium (EP1)');
+      }
+    });
+
+    it("exports the new dedicated SKUs", () => {
+      for (const sku of ["B3", "S2", "S3", "P0v3", "P3v3", "P1v2", "P2v2", "P3v2"]) {
+        const document = doc([
+          node("rg", "resourceGroup", null),
+          node("plan", "appServicePlan", "rg", { sku }),
+          node("web", "appService", "plan"),
+        ]);
+        for (const generate of [generateTerraform, generateBicep, generateArm, generateAzCli]) {
+          const result = generate(document);
+          expect(result.ok ? result.files.map((file) => file.content).join("\n") : result.reason, `${sku}`).toContain(sku);
+        }
+      }
+    });
+  });
 });

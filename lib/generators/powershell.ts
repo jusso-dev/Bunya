@@ -9,6 +9,7 @@ import {
   resolveVirtualNetwork,
 } from "./shared/context";
 import { GeneratorResult } from "./types";
+import { powerShellPlanSku } from "@/lib/catalogue/app-service-plans";
 
 function header(document: GraphDocument, includeSqlAdmin: boolean): string[] {
   const lines = [
@@ -94,20 +95,24 @@ function emitNode(node: GraphNode, ctx: GeneratorContext): string[] {
         `# Private DNS Zone ${name}`,
         `New-AzPrivateDnsZone -ResourceGroupName $ResourceGroupName -Name '${(node.properties.zoneName as string) ?? name}' | Out-Null`,
       ];
-    case "appServicePlan":
-      return [
-        `# App Service Plan ${name}`,
+    case "appServicePlan": {
+      const sku = (node.properties.sku as string) ?? "B1";
+      // validateGeneration blocks non-dedicated SKUs before this runs.
+      const plan = powerShellPlanSku(sku) ?? { tier: "Basic", workerSize: "Small" };
+      const lines = [
+        `# App Service Plan ${name} (${sku})`,
         `$planParams = @{`,
         `    ResourceGroupName = $ResourceGroupName`,
         `    Name              = '${name}'`,
         `    Location          = $Location`,
-        `    Tier              = '${(node.properties.sku as string)?.startsWith("P") ? "PremiumV3" : "Basic"}'`,
+        `    Tier              = '${plan.tier}'`,
         `    NumberofWorkers   = ${(node.properties.capacity as number) ?? 1}`,
-        `    WorkerSize        = '${(node.properties.sku as string) ?? "B1"}'`,
-        `    Linux             = $${(node.properties.os as string) === "Linux"}`,
+        `    WorkerSize        = '${plan.workerSize}'`,
         `}`,
-        `New-AzAppServicePlan @planParams -Force | Out-Null`,
       ];
+      // New-AzAppServicePlan has no -Force parameter.
+      return [...lines, `New-AzAppServicePlan @planParams${(node.properties.os as string) === "Linux" ? " -Linux" : ""} | Out-Null`];
+    }
     case "appService": {
       const plan = resolveAppServicePlan(ctx, node);
       const planName = plan ? ctx.resourceNames.get(plan.id)! : "main-plan";

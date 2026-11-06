@@ -9,6 +9,8 @@ import type {
 } from "@/lib/graph/schema";
 import { AZURE_REGIONS, DEFAULT_CONTAINER_SIZE, isContainerType } from "@/lib/graph/schema";
 import { serviceTypeOf } from "@/lib/rules/mapping";
+import { APP_SERVICE_PLAN_SKUS, CONTAINER_IMAGE_PATTERN, parseContainerImage, planFamily } from "@/lib/catalogue/app-service-plans";
+import { sitePlan } from "@/lib/graph/topology";
 
 type ArmResource = {
   type?: unknown;
@@ -201,7 +203,9 @@ function linuxRuntime(
   const match = /^([A-Za-z-]+)\|(.+)$/.exec(fx.trim());
   const runtime = match ? LINUX_FX_RUNTIMES[match[1].toUpperCase()] : undefined;
   if (match?.[1].toUpperCase() === "DOCKER") {
-    warnings.push(`${resourceName}: container image deployments (${fx}) are not modelled; the app was imported with the default runtime.`);
+    const image = match[2].trim();
+    if (CONTAINER_IMAGE_PATTERN.test(image) && image.length <= 512) return { containerImage: image };
+    warnings.push(`${resourceName}: container image "${image}" could not be read (digests and expressions are not modelled); set the image in the inspector.`);
     return {};
   }
   if (!match || !runtime) {
@@ -213,6 +217,56 @@ function linuxRuntime(
     warnings.push(`${resourceName}: the .NET isolated worker model is not modelled; review FUNCTIONS_WORKER_RUNTIME after export.`);
   }
   return { runtime, runtimeVersion: match[2].trim() };
+}
+
+const FLEX_RUNTIMES: Record<string, string> = {
+  node: "node",
+  python: "python",
+  java: "java",
+  powershell: "powershell",
+  "dotnet-isolated": "dotnet",
+};
+
+// Flex Consumption apps carry their stack in functionAppConfig, not siteConfig.
+function flexSettings(props: Record<string, unknown>, resourceName: string, warnings: string[]): Record<string, unknown> {
+  const config = asRecord(props.functionAppConfig);
+  if (Object.keys(config).length === 0) return {};
+  const runtime = asRecord(config.runtime);
+  const scale = asRecord(config.scaleAndConcurrency);
+  const name = asString(runtime.name)?.toLowerCase();
+  const out: Record<string, unknown> = {};
+  if (name && FLEX_RUNTIMES[name]) {
+    out.runtime = FLEX_RUNTIMES[name];
+    const version = asString(runtime.version);
+    if (version) out.runtimeVersion = version;
+    if (name === "dotnet-isolated") {
+      warnings.push(`${resourceName}: the .NET isolated worker model is not modelled; review FUNCTIONS_WORKER_RUNTIME after export.`);
+    }
+  } else if (name) {
+    warnings.push(`${resourceName}: runtime "${name}" is not modelled; Bunya defaults were used.`);
+  }
+  const memory = asNumber(scale.instanceMemoryMB);
+  if (memory !== undefined) out.instanceMemoryMB = memory;
+  const maximum = asNumber(scale.maximumInstanceCount);
+  if (maximum !== undefined) out.maximumInstanceCount = maximum;
+  return out;
+}
+
+// Plans are Linux when `reserved` is true or the kind says so. Portal
+// exports of Windows plans set reserved to false.
+function planOs(resource: FlatArmResource, defaultOs: unknown): unknown {
+  const props = asRecord(resource.raw.properties);
+  const kind = asString(resource.raw.kind)?.toLowerCase() ?? "";
+  if (props.reserved === true || kind.includes("linux")) return "Linux";
+  if (props.reserved === false) return "Windows";
+  return defaultOs;
+}
+
+// ARM accepts SKU names in any case ("p1v3", "P1V3"); match the catalogue spelling.
+function planSku(name: string | undefined): string | undefined {
+  if (!name) return undefined;
+  const compact = name.replace(/\s+/g, "");
+  return APP_SERVICE_PLAN_SKUS.find((sku) => sku.toLowerCase() === compact.toLowerCase()) ?? name;
 }
 
 function sqlDatabaseSku(sku: Record<string, unknown>): string | undefined {
@@ -247,13 +301,18 @@ function baseProperties(type: ServiceType, resource: FlatArmResource, allResourc
         privateEndpointNetworkPolicies:
           asString(props.privateEndpointNetworkPolicies) ?? defaults.privateEndpointNetworkPolicies,
       };
-    case "appServicePlan":
+    case "appServicePlan": {
+      const skuName = planSku(asString(sku.name));
+      const family = planFamily(skuName);
+      const capacity = asNumber(sku.capacity);
       return {
         ...defaults,
-        sku: asString(sku.name) ?? defaults.sku,
-        os: asString(resource.raw.kind)?.toLowerCase().includes("linux") ? "Linux" : defaults.os,
-        capacity: asNumber(sku.capacity) ?? defaults.capacity,
+        sku: skuName ?? defaults.sku,
+        os: planOs(resource, defaults.os),
+        // Consumption and Flex plans have no fixed workers.
+        capacity: capacity ?? (family === "consumption" || family === "flex" ? 0 : defaults.capacity),
       };
+    }
     case "appService":
       return {
         ...defaults,
@@ -261,13 +320,16 @@ function baseProperties(type: ServiceType, resource: FlatArmResource, allResourc
         httpsOnly: props.httpsOnly !== false,
         alwaysOn: asRecord(props.siteConfig).alwaysOn !== false,
         publicNetworkAccess: asString(props.publicNetworkAccess) !== "Disabled",
+        vnetIntegration: !!asString(props.virtualNetworkSubnetId),
       };
     case "functionApp":
       return {
         ...defaults,
         ...linuxRuntime(asRecord(props.siteConfig), resource.name, parameters, variables, warnings),
+        ...flexSettings(props, resource.name, warnings),
         httpsOnly: props.httpsOnly !== false,
         publicNetworkAccess: asString(props.publicNetworkAccess) !== "Disabled",
+        vnetIntegration: !!asString(props.virtualNetworkSubnetId),
       };
     case "staticWebApp":
       return { ...defaults, sku: asString(sku.name) ?? defaults.sku };
@@ -599,13 +661,109 @@ function inferAlertEdges(
   }
 }
 
-function inferEdges(resources: ImportedResource[], allResources: FlatArmResource[]): GraphEdge[] {
+function childResources(parent: FlatArmResource, allResources: FlatArmResource[], typeSuffix: string): FlatArmResource[] {
+  const type = `${parent.type}/${typeSuffix}`.toLowerCase();
+  const prefix = `${parent.fullName}/`.toLowerCase();
+  return allResources.filter(
+    (resource) => resource.type.toLowerCase() === type && resource.fullName.toLowerCase().startsWith(prefix),
+  );
+}
+
+// Regional VNet integration: `virtualNetworkSubnetId` on the site, or the
+// older `sites/virtualNetworkConnections` child.
+function inferSiteSubnetEdge(
+  edges: GraphEdge[],
+  item: ImportedResource,
+  resources: ImportedResource[],
+  allResources: FlatArmResource[],
+): void {
+  const props = asRecord(item.flat.raw.properties);
+  const refs = [
+    props.virtualNetworkSubnetId,
+    ...childResources(item.flat, allResources, "virtualNetworkConnections").map(
+      (child) => asRecord(child.raw.properties).vnetResourceId,
+    ),
+  ];
+  for (const ref of refs) {
+    const subnet = findReferencedNode(ref, resources, ["subnet"]);
+    if (!subnet) continue;
+    addEdge(edges, item.node, subnet, "network");
+    item.node.properties = { ...item.node.properties, vnetIntegration: true };
+  }
+}
+
+// A site pulling from a registry with managed identity needs AcrPull, which
+// exporters generate from an identity edge.
+function inferRegistryEdge(
+  edges: GraphEdge[],
+  item: ImportedResource,
+  resources: ImportedResource[],
+  warnings: string[],
+): void {
+  const image = parseContainerImage(String(item.node.properties.containerImage ?? ""));
+  if (!image) return;
+  const host = image.registryHost.toLowerCase();
+  const registry = resources.find(
+    (candidate) =>
+      candidate.node.type === "containerRegistry" &&
+      host === `${candidate.flat.name.toLowerCase()}.azurecr.io`,
+  )?.node;
+  if (!registry) return;
+  const siteConfig = asRecord(asRecord(item.flat.raw.properties).siteConfig);
+  if (siteConfig.acrUseManagedIdentityCreds !== true) {
+    addEdge(edges, item.node, registry, "depends_on");
+    warnings.push(`${item.flat.name}: pulls ${image.reference} with registry credentials; turn on managed identity pulls and draw an identity edge to ${registry.resourceName} so exports grant AcrPull.`);
+    return;
+  }
+  const userIdentity = findReferencedNode(siteConfig.acrUserManagedIdentityID, resources, ["userAssignedIdentity"]);
+  if (userIdentity) {
+    addEdge(edges, item.node, userIdentity, "identity");
+    addEdge(edges, userIdentity, registry, "identity");
+    return;
+  }
+  addEdge(edges, item.node, registry, "identity");
+}
+
+// Portal exports tag App Insights components with a hidden-link to their app;
+// app settings may also reference the component directly.
+function inferAppInsightsEdges(
+  edges: GraphEdge[],
+  item: ImportedResource,
+  resources: ImportedResource[],
+  allResources: FlatArmResource[],
+): void {
+  if (item.node.type !== "applicationInsights") return;
+  const props = asRecord(item.flat.raw.properties);
+  addEdge(edges, item.node, findReferencedNode(props.WorkspaceResourceId, resources, ["logAnalytics"]), "depends_on");
+  const sites = resources.filter((candidate) => candidate.node.type === "appService" || candidate.node.type === "functionApp");
+  for (const tag of Object.keys(asRecord(item.flat.raw.tags))) {
+    if (!/^hidden-link:/i.test(tag) || !/\/providers\/microsoft\.web\/sites\//i.test(tag)) continue;
+    const name = tag.split("/").filter(Boolean).at(-1)?.toLowerCase();
+    const site = sites.find((candidate) => candidate.flat.name.toLowerCase() === name)?.node;
+    if (site) addEdge(edges, site, item.node, "diagnostic");
+  }
+  const component = item.flat.fullName.toLowerCase();
+  for (const site of sites) {
+    const settings = [
+      asRecord(asRecord(site.flat.raw.properties).siteConfig).appSettings,
+      ...childResources(site.flat, allResources, "config").map((child) => child.raw.properties),
+    ];
+    const text = JSON.stringify(settings).toLowerCase();
+    if (!/applicationinsights_connection_string|appinsights_instrumentationkey/.test(text)) continue;
+    if (text.includes(`microsoft.insights/components', '${component}'`) || text.includes(`/components/${component}`)) {
+      addEdge(edges, site.node, item.node, "diagnostic");
+    }
+  }
+}
+
+function inferEdges(resources: ImportedResource[], allResources: FlatArmResource[], warnings: string[]): GraphEdge[] {
   const edges: GraphEdge[] = [];
   for (const item of resources) {
     const { flat, node } = item;
     inferPrivateDnsEdges(edges, item, resources, allResources);
     inferRoleAssignmentEdges(edges, item, resources);
     inferAlertEdges(edges, item, resources);
+    inferAppInsightsEdges(edges, item, resources, allResources);
     for (const dep of asArray(flat.raw.dependsOn)) {
       addEdge(edges, node, findReferencedNode(dep, resources), "depends_on");
     }
@@ -622,6 +780,8 @@ function inferEdges(resources: ImportedResource[], allResources: FlatArmResource
       if (node.type === "functionApp") {
         inferFunctionStorageEdge(edges, item, resources, allResources);
       }
+      inferSiteSubnetEdge(edges, item, resources, allResources);
+      inferRegistryEdge(edges, item, resources, warnings);
     }
     if (node.type === "aksCluster") {
       const props = asRecord(flat.raw.properties);
@@ -890,7 +1050,7 @@ export function parseArmTemplate(text: string): ArmImportResult {
   }
 
   for (const resource of flat) resource.raw = expandReferences(resource.raw, parameters, variables) as ArmResource;
-  const edges = inferEdges(known, flat);
+  const edges = inferEdges(known, flat, warnings);
   const nodes = layoutImportedNodes(known, edges, resourceGroup);
   if (nodes.length > 200 || edges.length > 1000) {
     return { ok: false, reason: `ARM template produces ${nodes.length} nodes and ${edges.length} edges; Bunya supports up to 200 nodes and 1,000 edges.` };
@@ -906,6 +1066,12 @@ export function parseArmTemplate(text: string): ArmImportResult {
     warnings.push(`Resources in ${otherLocations.join(", ")} are drawn in the diagram region ${location ?? "australiaeast"}.`);
   }
   const now = new Date().toISOString();
+  const draft = { nodes, edges } as unknown as GraphDocument;
+  for (const node of nodes) {
+    if (node.type !== "functionApp") continue;
+    const family = planFamily(sitePlan(draft, node)?.properties.sku);
+    node.properties = { ...node.properties, consumptionPlan: family === "consumption" || family === "flex" };
+  }
   const document: GraphDocument = {
     schemaVersion: 1,
     metadata: {
