@@ -199,7 +199,7 @@ describe("starter templates", () => {
         node("rg", "resourceGroup", null),
         node("flex", "appServicePlan", "rg", { sku: "FC1", capacity: 0 }),
         node("fn", "functionApp", "flex"),
-        node("stg", "storageAccount", "rg"),
+        node("stg", "storageAccount", "rg", { publicNetworkAccess: true }),
         node("web", "appService", "rg", { containerImage: "acr1.azurecr.io/api:1" }),
       ], [{ id: "e1", source: "fn", target: "stg", kind: "data" }]);
       const result = generateArm(document);

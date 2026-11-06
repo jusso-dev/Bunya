@@ -10,6 +10,7 @@ import {
 } from "./shared/context";
 import { GeneratorResult } from "./types";
 import { needsTemplateDeployment } from "./shared/hosting";
+import { storagePublicNetwork } from "@/lib/catalogue/services";
 import { powerShellPlanSku } from "@/lib/catalogue/app-service-plans";
 
 function header(document: GraphDocument, includeSqlAdmin: boolean): string[] {
@@ -184,7 +185,7 @@ function emitNode(node: GraphNode, ctx: GeneratorContext): string[] {
         `    Kind                  = '${(node.properties.kind as string) ?? "StorageV2"}'`,
         `    MinimumTlsVersion     = 'TLS1_${((node.properties.minTlsVersion as string) ?? "1.2").split(".")[1]}'`,
         `    AllowBlobPublicAccess = $${node.properties.allowPublicAccess === true}`,
-        `    PublicNetworkAccess   = '${node.properties.allowPublicAccess === true ? "Enabled" : "Disabled"}'`,
+        `    PublicNetworkAccess   = '${storagePublicNetwork(node.properties) ? "Enabled" : "Disabled"}'`,
         `}`,
         `New-AzStorageAccount @stgParams | Out-Null`,
       ];

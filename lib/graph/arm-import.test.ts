@@ -765,6 +765,21 @@ describe("parseArmTemplate", () => {
       expect(has("web", "id-pull")).toBe(true);
       expect(has("id-pull", "acrapp")).toBe(true);
       expect(has("web", "acrapp")).toBe(false);
+      expect(result.warning).toContain("assumed it is id-pull, the only user-assigned identity on the app");
+    });
+
+    it("does not pin an external pull identity to an unrelated identity in the template", () => {
+      const template = registryTemplate({
+        type: "UserAssigned",
+        userAssignedIdentities: { "/subscriptions/x/resourceGroups/shared/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-shared": {} },
+      }, "6e2a1f4c-9a51-4d1f-8f6d-0f3b2c9d7e11");
+      template.resources[1] = { type: "Microsoft.ManagedIdentity/userAssignedIdentities", name: "id-unrelated", location: "australiaeast" };
+      const result = parseArmTemplate(JSON.stringify(template));
+      if (!result.ok) throw new Error(result.reason);
+      const id = (name: string) => result.document.nodes.find((node) => node.resourceName === name)!.id;
+      const identityEdges = result.document.edges.filter((e) => e.kind === "identity");
+      expect(identityEdges.some((e) => e.source === id("web") || e.target === id("acrapp"))).toBe(false);
+      expect(result.warning).toContain("which is not in this template");
     });
 
     it("warns instead of granting AcrPull to the system identity when the pull identity is unknown", () => {

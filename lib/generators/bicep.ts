@@ -12,6 +12,7 @@ import { GeneratedFile, GeneratorResult } from "./types";
 import { expr, planBody, siteBody, toBicep, type Refs } from "./shared/site-resource";
 import { roleAssignmentsFor } from "./shared/roles";
 import { subnetDelegations } from "@/lib/graph/topology";
+import { storagePublicNetwork } from "@/lib/catalogue/services";
 
 function bicepIdent(raw: string): string {
   const cleaned = raw.toLowerCase().replace(/[^a-z0-9]/g, "_");
@@ -427,7 +428,7 @@ function emitStorageAccount(node: GraphNode, ctx: GeneratorContext): string {
     `  properties: {`,
     `    minimumTlsVersion: 'TLS1_${tls.split(".")[1]}'`,
     `    allowBlobPublicAccess: ${allowPublic}`,
-    `    publicNetworkAccess: '${allowPublic ? "Enabled" : "Disabled"}'`,
+    `    publicNetworkAccess: '${storagePublicNetwork(node.properties) ? "Enabled" : "Disabled"}'`,
     `    supportsHttpsTrafficOnly: true`,
     `  }`,
     tagsLiteral(ctx, node),

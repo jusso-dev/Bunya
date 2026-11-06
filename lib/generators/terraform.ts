@@ -17,6 +17,7 @@ import { GeneratorResult, GeneratedFile } from "./types";
 import { siteHosting, type SiteHosting } from "./shared/hosting";
 import { roleAssignmentsFor } from "./shared/roles";
 import { subnetDelegations } from "@/lib/graph/topology";
+import { storagePublicNetwork } from "@/lib/catalogue/services";
 import { planFamily } from "@/lib/catalogue/app-service-plans";
 
 function rgRef(ctx: GeneratorContext, node?: GraphNode): string {
@@ -358,7 +359,7 @@ function emitFlexFunctionApp(node: GraphNode, ctx: GeneratorContext, hosting: Si
     `  storage_authentication_type   = "StorageAccountConnectionString"`,
     `  storage_access_key            = ${storage}.primary_access_key`,
     `  runtime_name                  = "${hosting.workerRuntime}"`,
-    `  runtime_version               = "${(node.properties.runtimeVersion as string) ?? "22"}"`,
+    `  runtime_version               = "${hosting.flexVersion}"`,
     `  maximum_instance_count        = ${(node.properties.maximumInstanceCount as number) ?? 100}`,
     `  instance_memory_in_mb         = ${(node.properties.instanceMemoryMB as number) ?? 2048}`,
     `  public_network_access_enabled = ${node.properties.publicNetworkAccess !== false}`,
@@ -534,7 +535,7 @@ function emitStorageAccount(node: GraphNode, ctx: GeneratorContext): string {
     `  account_kind                    = "${kind}"`,
     `  min_tls_version                 = "TLS1_${tls.split(".")[1]}"`,
     `  allow_nested_items_to_be_public = ${allowPublic}`,
-    `  public_network_access_enabled   = ${allowPublic}`,
+    `  public_network_access_enabled   = ${storagePublicNetwork(node.properties)}`,
     `  is_hns_enabled                  = ${hns}`,
     tagsBlock(ctx, node),
     `}`,

@@ -11,6 +11,7 @@ import {
 } from "./shared/context";
 import { GeneratorResult } from "./types";
 import { needsTemplateDeployment } from "./shared/hosting";
+import { storagePublicNetwork } from "@/lib/catalogue/services";
 
 function rgName(ctx: GeneratorContext, node?: GraphNode): string {
   if (node) {
@@ -147,7 +148,7 @@ function emit(node: GraphNode, ctx: GeneratorContext): string[] {
     case "storageAccount":
       return [
         `# Storage Account ${name}`,
-        `az storage account create ${COMMON} --name "${name}" --location "${region}" --sku "${(node.properties.sku as string) ?? "Standard_LRS"}" --kind "${(node.properties.kind as string) ?? "StorageV2"}" --min-tls-version TLS1_${((node.properties.minTlsVersion as string) ?? "1.2").split(".")[1]} --allow-blob-public-access ${(node.properties.allowPublicAccess === true).toString()} --public-network-access ${node.properties.allowPublicAccess === true ? "Enabled" : "Disabled"} >/dev/null`,
+        `az storage account create ${COMMON} --name "${name}" --location "${region}" --sku "${(node.properties.sku as string) ?? "Standard_LRS"}" --kind "${(node.properties.kind as string) ?? "StorageV2"}" --min-tls-version TLS1_${((node.properties.minTlsVersion as string) ?? "1.2").split(".")[1]} --allow-blob-public-access ${(node.properties.allowPublicAccess === true).toString()} --public-network-access ${storagePublicNetwork(node.properties) ? "Enabled" : "Disabled"} >/dev/null`,
       ];
     case "sqlDatabase":
       return [

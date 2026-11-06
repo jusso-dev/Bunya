@@ -187,7 +187,11 @@ export const storageAccountSchema = z.object({
     .enum(["Standard_LRS", "Standard_ZRS", "Standard_GRS", "Standard_RAGRS", "Premium_LRS"])
     .default("Standard_LRS"),
   kind: z.enum(["StorageV2", "BlobStorage", "FileStorage"]).default("StorageV2"),
+  // Anonymous read access to blobs (allowBlobPublicAccess).
   allowPublicAccess: z.boolean().default(false),
+  // Public network endpoint. Diagrams saved before this setting existed get
+  // it from allowPublicAccess, which used to control both (lib/graph/migrate.ts).
+  publicNetworkAccess: z.boolean().default(false),
   minTlsVersion: z.enum(["1.0", "1.1", "1.2"]).default("1.2"),
   hierarchicalNamespace: z.boolean().default(false),
   containers: z.array(z.string()).default([]),
@@ -281,6 +285,14 @@ export const roleAssignmentSchema = z.object({
   scope: z.string().default("target resource"),
   principalType: z.enum(["ServicePrincipal", "ManagedIdentity"]).default("ServicePrincipal"),
 });
+
+// Whether a Storage Account's public network endpoint is open. Falls back to
+// allowPublicAccess for documents that have not been through migrate().
+export function storagePublicNetwork(properties: Record<string, unknown>): boolean {
+  return typeof properties.publicNetworkAccess === "boolean"
+    ? properties.publicNetworkAccess
+    : properties.allowPublicAccess === true;
+}
 
 function parseDefaults<T extends z.ZodTypeAny>(s: T): Record<string, unknown> {
   return s.parse({}) as Record<string, unknown>;

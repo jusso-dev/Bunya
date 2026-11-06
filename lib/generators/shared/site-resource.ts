@@ -128,7 +128,7 @@ export function siteBody(ctx: GeneratorContext, node: GraphNode, refs: Refs): Si
         maximumInstanceCount: Number(node.properties.maximumInstanceCount ?? 100),
         instanceMemoryMB: Number(node.properties.instanceMemoryMB ?? 2048),
       },
-      runtime: { name: hosting.workerRuntime, version: String(node.properties.runtimeVersion ?? "22") },
+      runtime: { name: hosting.workerRuntime, version: hosting.flexVersion },
     };
     properties.siteConfig = {
       minTlsVersion: "1.2",

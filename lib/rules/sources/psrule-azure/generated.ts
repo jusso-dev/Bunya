@@ -6,6 +6,7 @@
 // marked [advisory] in the message and have a `() => false` predicate.
 
 import { nodeRule, graphRule } from "@/lib/rules/builders";
+import { storagePublicNetwork } from "@/lib/catalogue/services";
 import type { Autofix, RuleEntry } from "@/lib/rules/schema";
 import type { GraphDocument, GraphNode } from "@/lib/graph/schema";
 
@@ -124,9 +125,8 @@ export const PSRULE_RULES: RuleEntry[] = [
     longExplanation:
       "Storage accounts with default-allow networking are reachable from anywhere on the internet. PSRule expects accounts to either disable public network access entirely (Private Endpoint only) or configure firewall rules limiting traffic to trusted VNets and IPs.",
     tags: ["psrule", "firewall", "network", "storage"],
-    // This model maps allowPublicAccess to public networking in every exporter.
     // A private endpoint does not close the account's public endpoint.
-    predicate: (n) => getProp<boolean>(n, "allowPublicAccess") === true,
+    predicate: (n) => storagePublicNetwork(n.properties),
   }),
 
   nodeRule({

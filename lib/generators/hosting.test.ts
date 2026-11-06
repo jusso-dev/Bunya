@@ -6,6 +6,7 @@ import { generateBicep } from "./bicep";
 import { generatePowerShell } from "./powershell";
 import { generateTerraform } from "./terraform";
 import { topologyProblems } from "@/lib/graph/topology";
+import { runRules } from "@/lib/rules/runtime";
 import type { GeneratorResult } from "./types";
 
 function file(result: GeneratorResult, path: string): string {
@@ -189,7 +190,48 @@ describe("App Service hosting exports", () => {
     it("only allows Flex runtime versions Azure supports", () => {
       const result = generateBicep(withProps("fn-flex", { runtimeVersion: "3.9" }));
       expect(result.ok ? "ok" : result.reason).toContain("uses python 3.9, which Flex Consumption does not run; use python 3.10, 3.11, 3.12, 3.13, 3.14");
-      expect(generateBicep(withProps("fn-flex", { runtime: "dotnet", runtimeVersion: "8" })).ok).toBe(true);
+      // Aliases are accepted and exported in the form Flex expects.
+      const dotnet = withProps("fn-flex", { runtime: "dotnet", runtimeVersion: "8" });
+      const arm = JSON.parse(file(generateArm(dotnet), "azuredeploy.json")).resources.find((r: Arm) => r.name === "fn-flex");
+      expect(arm.properties.functionAppConfig.runtime).toEqual({ name: "dotnet-isolated", version: "8.0" });
+      expect(file(generateBicep(dotnet), "main.bicep")).toContain("version: '8.0'");
+      const node = withProps("fn-flex", { runtime: "node", runtimeVersion: "22-lts" });
+      expect(file(generateTerraform(node), "main.tf")).toMatch(/runtime_version\s+= "22"\n/);
+    });
+  });
+
+  it("warns about first pulls with a system-assigned identity, not a user-assigned one", () => {
+    const findings = runRules(hostingGraph).filter((finding) => finding.ruleId === "BUNYA.IDN.PULL-SYSTEM-IDENTITY-FIRST-DEPLOY");
+    const ids = findings.flatMap((finding) => finding.nodeIds ?? []);
+    expect(ids).toContain("web");
+    expect(ids).not.toContain("fn-ep");
+    const linuxConsumption = runRules(hostingGraph).filter((finding) => finding.ruleId === "BUNYA.COST.PLAN-LINUX-CONSUMPTION-RETIRING");
+    expect(linuxConsumption.flatMap((finding) => finding.nodeIds ?? [])).toEqual(["plan-y1"]);
+  });
+
+  describe("storage reachability", () => {
+    const withStorage = (properties: Record<string, unknown>) => ({
+      ...hostingGraph,
+      nodes: hostingGraph.nodes.map((node) => (node.id === "stg" ? { ...node, properties: { ...node.properties, ...properties } } : node)),
+    });
+
+    it("blocks Function Apps whose storage has no public endpoint and no private path", () => {
+      const result = generateArm(withStorage({ publicNetworkAccess: false }));
+      expect(result.ok ? "ok" : result.reason).toContain('"fn-y1" cannot reach Storage Account "sthosting"');
+    });
+
+    it("accepts a private account reached through VNet integration and a blob Private Endpoint", () => {
+      const flexStorage = armResources().find((r) => r.type === "Microsoft.Storage/storageAccounts" && r.name.startsWith("stflexpriv"));
+      expect(flexStorage?.properties).toMatchObject({ publicNetworkAccess: "Disabled", allowBlobPublicAccess: false });
+      const without = { ...hostingGraph, edges: hostingGraph.edges.filter((edge) => edge.id !== "pe-stg") };
+      const result = generateArm(without);
+      expect(result.ok ? "ok" : result.reason).toContain('"fn-flex" cannot reach Storage Account "stflexpriv"');
+    });
+
+    it("keeps anonymous blob access off when the public endpoint is open", () => {
+      const shared = armResources().find((r) => r.type === "Microsoft.Storage/storageAccounts" && r.name.startsWith("sthosting"));
+      expect(shared?.properties).toMatchObject({ publicNetworkAccess: "Enabled", allowBlobPublicAccess: false });
+      expect(file(generateTerraform(hostingGraph), "main.tf")).toMatch(/allow_nested_items_to_be_public = false\n\s+public_network_access_enabled\s+= true/);
     });
   });
 });

@@ -379,6 +379,8 @@ function baseProperties(type: ServiceType, resource: FlatArmResource, allResourc
         sku: asString(sku.name) ?? defaults.sku,
         kind: asString(resource.raw.kind) ?? defaults.kind,
         allowPublicAccess: props.allowBlobPublicAccess === true,
+        // Azure leaves the public endpoint open unless it is disabled.
+        publicNetworkAccess: asString(props.publicNetworkAccess) !== "Disabled",
         minTlsVersion: asString(props.minimumTlsVersion)?.replace("TLS1_", "1.") ?? defaults.minTlsVersion,
         hierarchicalNamespace: props.isHnsEnabled === true,
       };
@@ -501,6 +503,9 @@ function findReferencedNode(
   ref: unknown,
   resources: ImportedResource[],
   allowed?: ServiceType[],
+  // Require the reference to name the resource. Without this, a reference to
+  // a resource outside the template can match the only candidate of its type.
+  exact = false,
 ): GraphNode | undefined {
   if (typeof ref !== "string") return undefined;
   const lower = ref.toLowerCase();
@@ -543,7 +548,7 @@ function findReferencedNode(
       if (lower.includes(`/${name}`) && lower.includes(type.split("/")[0])) score = Math.max(score, 75);
       if (lower.includes(`accountname=${name}`)) score = Math.max(score, 70);
       if (lower.includes(`'${name}'`) || lower.includes(`/${name}`)) score = Math.max(score, 60);
-      if (candidates.length === 1 && lower.includes(type)) score = Math.max(score, 10);
+      if (!exact && candidates.length === 1 && lower.includes(type)) score = Math.max(score, 10);
       return { node, score };
     })
     .filter((entry) => entry.score > 0)
@@ -720,11 +725,17 @@ function inferRegistryEdge(
   // acrUserManagedIdentityID is the identity's client ID (a GUID, or an
   // expression reading clientId). Match it to an identity attached to the site.
   const attached = Object.keys(asRecord(asRecord(item.flat.raw.identity).userAssignedIdentities))
-    .map((ref) => findReferencedNode(ref, resources, ["userAssignedIdentity"]))
+    .map((ref) => findReferencedNode(ref, resources, ["userAssignedIdentity"], true))
     .filter((node): node is GraphNode => !!node);
-  const userIdentity =
-    findReferencedNode(clientId, resources, ["userAssignedIdentity"]) ??
-    (attached.length === 1 ? attached[0] : undefined);
+  const referenced = findReferencedNode(clientId, resources, ["userAssignedIdentity"], true);
+  // Identities attached to the app but defined outside this template.
+  const external = Object.keys(asRecord(asRecord(item.flat.raw.identity).userAssignedIdentities)).length - attached.length;
+  // A bare client ID can only be pinned to an identity when it is the only
+  // one on the app; with external identities it may be any of them.
+  const userIdentity = referenced ?? (attached.length === 1 && external === 0 ? attached[0] : undefined);
+  if (userIdentity && !referenced) {
+    warnings.push(`${item.flat.name}: pulls with user-assigned identity client ID ${clientId}; assumed it is ${userIdentity.resourceName}, the only user-assigned identity on the app.`);
+  }
   if (userIdentity) {
     addEdge(edges, item.node, userIdentity, "identity");
     addEdge(edges, userIdentity, registry, "identity");

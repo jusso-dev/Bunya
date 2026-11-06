@@ -12,6 +12,7 @@ function buildNode(
   y: number,
   parentId?: string,
   size?: { width: number; height: number },
+  properties: Record<string, unknown> = {},
 ): GraphNode {
   return {
     id,
@@ -21,7 +22,7 @@ function buildNode(
     position: { x, y },
     parentId,
     size,
-    properties: { ...getServiceDefinition(type).defaultProperties },
+    properties: { ...getServiceDefinition(type).defaultProperties, ...properties },
   };
 }
 
@@ -52,7 +53,7 @@ export const STARTER_TEMPLATES: StarterTemplate[] = [
         buildNode("rg", "resourceGroup", "Resource Group", "rg-static-with-api", 0, 0, undefined, { width: 1220, height: 380 }),
         buildNode("swa", "staticWebApp", "Portal", "swa-static", 40, 60, "rg"),
         buildNode("fn", "functionApp", "API", "fn-static-api", 340, 60, "rg"),
-        buildNode("stg", "storageAccount", "API Storage", "staticapistg", 640, 230, "rg"),
+        buildNode("stg", "storageAccount", "API Storage", "staticapistg", 640, 230, "rg", undefined, { publicNetworkAccess: true }),
         buildNode("ai", "applicationInsights", "Telemetry", "ai-static", 640, 60, "rg"),
         buildNode("la", "logAnalytics", "Workspace", "log-static", 940, 60, "rg"),
       ],
@@ -134,7 +135,7 @@ export const STARTER_TEMPLATES: StarterTemplate[] = [
         buildNode("rg", "resourceGroup", "Resource Group", "rg-event-driven", 0, 0, undefined, { width: 1320, height: 500 }),
         buildNode("plan", "appServicePlan", "Consumption", "plan-event-driven", 40, 60, "rg", { width: 300, height: 180 }),
         buildNode("fn", "functionApp", "Ingest", "fn-event-driven", 40, 60, "plan"),
-        buildNode("stg", "storageAccount", "Function Storage", "eventdrivenstg", 400, 340, "rg"),
+        buildNode("stg", "storageAccount", "Function Storage", "eventdrivenstg", 400, 340, "rg", undefined, { publicNetworkAccess: true }),
         buildNode("cos", "cosmosDb", "Documents", "cos-event-driven", 400, 80, "rg"),
         buildNode("ai", "applicationInsights", "Telemetry", "ai-event-driven", 700, 80, "rg"),
         buildNode("la", "logAnalytics", "Workspace", "log-event-driven", 1000, 80, "rg"),

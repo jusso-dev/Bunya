@@ -6,7 +6,7 @@ exports[`REGISTRY > produces a stable summary snapshot 1`] = `
     "compliance": 47,
     "cost": 7,
     "data-protection": 45,
-    "identity": 25,
+    "identity": 26,
     "naming": 35,
     "network": 65,
     "observability": 18,
@@ -16,7 +16,7 @@ exports[`REGISTRY > produces a stable summary snapshot 1`] = `
   "bySeverity": {
     "error": 100,
     "info": 73,
-    "warning": 122,
+    "warning": 123,
   },
   "bySource": {
     "ACSC Information Security Manual": 4,
@@ -69,6 +69,7 @@ exports[`REGISTRY > produces a stable summary snapshot 1`] = `
     "Microsoft Learn — Azure Architecture Center": 10,
     "Microsoft Learn — Azure Functions hosting options and scale": 1,
     "Microsoft Learn — Migrate Consumption plan apps to the Flex Consumption plan": 1,
+    "Microsoft Learn — Use managed identity to pull images from Azure Container Registry": 1,
     "Microsoft.Compute/virtualMachineScaleSets ARM template reference": 1,
     "Microsoft.ContainerService/managedClusters ARM template reference": 1,
     "Monitor Azure App Service with Application Insights": 1,
@@ -79,6 +80,6 @@ exports[`REGISTRY > produces a stable summary snapshot 1`] = `
     "What is Azure Front Door?": 1,
     "Workspace-based Application Insights resources": 1,
   },
-  "total": 295,
+  "total": 296,
 }
 `;

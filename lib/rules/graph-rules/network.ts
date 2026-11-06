@@ -1,4 +1,5 @@
 import { graphRule, nodeRule } from "@/lib/rules/builders";
+import { storagePublicNetwork } from "@/lib/catalogue/services";
 import type { RuleEntry } from "@/lib/rules/schema";
 import type { GraphDocument } from "@/lib/graph/schema";
 import { topologyProblems } from "@/lib/graph/topology";
@@ -145,13 +146,7 @@ export const networkRules: RuleEntry[] = [
     predicate: (node, graph) => {
       const hasVnet = graph.nodes.some((n) => n.type === "virtualNetwork");
       if (!hasVnet) return false;
-      const publicNetworkAccess = getProp<boolean | string>(node, "publicNetworkAccess");
-      const allowPublicAccess = getProp<boolean>(node, "allowPublicAccess");
-      const isPublic =
-        publicNetworkAccess === true ||
-        publicNetworkAccess === "Enabled" ||
-        allowPublicAccess === true;
-      if (!isPublic) return false;
+      if (!storagePublicNetwork(node.properties)) return false;
       const hasPe = graph.edges.some((e) => {
         if (e.target !== node.id) return false;
         const src = graph.nodes.find((n) => n.id === e.source);

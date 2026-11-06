@@ -3,7 +3,7 @@
 // Application Insights component and Flex deployment container.
 import { parseContainerImage, planFamily, type ContainerImage, type PlanFamily } from "@/lib/catalogue/app-service-plans";
 import type { GraphNode } from "@/lib/graph/schema";
-import { integrationDelegation, siteIntegrationSubnet } from "@/lib/graph/topology";
+import { flexRuntimeVersion, integrationDelegation, siteIntegrationSubnet } from "@/lib/graph/topology";
 import { GeneratorContext, outgoingOf, resolveAppServicePlan } from "./context";
 
 export type SiteHosting = {
@@ -23,6 +23,8 @@ export type SiteHosting = {
   userIdentities: GraphNode[];
   // FUNCTIONS_WORKER_RUNTIME / Flex runtime name.
   workerRuntime: string;
+  // Canonical Flex runtime version, the value validation checked.
+  flexVersion: string;
 };
 
 export function siteHosting(ctx: GeneratorContext, node: GraphNode): SiteHosting {
@@ -68,6 +70,7 @@ export function siteHosting(ctx: GeneratorContext, node: GraphNode): SiteHosting
     deploymentContainer: `app-package-${(ctx.resourceNames.get(node.id) ?? node.resourceName).toLowerCase().replace(/[^a-z0-9-]/g, "-").slice(0, 40)}`.replace(/-+$/, ""),
     userIdentities,
     workerRuntime: runtime === "dotnet" ? "dotnet-isolated" : runtime,
+    flexVersion: flexRuntimeVersion(runtime, String(node.properties.runtimeVersion ?? "22")),
   };
 }
 

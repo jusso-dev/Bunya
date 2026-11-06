@@ -21,6 +21,7 @@ exports[`generateCostEstimate > snapshots the full-stack cost markdown 1`] = `
 | \`rg-full-stack\` | Resource Group | container | A$0.00 | No direct cost |
 | \`vnet-full-stack\` | Virtual Network | container | A$0.00 | No direct cost for VNet itself |
 | \`snet-app\` | Subnet | child | A$0.00 | No direct cost for the subnet |
+| \`snet-fn\` | Subnet | child | A$0.00 | No direct cost for the subnet |
 | \`nsg-app\` | Network Security Group | ruleset | A$0.00 | No direct cost |
 | \`pe-stg\` | Private Endpoint | per-endpoint | A$10.95 | Per-endpoint fixed cost + data processing |
 | \`plan-full-stack\` | App Service Plan | B1 x 1 | A$20.80 | Basic B1, Linux, per instance |

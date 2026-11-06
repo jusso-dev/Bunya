@@ -133,6 +133,9 @@ export function expandImplicits(document: GraphDocument): ExpandedGraph {
           x: fn.position.x + 200,
           y: fn.position.y + 120,
         });
+        // The app has no private path to an auto-added account, so it must
+        // reach the public endpoint. Anonymous blob access stays off.
+        storage.properties = { ...storage.properties, publicNetworkAccess: true };
         nodes.push(storage);
         autoNodeIds.add(storage.id);
         additions.push({

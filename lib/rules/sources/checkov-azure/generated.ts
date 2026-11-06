@@ -3,6 +3,7 @@
 // fetcher script will overwrite when run online. Do not edit individual rules
 // here — re-run the generator if you need to refresh the set.
 import { nodeRule } from "@/lib/rules/builders";
+import { storagePublicNetwork } from "@/lib/catalogue/services";
 import type { RuleEntry } from "@/lib/rules/schema";
 
 const CHECKOV_BASE = {
@@ -80,9 +81,9 @@ export const CHECKOV_RULES: RuleEntry[] = [
     serviceTypes: ["storageAccount"],
     message: "Storage Account default network action should be Deny.",
     longExplanation:
-      "Checkov CKV_AZURE_4 requires the Storage Account network ACL `defaultAction` to be `Deny` so that only explicitly allowed networks or private endpoints can reach the account. Bunya models this as `allowPublicAccess: false`.",
+      "Checkov CKV_AZURE_4 requires the Storage Account network ACL `defaultAction` to be `Deny` so that only explicitly allowed networks or private endpoints can reach the account. Bunya models this as public network access turned off.",
     tags: ["checkov", "network", "storage", "public-access"],
-    predicate: (n) => getProp<boolean>(n, "allowPublicAccess") === true,
+    predicate: (n) => storagePublicNetwork(n.properties),
   }),
 
   // 5. CKV_AZURE_5 — SQL Defender enabled (advisory)
@@ -257,9 +258,9 @@ export const CHECKOV_RULES: RuleEntry[] = [
     message:
       "Storage Account network rules should default to Deny (public access disabled).",
     longExplanation:
-      "Checkov CKV_AZURE_35 enforces a default Deny network ACL on Storage Accounts so any access must come from explicitly allowed virtual networks, IP ranges, or private endpoints. Bunya models this as `allowPublicAccess: false`.",
+      "Checkov CKV_AZURE_35 enforces a default Deny network ACL on Storage Accounts so any access must come from explicitly allowed virtual networks, IP ranges, or private endpoints. Bunya models this as public network access turned off.",
     tags: ["checkov", "network", "storage"],
-    predicate: (n) => getProp<boolean>(n, "allowPublicAccess") === true,
+    predicate: (n) => storagePublicNetwork(n.properties),
   }),
 
   // 17. CKV_AZURE_36 — Storage trusted services bypass (advisory)

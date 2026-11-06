@@ -69,7 +69,7 @@ export const POLICY_ALIGNMENTS: PolicyAlignment[] = [
   {
     policyDefinitionId: "b2982f36-99f2-4db5-8eff-283140c09693",
     serviceTypes: ["storageAccount"],
-    // Bunya's allowPublicAccess flag is emitted as publicNetworkAccess; the
+    // Bunya's public network setting is emitted as publicNetworkAccess; the
     // generators do not emit networkAcls.defaultAction, so the "restrict
     // network access" built-in (CIS 4.7) is deliberately not mapped.
     ruleIds: ["AZPOL.STG.PUBLIC-ACCESS", "PSRULE.STORAGE.FIREWALL", "CHECKOV.AZURE.4", "CHECKOV.AZURE.35"],

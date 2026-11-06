@@ -4,6 +4,7 @@
 // not edit individual rules here — re-run the generator if you need to refresh
 // the set.
 import { graphRule, nodeRule } from "@/lib/rules/builders";
+import { storagePublicNetwork } from "@/lib/catalogue/services";
 import type { RuleEntry } from "@/lib/rules/schema";
 
 const AZURE_POLICY_DOCS =
@@ -55,9 +56,9 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
     serviceTypes: ["storageAccount"],
     message: "Storage Account must disable public network access.",
     longExplanation:
-      "Azure Policy built-in *Storage accounts should disable public network access* requires `publicNetworkAccess` to be `Disabled`. Bunya models the equivalent flag as `allowPublicAccess`.",
+      "Azure Policy built-in *Storage accounts should disable public network access* requires `publicNetworkAccess` to be `Disabled`.",
     tags: ["azure-policy", "storage", "public-access"],
-    predicate: (n) => getProp<boolean>(n, "allowPublicAccess") === true,
+    predicate: (n) => storagePublicNetwork(n.properties),
   }),
 
   // 3. AZPOL.STG.MIN-TLS — Storage accounts should have the specified minimum TLS version (1.2)

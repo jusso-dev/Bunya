@@ -9,6 +9,7 @@
 import { graphRule, nodeRule, nodesOfType } from "@/lib/rules/builders";
 import type { RuleEntry } from "@/lib/rules/schema";
 import type { GraphDocument, GraphNode } from "@/lib/graph/schema";
+import { siteRegistry } from "@/lib/graph/topology";
 
 const FUNCTIONS_SCALE_SOURCE = {
   name: "Microsoft Learn — Azure Functions hosting options and scale",
@@ -137,6 +138,38 @@ export const expansionAppServicePlanRules: RuleEntry[] = [
             message: `${c.type} runtime '${runtime}' requires a Linux plan, but the attached plan os is '${os}'.`,
           });
         }
+      }
+      return findings;
+    },
+  }),
+
+  // BUNYA.IDN.PULL-SYSTEM-IDENTITY-FIRST-DEPLOY
+  //   A system-assigned identity exists only once the app does, so its
+  //   AcrPull grant lands after the first image pull.
+  graphRule({
+    id: "BUNYA.IDN.PULL-SYSTEM-IDENTITY-FIRST-DEPLOY",
+    source: {
+      name: "Microsoft Learn — Use managed identity to pull images from Azure Container Registry",
+      license: "CC-BY-4.0",
+      url: "https://learn.microsoft.com/en-us/azure/app-service/configure-custom-container#use-managed-identity-to-pull-image-from-azure-container-registry",
+    },
+    category: "identity",
+    severity: "warning",
+    message: "The app pulls its image with its system-assigned identity, so the first pull after a new deployment can fail until the app restarts.",
+    longExplanation:
+      "A system-assigned identity is created with the app, so the AcrPull role assignment that lets it pull can only be made after the app exists, and it can take a few minutes to apply. Azure tries the first image pull straight away, so a brand new app often fails to start until it is restarted. Use a user-assigned identity for the pull (Bunya grants its AcrPull before creating the app), or restart the app once after the first deployment.",
+    tags: ["bunya", "acr", "managed-identity", "containers"],
+    predicate: (graph: GraphDocument) => {
+      const findings: Array<{ nodeIds?: string[]; message?: string }> = [];
+      for (const site of [...nodesOfType(graph, "appService"), ...nodesOfType(graph, "functionApp")]) {
+        const registry = siteRegistry(graph, site);
+        if (!registry) continue;
+        const direct = graph.edges.some((edge) => edge.source === site.id && edge.target === registry.id && edge.kind === "identity");
+        if (!direct) continue;
+        findings.push({
+          nodeIds: [site.id, registry.id],
+          message: `${site.resourceName} pulls from ${registry.resourceName} with its system-assigned identity; the first pull after creation can fail until the app restarts. Pull with a user-assigned identity to avoid this.`,
+        });
       }
       return findings;
     },

@@ -63,13 +63,23 @@ function graphFixture(
 
 describe("rules-engine runtime", () => {
   it("does not confuse anonymous access, public networking and HTTPS", () => {
-    const graph = graphFixture([testNode("storage", "storageAccount", { allowPublicAccess: true }), testNode("pe", "privateEndpoint")], [
+    const graph = graphFixture([testNode("storage", "storageAccount", { allowPublicAccess: true, publicNetworkAccess: true }), testNode("pe", "privateEndpoint")], [
       { id: "pe-edge", source: "pe", target: "storage", kind: "network" },
     ]);
     const findings = runRules(graph, TEST_ENTRIES);
     expect(findingsForRule(findings, "PSRULE.STORAGE.FIREWALL")).toHaveLength(1);
     expect(findingsForRule(findings, "PSRULE.STORAGE.SECURETRANSFER")[0]?.severity).toBe("info");
     expect(TEST_ENTRIES.some((entry) => entry.rule.id === "BUNYA.NET.002")).toBe(false);
+
+    // Anonymous blob access and the public network endpoint are separate settings.
+    const anonymousOnly = graphFixture([testNode("storage", "storageAccount", { allowPublicAccess: true, publicNetworkAccess: false })]);
+    const anonymousFindings = runRules(anonymousOnly, TEST_ENTRIES);
+    expect(findingsForRule(anonymousFindings, "PSRULE.STORAGE.BLOBPUBLICACCESS")).toHaveLength(1);
+    expect(findingsForRule(anonymousFindings, "PSRULE.STORAGE.FIREWALL")).toHaveLength(0);
+    const networkOnly = graphFixture([testNode("storage", "storageAccount", { allowPublicAccess: false, publicNetworkAccess: true })]);
+    const networkFindings = runRules(networkOnly, TEST_ENTRIES);
+    expect(findingsForRule(networkFindings, "PSRULE.STORAGE.BLOBPUBLICACCESS")).toHaveLength(0);
+    expect(findingsForRule(networkFindings, "AZPOL.STG.PUBLIC-ACCESS")).toHaveLength(1);
   });
 
   it("requires the complete TCP gateway management port range", () => {

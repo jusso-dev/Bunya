@@ -42,6 +42,15 @@ project follows [Conventional Commits](https://www.conventionalcommits.org/).
   Apps are exported on the isolated model. New
   `BUNYA.COST.PLAN-LINUX-CONSUMPTION-RETIRING` warns that Linux Consumption
   retires on 30 September 2028.
+- Storage Accounts have separate settings for anonymous blob access and the
+  public network endpoint, which one flag used to control. Saved diagrams keep
+  their meaning. Function Apps must be able to reach their storage: either its
+  public endpoint is open, or the app is VNet-integrated into a VNet with a
+  blob Private Endpoint to it.
+- Flex runtime versions are exported in the form Azure expects (`22-lts` as
+  `22`, .NET `8` as `8.0`). Imports only match a pull identity that the
+  reference names. A warning rule explains first pulls with a system-assigned
+  identity.
 - The az CLI and PowerShell exports deploy the included ARM template in one
   step for these hosting models, because the CLIs create them in several
   separately-failing (some preview-only) steps.

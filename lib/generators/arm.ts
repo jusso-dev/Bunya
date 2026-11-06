@@ -12,6 +12,7 @@ import { expr, planBody, siteBody, toArm, type Refs } from "./shared/site-resour
 import { siteHosting } from "./shared/hosting";
 import { ROLE_DEFINITION_IDS, defaultRoleNameFor } from "./shared/roles";
 import { subnetDelegations } from "@/lib/graph/topology";
+import { storagePublicNetwork } from "@/lib/catalogue/services";
 
 type ArmResource = {
   type: string;
@@ -481,7 +482,7 @@ function emitStorage(node: GraphNode, ctx: GeneratorContext): ArmResource {
     properties: {
       minimumTlsVersion: `TLS1_${tls.split(".")[1]}`,
       allowBlobPublicAccess: allowPublic,
-      publicNetworkAccess: allowPublic ? "Enabled" : "Disabled",
+      publicNetworkAccess: storagePublicNetwork(node.properties) ? "Enabled" : "Disabled",
       supportsHttpsTrafficOnly: true,
     },
     tags: tags(ctx, node),

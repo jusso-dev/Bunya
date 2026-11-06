@@ -100,6 +100,11 @@ exports[`estimateCost > snapshots line-item structure for the full-stack fixture
     },
     {
       "monthly": 0,
+      "service": "Subnet",
+      "sku": "child",
+    },
+    {
+      "monthly": 0,
       "service": "User-Assigned Identity",
       "sku": "identity",
     },

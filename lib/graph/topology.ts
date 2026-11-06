@@ -1,5 +1,6 @@
 import type { GraphDocument, GraphNode, ServiceType } from "./schema";
 import { parseContainerImage, planFamily } from "@/lib/catalogue/app-service-plans";
+import { storagePublicNetwork } from "@/lib/catalogue/services";
 
 // Azure placement rules Bunya can draw. A Virtual Network holds only subnets
 // (VNet-injected services join a subnet through a network edge), an App
@@ -102,9 +103,29 @@ const FLEX_RUNTIME_VERSIONS: Record<string, readonly string[]> = {
   python: ["3.10", "3.11", "3.12", "3.13", "3.14"],
 };
 
-function normaliseVersion(runtime: string, version: string): string {
+// Canonical Flex runtime version: "22-lts" -> "22", .NET "8" -> "8.0".
+// Exporters emit this same value, so validation and output always agree.
+export function flexRuntimeVersion(runtime: string, version: string): string {
   const trimmed = version.trim().replace(/-lts$/i, "");
   return runtime === "dotnet" && /^\d+$/.test(trimmed) ? `${trimmed}.0` : trimmed;
+}
+
+// Function Apps reach their storage account through the public endpoint
+// unless the app is VNet-integrated into a VNet holding a blob Private
+// Endpoint to that account.
+function storageReachable(document: GraphDocument, site: GraphNode, storage: GraphNode): boolean {
+  if (storagePublicNetwork(storage.properties)) return true;
+  const subnet = siteIntegrationSubnet(document, site);
+  const appVnet = subnet ? subnetVirtualNetwork(document, subnet) : undefined;
+  if (!appVnet) return false;
+  const byId = new Map(document.nodes.map((node) => [node.id, node]));
+  return document.nodes.some((pe) => {
+    if (pe.type !== "privateEndpoint" || (pe.properties.groupId ?? "blob") !== "blob") return false;
+    const targets = document.edges.filter((edge) => edge.source === pe.id && edge.kind === "network").map((edge) => byId.get(edge.target));
+    if (!targets.some((target) => target?.id === storage.id)) return false;
+    const peSubnet = targets.find((target) => target?.type === "subnet");
+    return !!peSubnet && subnetVirtualNetwork(document, peSubnet)?.id === appVnet.id;
+  });
 }
 
 // The registry a site pulls its image from, when that registry is drawn.
@@ -153,10 +174,16 @@ function hostingProblems(document: GraphDocument): TopologyProblem[] {
     if (family === "flex" && site.type === "functionApp") {
       const runtime = String(site.properties.runtime ?? "node");
       const allowed = FLEX_RUNTIME_VERSIONS[runtime] ?? [];
-      const version = normaliseVersion(runtime, String(site.properties.runtimeVersion ?? ""));
+      const version = flexRuntimeVersion(runtime, String(site.properties.runtimeVersion ?? ""));
       if (!allowed.includes(version)) {
         problems.push({ nodeIds: pair, message: `${label(site)} uses ${runtime} ${String(site.properties.runtimeVersion)}, which Flex Consumption does not run; use ${runtime} ${allowed.join(", ")}.` });
       }
+    }
+    const backingStorage = site.type === "functionApp"
+      ? document.edges.filter((edge) => edge.source === site.id && edge.kind === "data").map((edge) => byId.get(edge.target)).find((target) => target?.type === "storageAccount")
+      : undefined;
+    if (backingStorage && !storageReachable(document, site, backingStorage)) {
+      problems.push({ nodeIds: [site.id, backingStorage.id], message: `${label(site)} cannot reach ${label(backingStorage)}: its public network access is off and the app has no VNet integration into a VNet with a blob Private Endpoint to it. Turn public network access on, or integrate the app and add the Private Endpoint.` });
     }
     if (family === "flex" && site.type === "functionApp" && !document.edges.some((edge) => edge.source === site.id && edge.kind === "data" && byId.get(edge.target)?.type === "storageAccount")) {
       problems.push({ nodeIds: pair, message: `${label(site)} runs on Flex Consumption, which deploys packages from a storage account; draw a data edge from the app to the Storage Account it should use.` });
