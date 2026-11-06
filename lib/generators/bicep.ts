@@ -12,7 +12,7 @@ import { GeneratedFile, GeneratorResult } from "./types";
 import { expr, planBody, siteBody, toBicep, type Refs } from "./shared/site-resource";
 import { roleAssignmentsFor } from "./shared/roles";
 import { contentShareName } from "./shared/hosting";
-import { subnetDelegations } from "@/lib/graph/topology";
+import { privateEndpointTarget, subnetDelegations } from "@/lib/graph/topology";
 import { storagePublicNetwork } from "@/lib/catalogue/services";
 
 function bicepIdent(raw: string): string {
@@ -157,10 +157,8 @@ function emitPrivateEndpoint(node: GraphNode, ctx: GeneratorContext): string {
     (e) => ctx.nodesById.get(e.target)?.type === "subnet",
   );
   const subnetIdent = subnetEdge ? nodeRef(ctx, subnetEdge.target) : "mainSubnet";
-  const targetEdge = outgoingOf(ctx, node.id, "network").find(
-    (e) => ctx.nodesById.get(e.target)?.type !== "subnet",
-  );
-  const targetIdent = targetEdge ? nodeRef(ctx, targetEdge.target) : "targetService";
+  const target = privateEndpointTarget(ctx.document, node);
+  const targetIdent = target ? nodeRef(ctx, target.id) : "targetService";
   const groupId = (node.properties.groupId as string) ?? "blob";
   return [
     autoComment(ctx, node.id, "//"),

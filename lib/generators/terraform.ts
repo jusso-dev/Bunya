@@ -16,7 +16,7 @@ import {
 import { GeneratorResult, GeneratedFile } from "./types";
 import { contentShareName, siteHosting, type SiteHosting } from "./shared/hosting";
 import { roleAssignmentsFor } from "./shared/roles";
-import { subnetDelegations } from "@/lib/graph/topology";
+import { privateEndpointTarget, subnetDelegations } from "@/lib/graph/topology";
 import { storagePublicNetwork } from "@/lib/catalogue/services";
 import { planFamily } from "@/lib/catalogue/app-service-plans";
 
@@ -125,11 +125,7 @@ function emitPrivateEndpoint(node: GraphNode, ctx: GeneratorContext): string {
   const subnetId = subnetEdge
     ? `azurerm_subnet.${ctx.identifiers.get(subnetEdge.target)}.id`
     : `azurerm_subnet.main.id`;
-  const targetEdge = outgoingOf(ctx, node.id, "network").find((e) => {
-    const t = ctx.nodesById.get(e.target);
-    return t && t.type !== "subnet";
-  });
-  const target = targetEdge ? ctx.nodesById.get(targetEdge.target) : undefined;
+  const target = privateEndpointTarget(ctx.document, node);
   let targetId = "null";
   if (target) {
     const map: Partial<Record<ServiceType, string>> = {

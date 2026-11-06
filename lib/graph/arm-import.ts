@@ -440,7 +440,9 @@ function baseProperties(type: ServiceType, resource: FlatArmResource, allResourc
         ...defaults,
         roleDefinitionName,
         principalType: asString(props.principalType) ?? defaults.principalType,
-        scope: asString((resource.raw as { scope?: unknown }).scope) ?? defaults.scope,
+        // The scope is drawn as an identity edge; keep only a literal label
+        // here, never a template expression such as [resourceId(...)].
+        scope: ((value) => (value && !value.trim().startsWith("[") ? value : defaults.scope))(asString((resource.raw as { scope?: unknown }).scope)),
       };
     }
     case "containerRegistry":
@@ -473,11 +475,19 @@ function baseProperties(type: ServiceType, resource: FlatArmResource, allResourc
           .map((capability) => asString(asRecord(capability).name))
           .filter((name): name is string => !!name),
       };
+    case "privateEndpoint": {
+      const connection = asRecord(asArray(props.privateLinkServiceConnections ?? props.manualPrivateLinkServiceConnections)[0]);
+      const groupId = asString(asArray(asRecord(connection.properties).groupIds)[0]);
+      return {
+        ...defaults,
+        ...(groupId ? { groupId } : {}),
+        manualApproval: asArray(props.manualPrivateLinkServiceConnections).length > 0,
+      };
+    }
     case "frontDoor":
     case "applicationGateway":
     case "apiManagement":
     case "networkSecurityGroup":
-    case "privateEndpoint":
     case "userAssignedIdentity":
     default:
       warnings.push(`${def.label} ${resource.name}: ARM configuration is not mapped; Bunya defaults were used.`);
@@ -812,8 +822,13 @@ function inferEdges(resources: ImportedResource[], allResources: FlatArmResource
     inferRoleAssignmentEdges(edges, item, resources);
     inferAlertEdges(edges, item, resources);
     inferAppInsightsEdges(edges, item, resources, allResources);
-    for (const dep of asArray(flat.raw.dependsOn)) {
-      addEdge(edges, node, findReferencedNode(dep, resources), "depends_on");
+    // A role assignment's dependsOn is deployment ordering for the principal
+    // and scope, already drawn as identity edges; a depends_on edge back to
+    // the principal would form a cycle.
+    if (node.type !== "roleAssignment") {
+      for (const dep of asArray(flat.raw.dependsOn)) {
+        addEdge(edges, node, findReferencedNode(dep, resources), "depends_on");
+      }
     }
     if (node.type === "subnet" && flat.fullName.includes("/")) {
       const parentName = flat.fullName.split("/")[0];
@@ -1105,8 +1120,10 @@ export function parseArmTemplate(text: string): ArmImportResult {
   }
 
   // Portal exports write regions as display names, e.g. "Australia East".
+  // expandReferences has already turned [parameters('location')] into
+  // ['australiaeast']; strip the expression wrapper and quotes.
   const locations = known
-    .map((r) => resolveString(r.flat.raw.location, parameters, variables)?.toLowerCase().replace(/\s+/g, ""))
+    .map((r) => resolveString(r.flat.raw.location, parameters, variables)?.toLowerCase().replace(/^\[\s*'(.*)'\s*\]$/, "$1").replace(/\s+/g, ""))
     .filter((value): value is string => !!value && value !== "global");
   const location = locations.find((value) => AZURE_REGIONS.includes(value as never));
   const otherLocations = [...new Set(locations.filter((value) => value !== location))];

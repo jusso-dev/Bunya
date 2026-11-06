@@ -47,6 +47,27 @@ export function subnetVirtualNetwork(document: GraphDocument, subnet: GraphNode)
     .find((target) => target?.type === "virtualNetwork");
 }
 
+// Services a Private Endpoint can connect to (catalogue privateEndpoint
+// targets other than its subnet and DNS zones).
+export const PRIVATE_LINK_TARGETS: ReadonlySet<ServiceType> = new Set([
+  "storageAccount",
+  "keyVault",
+  "sqlDatabase",
+  "cosmosDb",
+  "containerRegistry",
+  "appService",
+  "functionApp",
+]);
+
+// The service a Private Endpoint connects to, whatever order its edges were drawn in.
+export function privateEndpointTarget(document: GraphDocument, pe: GraphNode): GraphNode | undefined {
+  const byId = new Map(document.nodes.map((node) => [node.id, node]));
+  return document.edges
+    .filter((edge) => edge.source === pe.id && edge.kind === "network")
+    .map((edge) => byId.get(edge.target))
+    .find((target): target is GraphNode => !!target && PRIVATE_LINK_TARGETS.has(target.type));
+}
+
 export function isSite(node: GraphNode | undefined): boolean {
   return node?.type === "appService" || node?.type === "functionApp";
 }

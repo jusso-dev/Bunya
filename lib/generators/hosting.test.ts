@@ -7,6 +7,7 @@ import { generatePowerShell } from "./powershell";
 import { generateTerraform } from "./terraform";
 import { topologyProblems } from "@/lib/graph/topology";
 import { runRules } from "@/lib/rules/runtime";
+import { parseArmTemplate } from "@/lib/graph/arm-import";
 import type { GeneratorResult } from "./types";
 
 function file(result: GeneratorResult, path: string): string {
@@ -370,5 +371,35 @@ describe("App Service hosting exports", () => {
       for (const child of resource.resources ?? []) check(child, key(resource.type, resource.name.split("/")));
     }
     expect(missing).toEqual([]);
+  });
+
+  describe("Private Endpoint target does not depend on edge order", () => {
+    // DNS edge first, then the target, then the subnet.
+    const reordered = {
+      ...hostingGraph,
+      edges: [
+        ...hostingGraph.edges.filter((edge) => edge.id === "pe-dns"),
+        ...hostingGraph.edges.filter((edge) => edge.id === "pe-stg"),
+        ...hostingGraph.edges.filter((edge) => edge.id !== "pe-dns" && edge.id !== "pe-stg"),
+      ],
+    };
+
+    it("connects to the storage account in every format", () => {
+      const pe = (JSON.parse(file(generateArm(reordered), "azuredeploy.json")).resources as Arm[]).find((r) => r.type === "Microsoft.Network/privateEndpoints")!;
+      expect(pe.properties.privateLinkServiceConnections[0].properties.privateLinkServiceId).toContain("Microsoft.Storage/storageAccounts");
+      expect(file(generateBicep(reordered), "main.bicep")).toMatch(/privateLinkServiceId: node_\d+_stflexpriv_resource\.id/);
+      expect(file(generateTerraform(reordered), "main.tf")).toContain("private_connection_resource_id = azurerm_storage_account.stflexpriv.id");
+    });
+
+    it("survives an ARM import and re-export", () => {
+      const imported = parseArmTemplate(file(generateArm(hostingGraph), "azuredeploy.json"));
+      if (!imported.ok) throw new Error(imported.reason);
+      expect(topologyProblems(imported.document)).toEqual([]);
+      const pe = (JSON.parse(file(generateArm(imported.document), "azuredeploy.json")).resources as Arm[]).find((r) => r.type === "Microsoft.Network/privateEndpoints")!;
+      expect(pe.properties.privateLinkServiceConnections[0].properties.privateLinkServiceId).toContain("Microsoft.Storage/storageAccounts");
+      const main = file(generateTerraform(imported.document), "main.tf");
+      expect(main).toMatch(/private_connection_resource_id = azurerm_storage_account\.\w+\.id/);
+      expect(main).not.toContain("private_connection_resource_id = null");
+    });
   });
 });

@@ -2,7 +2,7 @@ import { graphRule, nodeRule } from "@/lib/rules/builders";
 import { storagePublicNetwork } from "@/lib/catalogue/services";
 import type { RuleEntry } from "@/lib/rules/schema";
 import type { GraphDocument } from "@/lib/graph/schema";
-import { topologyProblems } from "@/lib/graph/topology";
+import { PRIVATE_LINK_TARGETS, topologyProblems } from "@/lib/graph/topology";
 
 const MS_LEARN = "Microsoft Learn";
 
@@ -308,12 +308,13 @@ export const networkRules: RuleEntry[] = [
       // For every target, collect (peId, groupId)
       const byTarget = new Map<string, Array<{ peId: string; groupId: string | undefined }>>();
       for (const pe of pes) {
+        // Only the Private Link target counts; subnets and DNS zones are shared.
         const targets = graph.edges
           .filter((e) => e.source === pe.id && e.kind === "network")
           .map((e) => e.target)
           .filter((tid) => {
             const tgt = graph.nodes.find((n) => n.id === tid);
-            return tgt && tgt.type !== "subnet";
+            return !!tgt && PRIVATE_LINK_TARGETS.has(tgt.type);
           });
         for (const tid of targets) {
           const list = byTarget.get(tid) ?? [];

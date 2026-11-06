@@ -11,6 +11,7 @@ import {
 } from "./shared/context";
 import { GeneratorResult } from "./types";
 import { needsTemplateDeployment } from "./shared/hosting";
+import { privateEndpointTarget } from "@/lib/graph/topology";
 import { storagePublicNetwork } from "@/lib/catalogue/services";
 
 function rgName(ctx: GeneratorContext, node?: GraphNode): string {
@@ -59,11 +60,9 @@ function emit(node: GraphNode, ctx: GeneratorContext): string[] {
       const subnet = subnetEdge ? ctx.nodesById.get(subnetEdge.target) : undefined;
       const vnet = subnet ? resolveVirtualNetwork(ctx, subnet) : null;
       const vnetName = vnet ? ctx.resourceNames.get(vnet.id)! : "main-vnet";
-      const targetEdge = outgoingOf(ctx, node.id, "network").find(
-        (e) => ctx.nodesById.get(e.target)?.type !== "subnet",
-      );
-      const targetName = targetEdge ? ctx.resourceNames.get(targetEdge.target)! : "target";
-      const targetType = targetEdge ? ctx.nodesById.get(targetEdge.target)!.type : "storageAccount";
+      const target = privateEndpointTarget(ctx.document, node);
+      const targetName = target ? ctx.resourceNames.get(target.id)! : "target";
+      const targetType = target ? target.type : "storageAccount";
       const map: Partial<Record<ServiceType, string>> = {
         storageAccount: "Microsoft.Storage/storageAccounts",
         keyVault: "Microsoft.KeyVault/vaults",

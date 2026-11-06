@@ -56,7 +56,11 @@ project follows [Conventional Commits](https://www.conventionalcommits.org/).
   servers, which ARM import now reads back; the shell exports deploy the ARM
   template when either is drawn. ARM Private Endpoints, DNS zone groups and
   VNet links declare their dependencies, and Function Apps on private storage
-  wait for its endpoints.
+  wait for its endpoints. Every exporter picks a Private Endpoint's target
+  service by type, so a DNS zone edge drawn first is never used as the target.
+  Re-importing Bunya's own ARM export round-trips: endpoint group IDs are read,
+  role assignment dependencies no longer form a cycle, and the location
+  parameter is resolved.
 - Flex runtime versions are exported in the form Azure expects (`22-lts` as
   `22`, .NET `8` as `8.0`). Imports only match a pull identity that the
   reference names as a whole word (`id-pull` never matches `id-pull-external`). A warning rule explains first pulls with a system-assigned

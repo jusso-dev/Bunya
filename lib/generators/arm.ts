@@ -11,7 +11,7 @@ import { GeneratedFile, GeneratorResult } from "./types";
 import { expr, planBody, siteBody, toArm, type Refs } from "./shared/site-resource";
 import { contentShareName, siteHosting } from "./shared/hosting";
 import { ROLE_DEFINITION_IDS, defaultRoleNameFor } from "./shared/roles";
-import { subnetDelegations } from "@/lib/graph/topology";
+import { privateEndpointTarget, subnetDelegations } from "@/lib/graph/topology";
 import { storagePublicNetwork } from "@/lib/catalogue/services";
 
 type ArmResource = {
@@ -147,15 +147,10 @@ function emitPrivateEndpoint(node: GraphNode, ctx: GeneratorContext): ArmResourc
   const subnetEdge = outgoingOf(ctx, node.id, "network").find(
     (e) => ctx.nodesById.get(e.target)?.type === "subnet",
   );
-  // The service the endpoint connects to (not its subnet or DNS zones).
-  const targetEdge = outgoingOf(ctx, node.id, "network").find(
-    (e) => ctx.nodesById.get(e.target)?.type !== "subnet" && ctx.nodesById.get(e.target)?.type !== "privateDnsZone",
-  );
+  const target = privateEndpointTarget(ctx.document, node);
   const groupId = (node.properties.groupId as string) ?? "blob";
   const subnetId = subnetArmId(ctx, subnetEdge?.target);
-  const targetId = targetEdge
-    ? armResourceId(ctx.nodesById.get(targetEdge.target)!, ctx)
-    : null;
+  const targetId = target ? armResourceId(target, ctx) : null;
   const dnsEdges = outgoingOf(ctx, node.id, "network").filter(
     (e) => ctx.nodesById.get(e.target)?.type === "privateDnsZone",
   );
