@@ -5,6 +5,9 @@ import { test, expect } from "@playwright/test";
 const FIXTURES = join(__dirname, "fixtures", "arm");
 const templates = readdirSync(FIXTURES).filter((name) => name.endsWith(".json"));
 
+// Wide enough that the Output panel starts open (it collapses below 1440px).
+test.use({ viewport: { width: 1600, height: 1000 } });
+
 for (const name of templates) {
   test(`imports the ${name.replace(/\.json$/, "")} quickstart and generates every output`, async ({ page }) => {
     const errors: string[] = [];
@@ -24,15 +27,14 @@ for (const name of templates) {
     await expect.poll(() => page.locator(".react-flow__node").count()).toBeGreaterThan(4);
     await expect(page.getByRole("button", { name: /Import notes/ })).toBeVisible();
 
-    // Every output tab renders either generated code or Bunya's explanation
-    // of why it cannot generate this diagram, never a crash.
-    await page.getByRole("button", { name: "Output" }).first().click();
-    const tabs = page.getByRole("tab");
-    const count = await tabs.count();
-    expect(count).toBeGreaterThan(5);
-    for (let index = 0; index < count; index++) {
-      await tabs.nth(index).click();
-      await expect(page.getByRole("tabpanel")).not.toBeEmpty();
+    // Every output renders either generated code or Bunya's explanation of
+    // why it cannot generate this diagram, never a crash.
+    const output = page.locator("section.editor-output");
+    for (const label of ["Terraform", "Bicep", "ARM", "az CLI", "PowerShell", "Azure Policy", "Mermaid", "README", "Cost"]) {
+      const tab = output.getByRole("button", { name: label, exact: true });
+      await tab.click();
+      await expect(tab).toHaveAttribute("aria-pressed", "true");
+      await expect(output.locator("pre, [role=alert], table").first()).toBeVisible();
     }
     expect(errors).toEqual([]);
   });
