@@ -8,7 +8,7 @@ import {
   GraphEdge,
   GraphNode,
   emptyGraph,
-} from "./schema";
+} from "@/lib/graph/schema";
 import type { OrganisationRule } from "@/lib/rules/organisation";
 
 type AddNodeInput = Omit<GraphNode, "id">;

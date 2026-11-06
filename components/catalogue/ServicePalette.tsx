@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { listServices, ServiceDefinition } from "@/lib/catalogue/services";
 import { ServiceType } from "@/lib/graph/schema";
-import { COMPACT_LAYOUT_QUERY, useGraphStore } from "@/lib/graph/store";
+import { COMPACT_LAYOUT_QUERY, useGraphStore } from "@/lib/session/store";
 import { CATEGORY_THEME, ServiceIcon } from "@/lib/catalogue/icons";
 import { gridPosition, newNode } from "@/lib/session/new-node";
 import { placeAt } from "@/lib/session/geometry";

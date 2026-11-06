@@ -4,7 +4,7 @@ import { emptyGraph, GraphDocumentSchema } from "./schema";
 import { parseImportText } from "./portable";
 import { deserialiseFromFragment } from "./serialise";
 import { MAX_IMPORT_BYTES } from "./limits";
-import { createGraphStore } from "./store";
+import { createGraphStore } from "@/lib/session/store";
 
 describe("hostile imports", () => {
   it("rejects decompression bombs before parsing", async () => {

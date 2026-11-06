@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { useGraphStore } from "@/lib/graph/store";
+import { useGraphStore } from "@/lib/session/store";
 import { validate, applyAutofix } from "@/lib/rules/runtime";
 import { alignmentLabel, ruleAlignments } from "@/lib/rules/compliance";
 

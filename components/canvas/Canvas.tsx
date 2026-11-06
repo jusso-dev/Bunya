@@ -18,7 +18,7 @@ import ReactFlow, {
   useReactFlow,
 } from "reactflow";
 import "reactflow/dist/style.css";
-import { useGraphStore } from "@/lib/graph/store";
+import { useGraphStore } from "@/lib/session/store";
 import { canConnect } from "@/lib/catalogue/connections";
 import {
   EDGE_KINDS,

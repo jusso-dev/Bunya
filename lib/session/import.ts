@@ -1,6 +1,6 @@
 import { isPortableFile, parseImportText, readFileAsText } from "@/lib/graph/portable";
 import type { GraphDocument } from "@/lib/graph/schema";
-import { useGraphStore } from "@/lib/graph/store";
+import { useGraphStore } from "@/lib/session/store";
 import { useSessionUi } from "./ui";
 
 export type ImportSource = File | { text: string; label: string };

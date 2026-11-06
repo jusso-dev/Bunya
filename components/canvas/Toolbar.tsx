@@ -3,7 +3,7 @@
 import { toast } from "sonner";
 import { importDiagram, ImportNotesDialog } from "@/components/ImportNotes";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useGraphStore } from "@/lib/graph/store";
+import { useGraphStore } from "@/lib/session/store";
 import { STARTER_TEMPLATES, getTemplateById } from "@/lib/catalogue/templates";
 import {
   FRAGMENT_SIZE_WARNING_BYTES,
@@ -22,7 +22,7 @@ import { MAX_IMPORT_BYTES } from "@/lib/graph/limits";
 import { Dialog } from "@/components/Dialog";
 import { downloadBlob } from "@/lib/session/download";
 import { loadDocument } from "@/lib/session/import";
-import { startPersistence } from "@/lib/session/persistence";
+import { startPersistence } from "@/components/persistence";
 import { useSessionUi } from "@/lib/session/ui";
 import { OrganisationRulesPanel } from "./OrganisationRulesPanel";
 

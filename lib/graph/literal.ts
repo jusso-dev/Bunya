@@ -3,7 +3,7 @@
 // unsupported expressions fail visibly rather than changing meaning.
 const literal = /^[\p{L}\p{N} ._/@:+,=*-]*$/u;
 const notLiteral = /[^\p{L}\p{N} ._/@:+,=*-]/gu;
-const MAX_LITERAL = 4096;
+export const MAX_LITERAL = 4096;
 
 // Email properties are validated by the schema and quoted per language, so
 // they may contain characters such as apostrophes that Azure accepts.

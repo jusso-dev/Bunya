@@ -5,7 +5,7 @@ import { useMemo, useRef, useState, type ChangeEvent } from "react";
 import { Dialog } from "@/components/Dialog";
 import { getServiceDefinition } from "@/lib/catalogue/services";
 import { EDGE_KINDS, SERVICE_TYPES, type EdgeKind, type ServiceType } from "@/lib/graph/schema";
-import { useGraphStore } from "@/lib/graph/store";
+import { useGraphStore } from "@/lib/session/store";
 import { readFileAsText } from "@/lib/graph/portable";
 import {
   ORGANISATION_RULES_EXTENSION,

@@ -521,13 +521,17 @@ components/
   properties/PropertiesPanel.tsx    # auto-generated form from Zod schema
 lib/
   graph/schema.ts                   # Zod schemas for GraphDocument/Node/Edge
-  graph/store.ts                    # Zustand store, undo/redo, reparent
+  graph/arm-import.ts               # ARM template import (arm-expressions.ts evaluates template expressions)
+  graph/topology.ts                 # graph queries shared by rules and exporters
   graph/serialise.ts                # gzip + base64url share URL, localStorage
+  session/store.ts                  # Zustand store, undo/redo, reparent
+  session/                          # import flow, node factory, canvas geometry, presets
+  catalogue/azure.ts                # Azure facts: ARM types, private link zones, roles, regions
   catalogue/services.ts             # 26-service catalogue, allowed targets
   catalogue/icons.tsx               # Azure icon assets + category theme
   catalogue/templates.ts            # three starter templates
   catalogue/connections.ts          # canConnect() drag-time validator
-  generators/                       # six generators + Mermaid + README
+  generators/                       # exporters; registry.ts lists every output for the UI and MCP
   rules/                            # rules engine: schema, runtime, sources
     runtime.ts                      # validate(): built-in + organisation rules
     organisation.ts                 # session custom rules + Azure Policy translation

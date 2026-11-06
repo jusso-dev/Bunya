@@ -8,6 +8,10 @@ const STORAGE_KEY = "bunya.document.v1";
 const BACKUP_KEY = "bunya.document.v1.backup";
 const URL_PREFIX = "bunya1:";
 
+export function isShareFragment(fragment: string): boolean {
+  return fragment.startsWith(URL_PREFIX);
+}
+
 function base64UrlEncode(bytes: Uint8Array): string {
   let binary = "";
   for (const b of bytes) binary += String.fromCharCode(b);
@@ -56,7 +60,7 @@ export async function serialiseToFragment(document: GraphDocument): Promise<stri
 }
 
 export async function deserialiseFromFragment(fragment: string): Promise<GraphDocument | null> {
-  if (!fragment.startsWith(URL_PREFIX) || fragment.length > MAX_IMPORT_BYTES) return null;
+  if (!isShareFragment(fragment) || fragment.length > MAX_IMPORT_BYTES) return null;
   const payload = fragment.slice(URL_PREFIX.length);
   try {
     const bytes = base64UrlDecode(payload);

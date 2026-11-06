@@ -2,7 +2,7 @@
 
 import { toast } from "sonner";
 import { Dialog } from "@/components/Dialog";
-import { useGraphStore } from "@/lib/graph/store";
+import { useGraphStore } from "@/lib/session/store";
 import { loadDocument, readImport, type ImportSource } from "@/lib/session/import";
 import { useSessionUi } from "@/lib/session/ui";
 

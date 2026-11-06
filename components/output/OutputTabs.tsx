@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { fileStem } from "@/lib/graph/filename";
 import { useMemo, useState } from "react";
 import JSZip from "jszip";
-import { useGraphStore } from "@/lib/graph/store";
+import { useGraphStore } from "@/lib/session/store";
 import { OUTPUTS, bundlePath, type Output, type OutputId } from "@/lib/generators/registry";
 import { GeneratedFile, GeneratorResult } from "@/lib/generators/types";
 import type { GraphDocument } from "@/lib/graph/schema";

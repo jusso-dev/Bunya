@@ -1,17 +1,17 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useGraphStore } from "@/lib/graph/store";
+import { useGraphStore } from "@/lib/session/store";
 import { getServiceDefinition } from "@/lib/catalogue/services";
 import { describeObjectSchema, FieldDescriptor } from "@/lib/catalogue/introspect";
 import { AZURE_REGIONS, GraphDocumentSchema, GraphNode } from "@/lib/graph/schema";
 import { FILENAME_STEM_MAX } from "@/lib/graph/filename";
+import { MAX_LITERAL } from "@/lib/graph/literal";
 
 // The document name becomes the stem of every download's file name.
 const DOCUMENT_NAME_MAX = FILENAME_STEM_MAX;
 const NODE_NAME_MAX = 80;
-// TODO(untangle): use the exported literal length limit from lib/graph/literal (MAX_LITERAL is not exported)
-const PROPERTY_TEXT_MAX = 4096;
+const PROPERTY_TEXT_MAX = MAX_LITERAL;
 const ENVIRONMENTS = GraphDocumentSchema.shape.metadata.shape.environment.options;
 
 export function PropertiesPanel() {

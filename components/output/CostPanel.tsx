@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import type { GraphDocument } from "@/lib/graph/schema";
 import { estimateCost, formatMoney } from "@/lib/pricing/estimate";
 import { DEFAULT_FX_AUD_PER_USD, type Currency, clampFxRate } from "@/lib/pricing/data";
-import { useGraphStore } from "@/lib/graph/store";
+import { useGraphStore } from "@/lib/session/store";
 
 export function CostPanel({ document }: { document: GraphDocument }) {
   const [currency, setCurrency] = useState<Currency>("AUD");

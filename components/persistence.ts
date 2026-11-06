@@ -1,8 +1,8 @@
 import { toast } from "sonner";
-import { deserialiseFromFragment, loadStoredDocument, saveToLocalStorage, type StoredLoad } from "@/lib/graph/serialise";
-import { FX_RATE_STORAGE_KEY, useGraphStore } from "@/lib/graph/store";
+import { deserialiseFromFragment, isShareFragment, loadStoredDocument, saveToLocalStorage, type StoredLoad } from "@/lib/graph/serialise";
+import { FX_RATE_STORAGE_KEY, useGraphStore } from "@/lib/session/store";
 import { buildOrganisationRulesEnvelope, parseOrganisationRulesText, type OrganisationRule } from "@/lib/rules/organisation";
-import { useSessionUi } from "./ui";
+import { useSessionUi } from "@/lib/session/ui";
 
 const ORGANISATION_RULES_STORAGE_KEY = "bunya.organisationRules";
 const SAVE_DELAY_MS = 250;
@@ -31,9 +31,8 @@ function saveOrganisationRules(rules: OrganisationRule[]): void {
 // browser, and restores the saved exchange rate and organisation rules.
 async function restore(isStopped: () => boolean): Promise<void> {
   const graph = useGraphStore.getState();
-  // TODO(untangle): use isShareFragment from lib/graph/serialise (its URL_PREFIX is private)
   const fragment = window.location.hash.slice(1);
-  const isShareLink = fragment.startsWith("bunya1:");
+  const isShareLink = isShareFragment(fragment);
   const shared = isShareLink ? await deserialiseFromFragment(fragment) : null;
   if (isStopped()) return;
   const stored = loadStoredDocument();
