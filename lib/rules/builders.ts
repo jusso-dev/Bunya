@@ -8,7 +8,6 @@ import {
   RuleSource,
   Severity,
 } from "./schema";
-import { armTypeOf } from "./mapping";
 
 export type NodeRuleInput = {
   id: string;
@@ -30,7 +29,7 @@ export function nodeRule(input: NodeRuleInput): RuleEntry {
     source: input.source,
     category: input.category,
     severity: input.severity,
-    appliesTo: input.serviceTypes.map(armTypeOf),
+    appliesTo: input.serviceTypes,
     message: input.message,
     longExplanation: input.longExplanation,
     tags: input.tags,
@@ -63,9 +62,7 @@ export type GraphRuleInput = {
 };
 
 export function graphRule(input: GraphRuleInput): RuleEntry {
-  const appliesTo = input.appliesToServices
-    ? ["graph", ...input.appliesToServices.map(armTypeOf)]
-    : ["graph"];
+  const appliesTo: Rule["appliesTo"] = ["graph", ...(input.appliesToServices ?? [])];
   const rule: Rule = {
     id: input.id,
     source: input.source,

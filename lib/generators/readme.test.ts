@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { generateReadme } from "./readme";
-import { firstCutGraph } from "./__fixtures__/firstCut";
+import { firstCutGraph } from "@/lib/graph/__fixtures__/firstCut";
 
 describe("generateReadme", () => {
   it("snapshots README output and includes mermaid block", () => {

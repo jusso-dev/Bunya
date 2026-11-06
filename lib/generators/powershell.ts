@@ -1,4 +1,4 @@
-import { generatePrivateDeployment } from "./shared/private-deployment";
+import { generatePrivateDeployment } from "./shell-template";
 import { validateGeneration } from "./shared/validate";
 import { GraphDocument, GraphNode } from "@/lib/graph/schema";
 import {

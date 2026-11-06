@@ -2,6 +2,7 @@ import { validateGeneration } from "./shared/validate";
 import { buildGeneratorContext } from "./shared/context";
 import { GeneratedFile, GeneratorResult } from "./types";
 import type { GraphDocument, ServiceType } from "@/lib/graph/schema";
+import { AUSTRALIAN_REGIONS } from "@/lib/catalogue/azure";
 import {
   COMPLIANCE_FRAMEWORKS,
   POLICY_DEFINITION_PREFIX,
@@ -17,9 +18,6 @@ import {
 // Deny is a deliberate, reviewed change.
 const AUDIT_EFFECTS = ["Audit", "AuditIfNotExists"];
 
-// The regions BUNYA.SOV.001 and PSRULE.RESOURCE.ALLOWEDREGIONS accept, so the
-// exported "Allowed locations" guardrail checks the same thing.
-const AUSTRALIAN_REGIONS = ["australiacentral", "australiacentral2", "australiaeast", "australiasoutheast"];
 
 type PolicyReference = {
   policyDefinitionReferenceId: string;

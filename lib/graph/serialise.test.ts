@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { firstCutGraph } from "@/lib/generators/__fixtures__/firstCut";
+import { firstCutGraph } from "@/lib/graph/__fixtures__/firstCut";
 import { serialiseToFragment, deserialiseFromFragment } from "./serialise";
 
 describe("serialise", () => {

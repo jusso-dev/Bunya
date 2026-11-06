@@ -21,7 +21,8 @@ import { generateReadme } from "../lib/generators/readme";
 import { generateAzurePolicy } from "../lib/generators/azure-policy";
 import { generateTerraform } from "../lib/generators/terraform";
 import type { GeneratedFile, GeneratorResult } from "../lib/generators/types";
-import { runValidation, type Finding } from "../lib/validation/runner";
+import { validate } from "../lib/rules/runtime";
+import type { Finding } from "../lib/rules/schema";
 
 const environmentSchema = z.enum(["dev", "test", "prod"]);
 const regionSchema = z.enum([
@@ -235,7 +236,7 @@ export async function diagramViewUrl(document: GraphDocument, appUrl?: string): 
 }
 
 export function validationSummary(document: GraphDocument): Finding[] {
-  return runValidation(migrate(document));
+  return validate(migrate(document));
 }
 
 const generators: Record<Exclude<ExportTarget, "all">, (document: GraphDocument) => GeneratorResult> = {

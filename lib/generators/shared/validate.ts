@@ -4,40 +4,11 @@ import { GraphDocumentSchema, type GraphDocument } from "../../graph/schema";
 import { checkImportText, checkObjectDepth } from "../../graph/limits";
 import { topologyProblems } from "../../graph/topology";
 import { expandImplicits } from "./implicits";
+import { assertExportLiterals } from "../../graph/literal";
 
-// These exporters emit literal deployment values, never user-provided code.
-// Keep one conservative literal grammar across Bash, PowerShell, HCL, Bicep
-// and ARM; unsupported expressions fail visibly rather than changing meaning.
-const literal = /^[\p{L}\p{N} ._/@:+,=*-]*$/u;
-
-// True when exporters can emit the string as a plain literal.
-export function isExportLiteral(value: string): boolean {
-  return literal.test(value) && value.length <= 4096;
-}
-
-// Replaces characters exporters cannot emit with "-".
-export function toExportLiteral(value: string): string {
-  return value.replace(/[^\p{L}\p{N} ._/@:+,=*-]/gu, "-").slice(0, 4096);
-}
 // Display names reach only diagrams and docs, never deployment code, so they
 // may also use parentheses, e.g. the catalogue label "Web App (App Service)".
 const displayName = /^[\p{L}\p{N} ._/@:+,=*()-]*$/u;
-
-// Email properties are validated by the schema and quoted per language, so
-// they may contain characters such as apostrophes that Azure accepts.
-const EMAIL_KEYS = new Set(["email", "publisherEmail"]);
-
-function checkLiteral(value: unknown, path: string): void {
-  if (typeof value === "string" && (!literal.test(value) || value.length > 4096)) {
-    throw new Error(`${path} contains unsupported code syntax. Use plain literal values without quotes, control characters or expressions.`);
-  }
-  if (Array.isArray(value)) value.forEach((item, index) => checkLiteral(item, `${path}[${index}]`));
-  else if (value && typeof value === "object") for (const [key, item] of Object.entries(value)) {
-    checkLiteral(key, `${path} key`);
-    if (EMAIL_KEYS.has(key) && typeof item === "string") continue;
-    checkLiteral(item, `${path}.${key}`);
-  }
-}
 
 // Schema errors arrive as JSON issue lists; turn them into sentences.
 function readableError(error: unknown): string {
@@ -59,7 +30,7 @@ export function validateGeneration(document: GraphDocument, deployment = true): 
     checkObjectDepth(document);
     const parsed = GraphDocumentSchema.parse(document);
     // Metadata names also seed implicit resource names and executable comments.
-    checkLiteral(parsed.metadata, "Document");
+    assertExportLiterals(parsed.metadata, "Document");
     if (!/^[A-Za-z0-9_.-]+$/.test(parsed.metadata.resourceGroupName)) throw new Error("Resource group name must use letters, numbers, dots, underscores or hyphens.");
     for (const node of parsed.nodes) {
       if (!displayName.test(node.name) || node.name.length > 4096) throw new Error(`${node.name.slice(0, 80)}: display name contains unsupported characters. Use letters, numbers, spaces and basic punctuation.`);
@@ -70,7 +41,7 @@ export function validateGeneration(document: GraphDocument, deployment = true): 
         if (!tags || typeof tags !== "object" || Array.isArray(tags) || Object.values(tags).some((value) => typeof value !== "string")) throw new Error(`Node ${node.id}: tags must be a string map.`);
         properties.tags = tags;
       }
-      checkLiteral(properties, `${node.name} "${node.resourceName}"`);
+      assertExportLiterals(properties, `${node.name} "${node.resourceName}"`);
       if (deployment && node.type === "networkSecurityGroup" && (
         properties.defaultDeny !== false || (properties.inboundRules as unknown[]).length > 0 ||
         (properties.outboundRules as unknown[]).length > 0 || parsed.edges.some((edge) => edge.source === node.id || edge.target === node.id)

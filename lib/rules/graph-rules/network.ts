@@ -2,25 +2,14 @@ import { graphRule, nodeRule } from "@/lib/rules/builders";
 import { storagePublicNetwork } from "@/lib/catalogue/services";
 import type { RuleEntry } from "@/lib/rules/schema";
 import type { GraphDocument } from "@/lib/graph/schema";
-import { PRIVATE_LINK_TARGETS, topologyProblems } from "@/lib/graph/topology";
+import { topologyProblems } from "@/lib/graph/topology";
+import { PRIVATE_LINK_TARGETS, privateDnsZoneFor } from "@/lib/catalogue/azure";
 
 const MS_LEARN = "Microsoft Learn";
 
 function getProp<T = unknown>(node: { properties: Record<string, unknown> }, key: string): T | undefined {
   return node.properties[key] as T | undefined;
 }
-
-const PRIVATE_DNS_ZONE_BY_GROUP_ID: Record<string, string> = {
-  blob: "privatelink.blob.core.windows.net",
-  file: "privatelink.file.core.windows.net",
-  queue: "privatelink.queue.core.windows.net",
-  table: "privatelink.table.core.windows.net",
-  vault: "privatelink.vaultcore.azure.net",
-  registry: "privatelink.azurecr.io",
-  sites: "privatelink.azurewebsites.net",
-  sqlServer: "privatelink.database.windows.net",
-  Sql: "privatelink.documents.azure.com",
-};
 
 function publicNetworkDisabled(node: { properties: Record<string, unknown> }): boolean {
   const pna = getProp<boolean | string>(node, "publicNetworkAccess");
@@ -360,7 +349,7 @@ export const networkRules: RuleEntry[] = [
       const findings: ReturnType<Parameters<typeof graphRule>[0]["predicate"]> = [];
       for (const pe of graph.nodes.filter((n) => n.type === "privateEndpoint")) {
         const groupId = getProp<string>(pe, "groupId") ?? "blob";
-        const expectedZone = PRIVATE_DNS_ZONE_BY_GROUP_ID[groupId];
+        const expectedZone = privateDnsZoneFor(groupId);
         const subnetId = graph.edges.find((e) => {
           if (e.source !== pe.id || e.kind !== "network") return false;
           return graph.nodes.find((n) => n.id === e.target)?.type === "subnet";

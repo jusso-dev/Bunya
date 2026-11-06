@@ -10,7 +10,7 @@ import {
 import { GeneratedFile, GeneratorResult } from "./types";
 import { expr, planBody, siteBody, toArm, type Refs } from "./shared/site-resource";
 import { contentShareName, siteHosting } from "./shared/hosting";
-import { ROLE_DEFINITION_IDS, defaultRoleNameFor } from "./shared/roles";
+import { ROLE_DEFINITION_IDS, edgeRoleFor, type RoleName } from "@/lib/catalogue/azure";
 import { privateEndpointTarget, subnetDelegations } from "@/lib/graph/topology";
 import { storagePublicNetwork } from "@/lib/catalogue/services";
 
@@ -794,7 +794,7 @@ function emitRoleAssignmentNode(node: GraphNode, ctx: GeneratorContext): ArmReso
     .map((edge) => ctx.nodesById.get(edge.target))
     .find((target): target is GraphNode => !!target);
   if (!principal || !scope) return null;
-  const roleName = (node.properties.roleDefinitionName as string) ?? defaultRoleNameFor(scope);
+  const roleName = node.properties.roleDefinitionName as RoleName;
   const principalId = principalIdExpression(principal, ctx);
   if (!principalId) return null;
   return {
@@ -804,7 +804,7 @@ function emitRoleAssignmentNode(node: GraphNode, ctx: GeneratorContext): ArmReso
     name: `[guid(${armResourceId(scope, ctx).slice(1, -1)}, '${resourceName(ctx, principal.id)}', '${roleName}')]`,
     properties: {
       roleDefinitionId:
-        `[subscriptionResourceId('Microsoft.Authorization/roleDefinitions','${ROLE_DEFINITION_IDS[roleName] ?? ROLE_DEFINITION_IDS.Reader}')]`,
+        `[subscriptionResourceId('Microsoft.Authorization/roleDefinitions','${ROLE_DEFINITION_IDS[roleName]}')]`,
       principalId,
       principalType: "ServicePrincipal",
     },
@@ -824,7 +824,7 @@ function emitRoleAssignments(ctx: GeneratorContext): ArmResource[] {
     if (target.type === "userAssignedIdentity") continue;
     const principalId = principalIdExpression(source, ctx);
     if (!principalId) continue;
-    const roleName = defaultRoleNameFor(target);
+    const roleName = edgeRoleFor(target.type);
     out.push({
       type: "Microsoft.Authorization/roleAssignments",
       apiVersion: "2022-04-01",
@@ -832,7 +832,7 @@ function emitRoleAssignments(ctx: GeneratorContext): ArmResource[] {
       name: `[guid(${armResourceId(target, ctx).slice(1, -1)}, '${resourceName(ctx, source.id)}', '${roleName}')]`,
       properties: {
         roleDefinitionId:
-          `[subscriptionResourceId('Microsoft.Authorization/roleDefinitions','${ROLE_DEFINITION_IDS[roleName] ?? ROLE_DEFINITION_IDS.Reader}')]`,
+          `[subscriptionResourceId('Microsoft.Authorization/roleDefinitions','${ROLE_DEFINITION_IDS[roleName]}')]`,
         principalId,
         principalType: "ServicePrincipal",
       },

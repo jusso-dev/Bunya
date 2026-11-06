@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { canConnect } from "./connections";
-import { firstCutGraph } from "@/lib/generators/__fixtures__/firstCut";
-import { fullStackGraph } from "@/lib/generators/__fixtures__/fullStack";
+import { firstCutGraph } from "@/lib/graph/__fixtures__/firstCut";
+import { fullStackGraph } from "@/lib/graph/__fixtures__/fullStack";
 
 describe("canConnect", () => {
   it("rejects self-connections", () => {

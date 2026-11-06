@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { estimateCost, formatMoney } from "./estimate";
-import { firstCutGraph } from "@/lib/generators/__fixtures__/firstCut";
-import { fullStackGraph } from "@/lib/generators/__fixtures__/fullStack";
-import { noSqlGraph } from "@/lib/generators/__fixtures__/noSql";
+import { firstCutGraph } from "@/lib/graph/__fixtures__/firstCut";
+import { fullStackGraph } from "@/lib/graph/__fixtures__/fullStack";
+import { noSqlGraph } from "@/lib/graph/__fixtures__/noSql";
 import { STARTER_TEMPLATES } from "@/lib/catalogue/templates";
 
 describe("estimateCost", () => {

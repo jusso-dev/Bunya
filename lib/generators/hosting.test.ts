@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hostingGraph } from "./__fixtures__/hosting";
+import { hostingGraph } from "@/lib/graph/__fixtures__/hosting";
 import { generateArm } from "./arm";
 import { generateAzCli } from "./azcli";
 import { generateBicep } from "./bicep";

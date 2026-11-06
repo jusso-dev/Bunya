@@ -6,7 +6,7 @@
  *      and `longExplanation`.
  *   2. Rule `id`s are unique.
  *   3. Every `appliesTo` entry is either the literal `"graph"` or a known
- *      ARM type from `lib/rules/mapping.ts` `allArmTypes()`.
+ *      service type from `lib/graph/schema.ts` `SERVICE_TYPES`.
  *   4. Every rule has at least one tag.
  *   5. The total registry count is >= 100.
  *
@@ -14,7 +14,7 @@
  * file is also runnable directly (`pnpm rules:verify`) via tsx.
  */
 import { fileURLToPath } from "node:url";
-import { allArmTypes } from "@/lib/rules/mapping";
+import { SERVICE_TYPES } from "@/lib/graph/schema";
 import type { Rule, RuleEntry } from "@/lib/rules/schema";
 import { loadRegistry } from "./loadRegistry";
 
@@ -37,7 +37,7 @@ function isParseableUrl(value: string): boolean {
 function verifyRules(rules: RuleEntry[]): string[] {
   const errors: string[] = [];
   const seen = new Map<string, number>();
-  const armTypes = new Set<string>(allArmTypes());
+  const serviceTypes = new Set<string>(SERVICE_TYPES);
 
   for (const [index, entry] of rules.entries()) {
     const rule: Rule = entry.rule;
@@ -77,8 +77,8 @@ function verifyRules(rules: RuleEntry[]): string[] {
     } else {
       for (const target of rule.appliesTo) {
         if (target === "graph") continue;
-        if (!armTypes.has(target)) {
-          errors.push(`${ctx}: appliesTo entry "${target}" is not a known ARM type`);
+        if (!serviceTypes.has(target)) {
+          errors.push(`${ctx}: appliesTo entry "${target}" is not a known service type`);
         }
       }
     }

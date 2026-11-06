@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { useGraphStore } from "@/lib/graph/store";
-import { runValidation, applyAutofix } from "@/lib/validation/runner";
+import { validate, applyAutofix } from "@/lib/rules/runtime";
 import { alignmentLabel, ruleAlignments } from "@/lib/rules/compliance";
 
 const SEVERITY_STYLE: Record<string, string> = {
@@ -18,7 +18,7 @@ export function ValidationPanel() {
   const replaceDocument = useGraphStore((s) => s.replaceDocument);
   const organisationRules = useGraphStore((s) => s.organisationRules);
 
-  const findings = useMemo(() => runValidation(document, organisationRules), [document, organisationRules]);
+  const findings = useMemo(() => validate(document, organisationRules), [document, organisationRules]);
 
   if (findings.length === 0) {
     return (

@@ -804,7 +804,7 @@ describe("parseArmTemplate", () => {
   });
 
   it("round-trips VNet custom DNS servers through export and import", async () => {
-    const { hostingGraph } = await import("@/lib/generators/__fixtures__/hosting");
+    const { hostingGraph } = await import("@/lib/graph/__fixtures__/hosting");
     const { generateArm } = await import("@/lib/generators/arm");
     const custom = {
       ...hostingGraph,
@@ -818,7 +818,7 @@ describe("parseArmTemplate", () => {
   });
 
   it("keeps globally unique names when re-importing an export", async () => {
-    const { hostingGraph } = await import("@/lib/generators/__fixtures__/hosting");
+    const { hostingGraph } = await import("@/lib/graph/__fixtures__/hosting");
     const { generateArm } = await import("@/lib/generators/arm");
     const names = (template: string) =>
       (JSON.parse(template).resources as { type: string; name: string }[])

@@ -16,7 +16,7 @@
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { allArmTypes, serviceTypeOf } from "@/lib/rules/mapping";
+import { SERVICE_TYPES } from "@/lib/graph/schema";
 import {
   COMPLIANCE_FRAMEWORKS,
   POLICY_METADATA_SOURCE,
@@ -74,14 +74,7 @@ function countByService(rules: RuleEntry[]): Counts {
   for (const entry of rules) {
     const rule = entry.rule;
     const services = new Set<string>();
-    for (const target of rule.appliesTo) {
-      if (target === "graph") {
-        services.add("graph");
-        continue;
-      }
-      const svc = serviceTypeOf(target);
-      services.add(svc ?? target);
-    }
+    for (const target of rule.appliesTo) services.add(target);
     for (const svc of services) increment(counts, svc);
   }
   return counts;
@@ -264,7 +257,7 @@ function renderCoverage(
 ): string {
   const allServices = new Set<string>([
     "graph",
-    ...allArmTypes().map((arm) => serviceTypeOf(arm) ?? arm),
+    ...SERVICE_TYPES,
   ]);
   // Ensure every known service appears in the table (with 0 if missing) so
   // gap analysis is meaningful even when a service has no rules.

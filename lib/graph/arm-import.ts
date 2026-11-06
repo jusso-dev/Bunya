@@ -1,5 +1,5 @@
 import { checkImportText, checkObjectDepth } from "./limits";
-import { isExportLiteral, toExportLiteral } from "@/lib/generators/shared/validate";
+import { toExportLiterals } from "./literal";
 import { getServiceDefinition } from "@/lib/catalogue/services";
 import type {
   EdgeKind,
@@ -9,7 +9,7 @@ import type {
   ServiceType,
 } from "@/lib/graph/schema";
 import { AZURE_REGIONS, DEFAULT_CONTAINER_SIZE, isContainerType } from "@/lib/graph/schema";
-import { serviceTypeOf } from "@/lib/rules/mapping";
+import { GRANT_PRINCIPALS, GRANT_SCOPES, edgeRoleFor, roleNameForId, serviceTypeOfArm } from "@/lib/catalogue/azure";
 import { APP_SERVICE_PLAN_SKUS, CONTAINER_IMAGE_PATTERN, parseContainerImage, planFamily } from "@/lib/catalogue/app-service-plans";
 import { sitePlan } from "@/lib/graph/topology";
 
@@ -172,14 +172,7 @@ function flattenResources(
 }
 
 function serviceTypeFor(resource: FlatArmResource): ServiceType | null {
-  const lower = resource.type.toLowerCase();
-  // Individual functions inside a Function App are app content, not resources.
-  if (lower === "microsoft.web/sites/functions") return null;
-  if (lower === "microsoft.web/sites") {
-    const kind = asString(resource.raw.kind)?.toLowerCase() ?? "";
-    return kind.includes("functionapp") ? "functionApp" : "appService";
-  }
-  return serviceTypeOf(resource.type);
+  return serviceTypeOfArm(resource.type, asString(resource.raw.kind));
 }
 
 const LINUX_FX_RUNTIMES: Record<string, string> = {
@@ -437,15 +430,7 @@ function baseProperties(type: ServiceType, resource: FlatArmResource, allResourc
           defaults.email,
       };
     case "roleAssignment": {
-      const roleId = asString(props.roleDefinitionId)?.toLowerCase() ?? "";
-      const roleDefinitionName =
-        roleId.includes("7f951dda-4ed3-4680-a7ca-43fe172d538d")
-          ? "AcrPull"
-          : roleId.includes("4633458b-17de-408a-b874-0445c86b69e6")
-            ? "Key Vault Secrets User"
-            : roleId.includes("ba92f5b4-2d11-453d-a403-e96b0029c9fe")
-              ? "Storage Blob Data Contributor"
-              : defaults.roleDefinitionName;
+      const roleDefinitionName = roleNameForId(asString(props.roleDefinitionId) ?? "") ?? defaults.roleDefinitionName;
       return {
         ...defaults,
         roleDefinitionName,
@@ -537,33 +522,11 @@ function baseProperties(type: ServiceType, resource: FlatArmResource, allResourc
   }
 }
 
-// Exporters only emit plain literal strings (no quotes, ampersands or
-// expressions). Replace other characters at import and say so, instead of
-// letting every export fail later.
-function exportableStrings(value: unknown, path: string, changes: string[]): unknown {
-  if (typeof value === "string") {
-    if (isExportLiteral(value)) return value;
-    const next = toExportLiteral(value);
-    changes.push(`${path} "${value.slice(0, 60)}" became "${next.slice(0, 60)}"`);
-    return next;
-  }
-  if (Array.isArray(value)) return value.map((item, index) => exportableStrings(item, `${path}[${index}]`, changes));
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value).map(([key, item]) => {
-        if ((key === "email" || key === "publisherEmail") && typeof item === "string") return [key, item];
-        const safeKey = isExportLiteral(key) ? key : toExportLiteral(key);
-        if (safeKey !== key) changes.push(`${path} key "${key.slice(0, 60)}" became "${safeKey.slice(0, 60)}"`);
-        return [safeKey, exportableStrings(item, `${path}.${safeKey}`, changes)];
-      }),
-    );
-  }
-  return value;
-}
-
+// Exporters only emit plain literal strings, so replace other characters at
+// import and say so, instead of letting every export fail later.
 function validatedProperties(type: ServiceType, resource: FlatArmResource, properties: Record<string, unknown>, warnings: string[]): Record<string, unknown> {
-  const changes: string[] = [];
-  const safe = exportableStrings(properties, "setting", changes) as Record<string, unknown>;
+  const { value: safe, changes: changed } = toExportLiterals(properties, "setting");
+  const changes = changed.map((change) => `${change.path} "${change.from.slice(0, 60)}" became "${change.to.slice(0, 60)}"`);
   if (changes.length > 0) {
     warnings.push(`${getServiceDefinition(type).label} ${resource.name}: replaced characters exports cannot write (such as & ' ! #) with "-": ${changes.slice(0, 5).join("; ")}${changes.length > 5 ? `; and ${changes.length - 5} more` : ""}.`);
   }
@@ -793,14 +756,6 @@ function inferSiteSubnetEdge(
   }
 }
 
-// Exporters grant these roles from a principal -> scope identity edge, so an
-// imported assignment of one of them is drawn as that edge, not as a node.
-const EDGE_GRANTED_ROLES: Record<string, ServiceType> = {
-  AcrPull: "containerRegistry",
-  "Key Vault Secrets User": "keyVault",
-  "Storage Blob Data Contributor": "storageAccount",
-};
-
 // Replaces principal -> Role Assignment -> scope with principal -> scope when
 // the role is exactly the one exporters grant for that edge, so re-importing
 // an export does not grant the role twice.
@@ -815,11 +770,11 @@ function collapseEdgeGrantedRoles(
     if (node.type !== "roleAssignment") continue;
     const principals = edges.filter((edge) => edge.target === node.id && edge.kind === "identity").map((edge) => byId.get(edge.source));
     const scopes = edges.filter((edge) => edge.source === node.id && edge.kind === "identity").map((edge) => byId.get(edge.target));
-    const scopeType = EDGE_GRANTED_ROLES[String(node.properties.roleDefinitionName)];
-    if (principals.length !== 1 || scopes.length !== 1 || !principals[0] || !scopes[0] || scopes[0].type !== scopeType) continue;
-    // Only principals whose identity edges the exporters turn into grants
-    // (lib/generators/shared/roles.ts); AKS and VMSS keep the explicit node.
-    if (!["appService", "functionApp", "userAssignedIdentity"].includes(principals[0].type)) continue;
+    if (principals.length !== 1 || scopes.length !== 1 || !principals[0] || !scopes[0]) continue;
+    // Only grants exporters write from a principal -> scope identity edge; AKS
+    // and VMSS principals keep the explicit node.
+    if (!GRANT_PRINCIPALS.has(principals[0].type) || !GRANT_SCOPES.has(scopes[0].type)) continue;
+    if (node.properties.roleDefinitionName !== edgeRoleFor(scopes[0].type)) continue;
     removed.add(node.id);
     extra.push({ id: `${node.id}-grant`, source: principals[0].id, target: scopes[0].id, kind: "identity" });
   }

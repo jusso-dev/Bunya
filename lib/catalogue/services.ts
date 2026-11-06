@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { EdgeKind, ServiceType, AzureRegion } from "@/lib/graph/schema";
+import { AzureRegionSchema, EdgeKind, ServiceType } from "@/lib/graph/schema";
+import { PRIVATE_DNS_ZONES, PRIVATE_LINK_GROUP_IDS, ROLE_NAMES } from "./azure";
 import { APP_SERVICE_PLAN_SKUS, CONTAINER_IMAGE_PATTERN } from "./app-service-plans";
 
 export type ServiceCategory =
@@ -28,15 +29,8 @@ export type ServiceDefinition = {
   icon: string;
 };
 
-const region = z.enum([
-  "australiaeast",
-  "australiasoutheast",
-  "australiacentral",
-  "australiacentral2",
-] satisfies readonly AzureRegion[]);
-
 export const resourceGroupSchema = z.object({
-  region: region.default("australiaeast"),
+  region: AzureRegionSchema.default("australiaeast"),
   tags: z.record(z.string(), z.string()).default({}),
 });
 
@@ -72,34 +66,12 @@ export const nsgSchema = z.object({
 });
 
 export const privateEndpointSchema = z.object({
-  groupId: z.enum([
-    "blob",
-    "file",
-    "queue",
-    "table",
-    "sqlServer",
-    "vault",
-    "sites",
-    "registry",
-    "Sql",
-  ]).default("blob"),
+  groupId: z.enum(PRIVATE_LINK_GROUP_IDS).default("blob"),
   manualApproval: z.boolean().default(false),
 });
 
 export const privateDnsZoneSchema = z.object({
-  zoneName: z
-    .enum([
-      "privatelink.blob.core.windows.net",
-      "privatelink.file.core.windows.net",
-      "privatelink.queue.core.windows.net",
-      "privatelink.table.core.windows.net",
-      "privatelink.vaultcore.azure.net",
-      "privatelink.azurecr.io",
-      "privatelink.azurewebsites.net",
-      "privatelink.database.windows.net",
-      "privatelink.documents.azure.com",
-    ])
-    .default("privatelink.blob.core.windows.net"),
+  zoneName: z.enum(PRIVATE_DNS_ZONES).default("privatelink.blob.core.windows.net"),
   linkedToVnet: z.boolean().default(true),
 });
 
@@ -276,17 +248,7 @@ export const userAssignedIdentitySchema = z.object({
 });
 
 export const roleAssignmentSchema = z.object({
-  roleDefinitionName: z
-    .enum([
-      "AcrPull",
-      "Key Vault Secrets User",
-      "Storage Blob Data Contributor",
-      "Storage Queue Data Contributor",
-      "Monitoring Metrics Publisher",
-      "Reader",
-      "Contributor",
-    ])
-    .default("Reader"),
+  roleDefinitionName: z.enum(ROLE_NAMES).default("Reader"),
   scope: z.string().default("target resource"),
   principalType: z.enum(["ServicePrincipal", "ManagedIdentity"]).default("ServicePrincipal"),
 });

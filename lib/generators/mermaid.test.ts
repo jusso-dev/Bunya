@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { generateMermaid } from "./mermaid";
-import { firstCutGraph } from "./__fixtures__/firstCut";
-import { fullStackGraph } from "./__fixtures__/fullStack";
+import { firstCutGraph } from "@/lib/graph/__fixtures__/firstCut";
+import { fullStackGraph } from "@/lib/graph/__fixtures__/fullStack";
 
 describe("generateMermaid", () => {
   it("snapshots first-cut mermaid diagram", () => {

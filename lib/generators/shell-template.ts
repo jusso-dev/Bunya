@@ -1,6 +1,6 @@
-import type { GraphDocument } from "../../graph/schema";
-import { generateArm } from "../arm";
-import type { GeneratorResult } from "../types";
+import type { GraphDocument } from "@/lib/graph/schema";
+import { generateArm } from "./arm";
+import type { GeneratorResult } from "./types";
 
 // Some high-level create commands cannot disable public ingress atomically.
 // Use the same reviewed ARM template instead of creating a public resource and

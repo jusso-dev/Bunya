@@ -1,5 +1,5 @@
 import { GraphDocument, EdgeKind, ServiceType } from "@/lib/graph/schema";
-import { topologicalSort } from "@/lib/generators/shared/ordering";
+import { topologicalSort } from "@/lib/graph/ordering";
 import { getServiceDefinition, isEdgeKindAllowed, inferDefaultEdgeKind } from "./services";
 
 export type ConnectionResult =

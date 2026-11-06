@@ -4,8 +4,8 @@ import { generateBicep } from "./bicep";
 import { generateArm } from "./arm";
 import { generateAzCli } from "./azcli";
 import { generatePowerShell } from "./powershell";
-import { noSqlGraph } from "./__fixtures__/noSql";
-import { firstCutGraph } from "./__fixtures__/firstCut";
+import { noSqlGraph } from "@/lib/graph/__fixtures__/noSql";
+import { firstCutGraph } from "@/lib/graph/__fixtures__/firstCut";
 
 describe("conditional SQL admin password", () => {
   it("Terraform omits sql_admin_password variable when no sqlDatabase nodes", () => {

@@ -1,6 +1,7 @@
 import type { GraphDocument, GraphNode, ServiceType } from "./schema";
 import { parseContainerImage, planFamily } from "@/lib/catalogue/app-service-plans";
 import { storagePublicNetwork } from "@/lib/catalogue/services";
+import { PRIVATE_LINK_TARGETS, privateDnsZoneFor } from "@/lib/catalogue/azure";
 
 // Azure placement rules Bunya can draw. A Virtual Network holds only subnets
 // (VNet-injected services join a subnet through a network edge), an App
@@ -49,17 +50,6 @@ export function subnetVirtualNetwork(document: GraphDocument, subnet: GraphNode)
     .find((target) => target?.type === "virtualNetwork");
 }
 
-// Services a Private Endpoint can connect to (catalogue privateEndpoint
-// targets other than its subnet and DNS zones).
-export const PRIVATE_LINK_TARGETS: ReadonlySet<ServiceType> = new Set([
-  "storageAccount",
-  "keyVault",
-  "sqlDatabase",
-  "cosmosDb",
-  "containerRegistry",
-  "appService",
-  "functionApp",
-]);
 
 // The service a Private Endpoint connects to, whatever order its edges were drawn in.
 export function privateEndpointTarget(document: GraphDocument, pe: GraphNode): GraphNode | undefined {
@@ -145,20 +135,13 @@ export function requiredStorageEndpoints(sku: unknown): string[] {
   return ["blob", "table"];
 }
 
-const STORAGE_DNS_ZONES: Record<string, string> = {
-  blob: "privatelink.blob.core.windows.net",
-  file: "privatelink.file.core.windows.net",
-  queue: "privatelink.queue.core.windows.net",
-  table: "privatelink.table.core.windows.net",
-};
-
 // A Private Endpoint only works when the app resolves the storage hostname to
 // it: its privatelink zone must be attached to the endpoint and linked to the
 // app's VNet. A VNet with custom DNS servers resolves names itself.
 function resolvesPrivately(document: GraphDocument, pe: GraphNode, groupId: string, appVnet: GraphNode): boolean {
   const servers = appVnet.properties.dnsServers;
   if (Array.isArray(servers) && servers.length > 0) return true;
-  const zoneName = STORAGE_DNS_ZONES[groupId];
+  const zoneName = privateDnsZoneFor(groupId);
   const linked = (a: string, b: string) =>
     document.edges.some((edge) => edge.kind === "network" && ((edge.source === a && edge.target === b) || (edge.source === b && edge.target === a)));
   return document.nodes.some(
@@ -252,7 +235,7 @@ function hostingProblems(document: GraphDocument): TopologyProblem[] {
       const missing = needed.filter((groupId) => !present.has(groupId) && !unresolved.has(groupId));
       const noDns = needed.filter((groupId) => unresolved.has(groupId));
       if (noDns.length > 0) {
-        problems.push({ nodeIds: [site.id, backingStorage.id], message: `Bunya cannot see how ${label(site)} resolves ${label(backingStorage)} privately (for example DNS zones in another subscription or a hub VNet): link ${noDns.map((groupId) => STORAGE_DNS_ZONES[groupId]).join(", ")} to its ${noDns.join(", ")} Private Endpoint${noDns.length > 1 ? "s" : ""} and to the app's VNet, or set custom DNS servers on the VNet.`, kind: "bunya" });
+        problems.push({ nodeIds: [site.id, backingStorage.id], message: `Bunya cannot see how ${label(site)} resolves ${label(backingStorage)} privately (for example DNS zones in another subscription or a hub VNet): link ${noDns.map((groupId) => privateDnsZoneFor(groupId)).join(", ")} to its ${noDns.join(", ")} Private Endpoint${noDns.length > 1 ? "s" : ""} and to the app's VNet, or set custom DNS servers on the VNet.`, kind: "bunya" });
       }
       if (missing.length > 0) {
         const how = siteIntegrationSubnet(document, site)

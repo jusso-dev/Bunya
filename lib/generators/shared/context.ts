@@ -7,7 +7,7 @@ import {
 } from "@/lib/graph/schema";
 import { azureResourceName, terraformIdentifier } from "./naming";
 import { expandImplicits, ExpandedGraph } from "./implicits";
-import { topologicalSort, TopoResult } from "./ordering";
+import { topologicalSort, TopoResult } from "@/lib/graph/ordering";
 
 export type GeneratorContext = {
   originalDocument: GraphDocument;

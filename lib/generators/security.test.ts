@@ -11,7 +11,7 @@ import { generateReadme } from "./readme";
 import { generateCostEstimate } from "./cost";
 import type { GeneratorResult } from "./types";
 import { expandImplicits } from "./shared/implicits";
-import { fullStackGraph } from "./__fixtures__/fullStack";
+import { fullStackGraph } from "@/lib/graph/__fixtures__/fullStack";
 
 const deployments = [generateTerraform, generateBicep, generateArm, generateAzCli, generatePowerShell];
 const all = [...deployments, generateMermaid, generateReadme, generateCostEstimate];

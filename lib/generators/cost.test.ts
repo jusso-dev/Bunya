@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { generateCostEstimate } from "./cost";
-import { firstCutGraph } from "./__fixtures__/firstCut";
-import { fullStackGraph } from "./__fixtures__/fullStack";
+import { firstCutGraph } from "@/lib/graph/__fixtures__/firstCut";
+import { fullStackGraph } from "@/lib/graph/__fixtures__/fullStack";
 
 describe("generateCostEstimate", () => {
   it("produces a single cost-estimate.md file", () => {

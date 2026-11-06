@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { generateTerraform } from "./terraform";
-import { firstCutGraph } from "./__fixtures__/firstCut";
-import { fullStackGraph } from "./__fixtures__/fullStack";
+import { firstCutGraph } from "@/lib/graph/__fixtures__/firstCut";
+import { fullStackGraph } from "@/lib/graph/__fixtures__/fullStack";
 
 describe("generateTerraform", () => {
   it("produces a stable file set for the first-cut fixture", () => {
