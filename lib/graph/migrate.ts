@@ -1,5 +1,5 @@
 import { getServiceDefinition } from "../catalogue/services";
-import { GraphDocument, GraphDocumentSchema } from "./schema";
+import { ARM_NODE_ID_PREFIX, GraphDocument, GraphDocumentSchema } from "./schema";
 
 export function migrate(raw: unknown): GraphDocument {
   if (typeof raw !== "object" || raw === null) {
@@ -16,7 +16,7 @@ export function migrate(raw: unknown): GraphDocument {
         // imported account keeps Azure's default (open endpoint); hand-drawn
         // accounts keep what older exports deployed.
         if (node.type === "storageAccount" && typeof node.properties.publicNetworkAccess !== "boolean") {
-          const imported = node.id.startsWith("arm-node-");
+          const imported = node.id.startsWith(ARM_NODE_ID_PREFIX);
           node.properties = { ...node.properties, publicNetworkAccess: imported || node.properties.allowPublicAccess === true };
         }
       }

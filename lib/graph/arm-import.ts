@@ -1,4 +1,4 @@
-import { checkImportText, checkObjectDepth } from "./limits";
+import { parseJsonInput } from "./limits";
 import { toExportLiterals } from "./literal";
 import { getServiceDefinition } from "@/lib/catalogue/services";
 import type {
@@ -8,10 +8,21 @@ import type {
   GraphNode,
   ServiceType,
 } from "@/lib/graph/schema";
-import { AZURE_REGIONS, DEFAULT_CONTAINER_SIZE, isContainerType } from "@/lib/graph/schema";
-import { GRANT_PRINCIPALS, GRANT_SCOPES, edgeRoleFor, roleNameForId, serviceTypeOfArm } from "@/lib/catalogue/azure";
-import { APP_SERVICE_PLAN_SKUS, CONTAINER_IMAGE_PATTERN, parseContainerImage, planFamily } from "@/lib/catalogue/app-service-plans";
-import { sitePlan } from "@/lib/graph/topology";
+import { ARM_NODE_ID_PREFIX, AZURE_REGIONS, DEFAULT_CONTAINER_SIZE, MAX_EDGES, MAX_NODES, nodeSize } from "@/lib/graph/schema";
+import {
+  GRANT_PRINCIPALS,
+  GRANT_SCOPES,
+  SQL_STANDARD_DTUS,
+  SUFFIXED_NAME_TYPES,
+  edgeRoleFor,
+  roleNameForId,
+  runtimeOfLinuxFx,
+  runtimeOfWorker,
+  serviceTypeOfArm,
+  tlsVersionFromArm,
+} from "@/lib/catalogue/azure";
+import { APP_SERVICE_PLAN_SKUS, CONTAINER_IMAGE_PATTERN, isServerlessPlan, parseContainerImage } from "@/lib/catalogue/app-service-plans";
+import { isSite, sitePlan } from "@/lib/graph/topology";
 
 type ArmResource = {
   type?: unknown;
@@ -28,7 +39,11 @@ type ArmResource = {
 };
 
 type FlatArmResource = {
+  // As written: property mapping reads these values.
   raw: ArmResource;
+  // With parameter and variable references replaced by their defaults: edge
+  // inference matches resource names in these.
+  expanded: ArmResource;
   type: string;
   name: string;
   fullName: string;
@@ -37,8 +52,6 @@ type FlatArmResource = {
 };
 
 type ImportedResource = { flat: FlatArmResource; node: GraphNode };
-
-const SERVICE_NODE_SIZE = { width: 220, height: 50 };
 
 export type ArmImportResult =
   | { ok: true; document: GraphDocument; warning?: string }
@@ -131,7 +144,6 @@ function expandReferences(
   return value;
 }
 
-// Exporters accept only letters, numbers, dots, underscores and hyphens.
 function safeResourceName(name: string, fallback: string): string {
   const safe = name.replace(/[^A-Za-z0-9_.-]+/g, "-").replace(/^[-.]+|[-.]+$/g, "");
   return safe || fallback;
@@ -157,6 +169,7 @@ function flattenResources(
     const fullName = parent && !rawName.includes("/") ? `${parent.fullName}/${rawName}` : rawName;
     const flat: FlatArmResource = {
       raw,
+      expanded: expandReferences(raw, parameters, variables) as ArmResource,
       type,
       name: cleanName(rawName, `resource-${index + 1}`),
       fullName,
@@ -175,18 +188,7 @@ function serviceTypeFor(resource: FlatArmResource): ServiceType | null {
   return serviceTypeOfArm(resource.type, asString(resource.raw.kind));
 }
 
-const LINUX_FX_RUNTIMES: Record<string, string> = {
-  NODE: "node",
-  PYTHON: "python",
-  DOTNETCORE: "dotnet",
-  DOTNET: "dotnet",
-  "DOTNET-ISOLATED": "dotnet",
-  JAVA: "java",
-  POWERSHELL: "powershell",
-};
-
 // `siteConfig.linuxFxVersion` is "<RUNTIME>|<VERSION>", e.g. "NODE|18-lts".
-// Keeping the exported runtime lets lifecycle rules see what is deployed.
 function linuxRuntime(
   siteConfig: Record<string, unknown>,
   resourceKind: "app" | "functionapp",
@@ -198,7 +200,7 @@ function linuxRuntime(
   const fx = resolveString(siteConfig.linuxFxVersion, parameters, variables);
   if (!fx) return {};
   const match = /^([A-Za-z-]+)\|(.+)$/.exec(fx.trim());
-  const runtime = match ? LINUX_FX_RUNTIMES[match[1].toUpperCase()] : undefined;
+  const runtime = match ? runtimeOfLinuxFx(match[1]) : undefined;
   if (match?.[1].toUpperCase() === "DOCKER") {
     const image = match[2].trim();
     if (CONTAINER_IMAGE_PATTERN.test(image) && image.length <= 512) return { containerImage: image };
@@ -215,14 +217,6 @@ function linuxRuntime(
   return { runtime, runtimeVersion: match[2].trim() };
 }
 
-const FLEX_RUNTIMES: Record<string, string> = {
-  node: "node",
-  python: "python",
-  java: "java",
-  powershell: "powershell",
-  "dotnet-isolated": "dotnet",
-};
-
 // Flex Consumption apps carry their stack in functionAppConfig, not siteConfig.
 function flexSettings(props: Record<string, unknown>, resourceName: string, warnings: string[]): Record<string, unknown> {
   const config = asRecord(props.functionAppConfig);
@@ -231,8 +225,9 @@ function flexSettings(props: Record<string, unknown>, resourceName: string, warn
   const scale = asRecord(config.scaleAndConcurrency);
   const name = asString(runtime.name)?.toLowerCase();
   const out: Record<string, unknown> = {};
-  if (name && FLEX_RUNTIMES[name]) {
-    out.runtime = FLEX_RUNTIMES[name];
+  const modelled = name ? runtimeOfWorker(name) : undefined;
+  if (modelled) {
+    out.runtime = modelled;
     const version = asString(runtime.version);
     if (version) out.runtimeVersion = version;
   } else if (name) {
@@ -247,12 +242,12 @@ function flexSettings(props: Record<string, unknown>, resourceName: string, warn
 
 // Plans are Linux when `reserved` is true or the kind says so. Portal
 // exports of Windows plans set reserved to false.
-function planOs(resource: FlatArmResource, defaultOs: unknown): unknown {
+function planOs(resource: FlatArmResource): "Linux" | "Windows" | undefined {
   const props = asRecord(resource.raw.properties);
   const kind = asString(resource.raw.kind)?.toLowerCase() ?? "";
   if (props.reserved === true || kind.includes("linux")) return "Linux";
   if (props.reserved === false) return "Windows";
-  return defaultOs;
+  return undefined;
 }
 
 // ARM accepts SKU names in any case ("p1v3", "P1V3"); match the catalogue spelling.
@@ -269,19 +264,21 @@ function sqlDatabaseSku(sku: Record<string, unknown>): string | undefined {
   // Exports split vCore SKUs into name + capacity, e.g. GP_S_Gen5 + 2.
   if (/_Gen\d+$/i.test(name) && capacity !== undefined) return `${name}_${capacity}`;
   // DTU Standard tiers are exported as name "Standard" + DTU capacity.
-  if (name === "Standard" && capacity !== undefined) return ({ 10: "S0", 20: "S1" } as Record<number, string>)[capacity] ?? name;
+  if (name === "Standard" && capacity !== undefined) {
+    return Object.entries(SQL_STANDARD_DTUS).find(([, dtus]) => dtus === capacity)?.[0] ?? name;
+  }
   return name;
 }
 
-function baseProperties(type: ServiceType, resource: FlatArmResource, allResources: FlatArmResource[], parameters: Record<string, unknown>, variables: Record<string, unknown>, warnings: string[]): Record<string, unknown> {
-  const def = getServiceDefinition(type);
+// Settings read from the ARM resource. Anything left undefined takes the
+// catalogue default when the properties schema parses the result.
+function armProperties(type: ServiceType, resource: FlatArmResource, allResources: FlatArmResource[], parameters: Record<string, unknown>, variables: Record<string, unknown>, warnings: string[]): Record<string, unknown> {
   const props = asRecord(resource.raw.properties);
   const sku = asRecord(resource.raw.sku);
   const identity = asRecord(resource.raw.identity);
-  const defaults = { ...def.defaultProperties };
   switch (type) {
     case "resourceGroup":
-      return { ...defaults, tags: asRecord(resource.raw.tags) };
+      return { tags: asRecord(resource.raw.tags) };
     case "virtualNetwork": {
       const addressSpace = asRecord(props.addressSpace);
       const prefixes = asArray(addressSpace.addressPrefixes).filter((v): v is string => typeof v === "string");
@@ -289,8 +286,7 @@ function baseProperties(type: ServiceType, resource: FlatArmResource, allResourc
         .map((server) => resolveString(server, parameters, variables))
         .filter((server): server is string => !!server && /^\d+\.\d+\.\d+\.\d+$/.test(server));
       return {
-        ...defaults,
-        addressSpace: prefixes[0] ?? defaults.addressSpace,
+        addressSpace: prefixes[0],
         // Further ranges are kept so subnets in them still validate.
         ...(prefixes.length > 1 ? { additionalAddressSpaces: prefixes.slice(1) } : {}),
         dnsServers,
@@ -298,27 +294,22 @@ function baseProperties(type: ServiceType, resource: FlatArmResource, allResourc
     }
     case "subnet":
       return {
-        ...defaults,
-        addressPrefix: asString(props.addressPrefix) ?? asString(asArray(props.addressPrefixes)[0]) ?? defaults.addressPrefix,
-        privateEndpointNetworkPolicies:
-          asString(props.privateEndpointNetworkPolicies) ?? defaults.privateEndpointNetworkPolicies,
+        addressPrefix: asString(props.addressPrefix) ?? asString(asArray(props.addressPrefixes)[0]),
+        privateEndpointNetworkPolicies: asString(props.privateEndpointNetworkPolicies),
       };
     case "appServicePlan": {
       const skuName = planSku(asString(sku.name));
-      const family = planFamily(skuName);
       const capacity = asNumber(sku.capacity);
       return {
-        ...defaults,
-        sku: skuName ?? defaults.sku,
-        os: planOs(resource, defaults.os),
+        sku: skuName,
+        os: planOs(resource),
         // Consumption and Flex plans have no fixed workers. A dedicated or
         // Elastic Premium plan reports 0 while stopped; it deploys with 1.
-        capacity: family === "consumption" || family === "flex" ? capacity ?? 0 : Math.max(1, capacity ?? Number(defaults.capacity ?? 1)),
+        capacity: isServerlessPlan(skuName) ? capacity ?? 0 : Math.max(1, capacity ?? 1),
       };
     }
     case "appService":
       return {
-        ...defaults,
         ...linuxRuntime(asRecord(props.siteConfig), "app", resource.name, parameters, variables, warnings),
         httpsOnly: props.httpsOnly !== false,
         alwaysOn: asRecord(props.siteConfig).alwaysOn !== false,
@@ -327,7 +318,6 @@ function baseProperties(type: ServiceType, resource: FlatArmResource, allResourc
       };
     case "functionApp":
       return {
-        ...defaults,
         ...linuxRuntime(asRecord(props.siteConfig), "functionapp", resource.name, parameters, variables, warnings),
         ...flexSettings(props, resource.name, warnings),
         httpsOnly: props.httpsOnly !== false,
@@ -335,19 +325,18 @@ function baseProperties(type: ServiceType, resource: FlatArmResource, allResourc
         vnetIntegration: !!asString(props.virtualNetworkSubnetId),
       };
     case "staticWebApp":
-      return { ...defaults, sku: asString(sku.name) ?? defaults.sku };
+      return { sku: asString(sku.name) };
     case "aksCluster": {
       const pool = asRecord(asArray(props.agentPoolProfiles)[0]);
       const network = asRecord(props.networkProfile);
       const api = asRecord(props.apiServerAccessProfile);
       return {
-        ...defaults,
         kubernetesVersion: asString(props.kubernetesVersion) ?? "",
-        dnsPrefix: asString(props.dnsPrefix) ?? defaults.dnsPrefix,
-        nodeVmSize: asString(pool.vmSize) ?? defaults.nodeVmSize,
-        nodeCount: asNumber(pool.count) ?? defaults.nodeCount,
-        networkPlugin: asString(network.networkPlugin) ?? defaults.networkPlugin,
-        networkPolicy: asString(network.networkPolicy) ?? defaults.networkPolicy,
+        dnsPrefix: asString(props.dnsPrefix),
+        nodeVmSize: asString(pool.vmSize),
+        nodeCount: asNumber(pool.count),
+        networkPlugin: asString(network.networkPlugin),
+        networkPolicy: asString(network.networkPolicy),
         privateCluster: api.enablePrivateCluster === true,
         authorizedIpRanges: asArray(api.authorizedIPRanges).filter((v): v is string => typeof v === "string"),
         managedIdentity: asString(identity.type) !== "None",
@@ -362,32 +351,30 @@ function baseProperties(type: ServiceType, resource: FlatArmResource, allResourc
       const image = asRecord(storage.imageReference);
       const os = asRecord(profile.osProfile);
       return {
-        ...defaults,
-        sku: asString(sku.name) ?? defaults.sku,
-        capacity: asNumber(sku.capacity) ?? defaults.capacity,
-        orchestrationMode: asString(props.orchestrationMode) ?? defaults.orchestrationMode,
-        upgradeMode: asString(asRecord(props.upgradePolicy).mode) ?? defaults.upgradeMode,
-        adminUsername: asString(os.adminUsername) ?? defaults.adminUsername,
-        imagePublisher: asString(image.publisher) ?? defaults.imagePublisher,
-        imageOffer: asString(image.offer) ?? defaults.imageOffer,
-        imageSku: asString(image.sku) ?? defaults.imageSku,
+        sku: asString(sku.name),
+        capacity: asNumber(sku.capacity),
+        orchestrationMode: asString(props.orchestrationMode),
+        upgradeMode: asString(asRecord(props.upgradePolicy).mode),
+        adminUsername: asString(os.adminUsername),
+        imagePublisher: asString(image.publisher),
+        imageOffer: asString(image.offer),
+        imageSku: asString(image.sku),
         automaticRepairs: asRecord(props.automaticRepairsPolicy).enabled !== false,
         availabilityZones: asArray((resource.raw as { zones?: unknown }).zones).filter((v): v is string => typeof v === "string"),
         managedIdentity: asString(identity.type) !== "None",
-        azureMonitorAgent: JSON.stringify(props).toLowerCase().includes("azuremonitorlinuxagent"),
+        azureMonitorAgent: hasMonitorAgent(resource, allResources),
         trustedLaunch:
           asString(asRecord(profile.securityProfile).securityType) === "TrustedLaunch",
       };
     }
     case "storageAccount":
       return {
-        ...defaults,
-        sku: asString(sku.name) ?? defaults.sku,
-        kind: asString(resource.raw.kind) ?? defaults.kind,
+        sku: asString(sku.name),
+        kind: asString(resource.raw.kind),
         allowPublicAccess: props.allowBlobPublicAccess === true,
         // Azure leaves the public endpoint open unless it is disabled.
         publicNetworkAccess: asString(props.publicNetworkAccess) !== "Disabled",
-        minTlsVersion: asString(props.minimumTlsVersion)?.replace("TLS1_", "1.") ?? defaults.minTlsVersion,
+        minTlsVersion: ((value) => value && tlsVersionFromArm(value))(asString(props.minimumTlsVersion)),
         hierarchicalNamespace: props.isHnsEnabled === true,
       };
     case "keyVault": {
@@ -397,53 +384,43 @@ function baseProperties(type: ServiceType, resource: FlatArmResource, allResourc
         warnings.push(`Key Vault ${resource.name} has an unrecognized or unresolved SKU; defaulted to standard.`);
       }
       return {
-        ...defaults,
-        sku: skuName === "standard" || skuName === "premium" ? skuName : defaults.sku,
+        sku: skuName === "standard" || skuName === "premium" ? skuName : undefined,
         purgeProtection: props.enablePurgeProtection !== false,
-        softDeleteRetentionDays: asNumber(props.softDeleteRetentionInDays) ?? defaults.softDeleteRetentionDays,
+        softDeleteRetentionDays: asNumber(props.softDeleteRetentionInDays),
         rbacAuthorization: props.enableRbacAuthorization !== false,
         publicNetworkAccess: asString(props.publicNetworkAccess) !== "Disabled",
       };
     }
     case "applicationInsights":
-      return { ...defaults, type: asString(props.Application_Type) ?? defaults.type };
+      return { type: asString(props.Application_Type) };
     case "logAnalytics":
       return {
-        ...defaults,
-        sku: asString(asRecord(props.sku).name) ?? defaults.sku,
-        retentionDays: asNumber(props.retentionInDays) ?? defaults.retentionDays,
+        sku: asString(asRecord(props.sku).name),
+        retentionDays: asNumber(props.retentionInDays),
       };
     case "privateDnsZone":
-      return { ...defaults, zoneName: resource.name };
+      return { zoneName: resource.name };
     case "monitorAlert":
       return {
-        ...defaults,
         enabled: props.enabled !== false,
-        condition: asString(asArray(asRecord(props.criteria).allOf)[0]) ?? defaults.condition,
+        condition: asString(asArray(asRecord(props.criteria).allOf)[0]),
       };
     case "actionGroup":
       return {
-        ...defaults,
-        shortName: asString(props.groupShortName) ?? defaults.shortName,
-        email:
-          asString(asRecord(asArray(props.emailReceivers)[0]).emailAddress) ??
-          defaults.email,
+        shortName: asString(props.groupShortName),
+        email: asString(asRecord(asArray(props.emailReceivers)[0]).emailAddress),
       };
-    case "roleAssignment": {
-      const roleDefinitionName = roleNameForId(asString(props.roleDefinitionId) ?? "") ?? defaults.roleDefinitionName;
+    case "roleAssignment":
       return {
-        ...defaults,
-        roleDefinitionName,
-        principalType: asString(props.principalType) ?? defaults.principalType,
+        roleDefinitionName: roleNameForId(asString(props.roleDefinitionId) ?? ""),
+        principalType: asString(props.principalType),
         // The scope is drawn as an identity edge; keep only a literal label
         // here, never a template expression such as [resourceId(...)].
-        scope: ((value) => (value && !value.trim().startsWith("[") ? value : defaults.scope))(asString((resource.raw as { scope?: unknown }).scope)),
+        scope: ((value) => (value && !value.trim().startsWith("[") ? value : undefined))(asString((resource.raw as { scope?: unknown }).scope)),
       };
-    }
     case "containerRegistry":
       return {
-        ...defaults,
-        sku: asString(sku.name) ?? defaults.sku,
+        sku: asString(sku.name),
         adminUserEnabled: props.adminUserEnabled === true,
         publicNetworkAccess: asString(props.publicNetworkAccess) !== "Disabled",
       };
@@ -453,17 +430,15 @@ function baseProperties(type: ServiceType, resource: FlatArmResource, allResourc
         (candidate) => candidate.type.toLowerCase() === "microsoft.sql/servers" && candidate.fullName.toLowerCase() === serverName.toLowerCase(),
       );
       return {
-        ...defaults,
-        sku: sqlDatabaseSku(sku) ?? defaults.sku,
-        collation: asString(props.collation) ?? defaults.collation,
+        sku: sqlDatabaseSku(sku),
+        collation: asString(props.collation),
         zoneRedundant: props.zoneRedundant === true,
-        adminLogin: asString(asRecord(server?.raw.properties).administratorLogin) ?? defaults.adminLogin,
+        adminLogin: asString(asRecord(server?.raw.properties).administratorLogin),
       };
     }
     case "cosmosDb":
       return {
-        ...defaults,
-        consistency: asString(asRecord(props.consistencyPolicy).defaultConsistencyLevel) ?? defaults.consistency,
+        consistency: asString(asRecord(props.consistencyPolicy).defaultConsistencyLevel),
         freeTier: props.enableFreeTier === true,
         multiRegionWrites: props.enableMultipleWriteLocations === true,
         capabilities: asArray(props.capabilities)
@@ -474,7 +449,6 @@ function baseProperties(type: ServiceType, resource: FlatArmResource, allResourc
       const connection = asRecord(asArray(props.privateLinkServiceConnections ?? props.manualPrivateLinkServiceConnections)[0]);
       const groupId = asString(asArray(asRecord(connection.properties).groupIds)[0]);
       return {
-        ...defaults,
         ...(groupId ? { groupId } : {}),
         manualApproval: asArray(props.manualPrivateLinkServiceConnections).length > 0,
       };
@@ -504,7 +478,6 @@ function baseProperties(type: ServiceType, resource: FlatArmResource, allResourc
         warnings.push(`Network Security Group ${resource.name}: its ${rules.length} rule${rules.length === 1 ? " is" : "s are"} shown in the inspector, but deployment exports do not emit NSG rules yet, so they stay blocked while the NSG has rules or subnets.`);
       }
       return {
-        ...defaults,
         // Azure's built-in default rules always apply; Bunya's "defaultDeny"
         // means extra deny-all rules, which a portal export does not contain.
         defaultDeny: false,
@@ -517,9 +490,16 @@ function baseProperties(type: ServiceType, resource: FlatArmResource, allResourc
     case "apiManagement":
     case "userAssignedIdentity":
     default:
-      warnings.push(`${def.label} ${resource.name}: ARM configuration is not mapped; Bunya defaults were used.`);
-      return defaults;
+      warnings.push(`${getServiceDefinition(type).label} ${resource.name}: ARM configuration is not mapped; Bunya defaults were used.`);
+      return {};
   }
+}
+
+// The agent is installed as an extension, inline in the scale set's
+// extensionProfile or as a child extensions resource.
+function hasMonitorAgent(resource: FlatArmResource, allResources: FlatArmResource[]): boolean {
+  const text = `${JSON.stringify(resource.expanded.properties ?? {})} ${childResourceText(resource, allResources)}`;
+  return text.toLowerCase().includes("azuremonitorlinuxagent");
 }
 
 // Exporters only emit plain literal strings, so replace other characters at
@@ -527,25 +507,20 @@ function baseProperties(type: ServiceType, resource: FlatArmResource, allResourc
 function validatedProperties(type: ServiceType, resource: FlatArmResource, properties: Record<string, unknown>, warnings: string[]): Record<string, unknown> {
   const { value: safe, changes: changed } = toExportLiterals(properties, "setting");
   const changes = changed.map((change) => `${change.path} "${change.from.slice(0, 60)}" became "${change.to.slice(0, 60)}"`);
-  if (changes.length > 0) {
-    warnings.push(`${getServiceDefinition(type).label} ${resource.name}: replaced characters exports cannot write (such as & ' ! #) with "-": ${changes.slice(0, 5).join("; ")}${changes.length > 5 ? `; and ${changes.length - 5} more` : ""}.`);
-  }
-  return validatedPropertiesInner(type, resource, safe, warnings);
-}
-
-function validatedPropertiesInner(type: ServiceType, resource: FlatArmResource, properties: Record<string, unknown>, warnings: string[]): Record<string, unknown> {
   const definition = getServiceDefinition(type);
-  const result = definition.propertiesSchema.safeParse(properties);
+  if (changes.length > 0) {
+    warnings.push(`${definition.label} ${resource.name}: replaced characters exports cannot write (such as & ' ! #) with "-": ${changes.slice(0, 5).join("; ")}${changes.length > 5 ? `; and ${changes.length - 5} more` : ""}.`);
+  }
+  const result = definition.propertiesSchema.safeParse(safe);
   if (result.success) return result.data as Record<string, unknown>;
 
-  const invalidKeys = new Set(result.error.issues.map((issue) => issue.path[0]).filter((key): key is string => typeof key === "string"));
-  if (invalidKeys.size === 0 || [...invalidKeys].some((key) => !(key in definition.defaultProperties))) {
-    throw result.error;
-  }
-  const adjusted = { ...properties };
+  // Every key armProperties returns is a schema key with a default, so
+  // resetting the rejected ones always yields valid properties.
+  const invalidKeys = new Set(result.error.issues.map((issue) => String(issue.path[0])));
+  const adjusted = { ...safe };
   for (const key of invalidKeys) adjusted[key] = definition.defaultProperties[key];
   const validated = definition.propertiesSchema.parse(adjusted) as Record<string, unknown>;
-  const details = [...invalidKeys].map((key) => `${key} ${JSON.stringify(properties[key])}`).join(", ");
+  const details = [...invalidKeys].map((key) => `${key} ${JSON.stringify(safe[key])}`).join(", ");
   warnings.push(`${definition.label} ${resource.name}: unsupported ${details}; used Bunya defaults for these properties.`);
   return validated;
 }
@@ -618,12 +593,6 @@ function findReferencedNode(
   return scored[0].node;
 }
 
-function nodeSize(node: GraphNode): { width: number; height: number } {
-  if (node.size) return node.size;
-  if (isContainerType(node.type)) return DEFAULT_CONTAINER_SIZE[node.type];
-  return SERVICE_NODE_SIZE;
-}
-
 function addEdge(
   edges: GraphEdge[],
   source: GraphNode,
@@ -651,7 +620,7 @@ function childResourceText(parent: FlatArmResource, allResources: FlatArmResourc
         fullName.includes(`/${parent.fullName.toLowerCase()}/`)
       );
     })
-    .map((resource) => JSON.stringify(resource.raw))
+    .map((resource) => JSON.stringify(resource.expanded))
     .join(" ");
 }
 
@@ -661,11 +630,11 @@ function inferFunctionStorageEdge(
   resources: ImportedResource[],
   allResources: FlatArmResource[],
 ): void {
-  const text = `${JSON.stringify(item.flat.raw)} ${childResourceText(item.flat, allResources)}`;
+  const text = `${JSON.stringify(item.flat.expanded)} ${childResourceText(item.flat, allResources)}`;
   const storageFromSettings = findReferencedNode(text, resources, ["storageAccount"]);
   addEdge(edges, item.node, storageFromSettings, "data");
 
-  for (const dep of asArray(item.flat.raw.dependsOn)) {
+  for (const dep of asArray(item.flat.expanded.dependsOn)) {
     addEdge(edges, item.node, findReferencedNode(dep, resources, ["storageAccount"]), "data");
   }
 }
@@ -692,11 +661,11 @@ function inferRoleAssignmentEdges(
   resources: ImportedResource[],
 ): void {
   if (item.node.type !== "roleAssignment") return;
-  const props = asRecord(item.flat.raw.properties);
-  const scope = (item.flat.raw as { scope?: unknown }).scope ?? props.scope;
+  const props = asRecord(item.flat.expanded.properties);
+  const scope = (item.flat.expanded as { scope?: unknown }).scope ?? props.scope;
   const scopeNode = findReferencedNode(scope, resources);
   addEdge(edges, item.node, scopeNode, "identity");
-  for (const dep of asArray(item.flat.raw.dependsOn)) {
+  for (const dep of asArray(item.flat.expanded.dependsOn)) {
     // dependsOn also lists the scope; that resource is the target, not the
     // principal (treating it as both would form a cycle).
     const principal = findReferencedNode(dep, resources, [
@@ -716,7 +685,7 @@ function inferAlertEdges(
   resources: ImportedResource[],
 ): void {
   if (item.node.type !== "monitorAlert") return;
-  const props = asRecord(item.flat.raw.properties);
+  const props = asRecord(item.flat.expanded.properties);
   for (const scope of asArray(props.scopes)) {
     addEdge(edges, item.node, findReferencedNode(scope, resources), "diagnostic");
   }
@@ -741,11 +710,11 @@ function inferSiteSubnetEdge(
   resources: ImportedResource[],
   allResources: FlatArmResource[],
 ): void {
-  const props = asRecord(item.flat.raw.properties);
+  const props = asRecord(item.flat.expanded.properties);
   const refs = [
     props.virtualNetworkSubnetId,
     ...childResources(item.flat, allResources, "virtualNetworkConnections").map(
-      (child) => asRecord(child.raw.properties).vnetResourceId,
+      (child) => asRecord(child.expanded.properties).vnetResourceId,
     ),
   ];
   for (const ref of refs) {
@@ -803,7 +772,7 @@ function inferRegistryEdge(
       host === `${candidate.flat.name.toLowerCase()}.azurecr.io`,
   )?.node;
   if (!registry) return;
-  const siteConfig = asRecord(asRecord(item.flat.raw.properties).siteConfig);
+  const siteConfig = asRecord(asRecord(item.flat.expanded.properties).siteConfig);
   if (siteConfig.acrUseManagedIdentityCreds !== true) {
     addEdge(edges, item.node, registry, "depends_on");
     warnings.push(`${item.flat.name}: pulls ${image.reference} with registry credentials; turn on managed identity pulls and draw an identity edge to ${registry.resourceName} so exports grant AcrPull.`);
@@ -816,12 +785,12 @@ function inferRegistryEdge(
   }
   // acrUserManagedIdentityID is the identity's client ID (a GUID, or an
   // expression reading clientId). Match it to an identity attached to the site.
-  const attached = Object.keys(asRecord(asRecord(item.flat.raw.identity).userAssignedIdentities))
+  const attached = Object.keys(asRecord(asRecord(item.flat.expanded.identity).userAssignedIdentities))
     .map((ref) => findReferencedNode(ref, resources, ["userAssignedIdentity"], true))
     .filter((node): node is GraphNode => !!node);
   const referenced = findReferencedNode(clientId, resources, ["userAssignedIdentity"], true);
   // Identities attached to the app but defined outside this template.
-  const external = Object.keys(asRecord(asRecord(item.flat.raw.identity).userAssignedIdentities)).length - attached.length;
+  const external = Object.keys(asRecord(asRecord(item.flat.expanded.identity).userAssignedIdentities)).length - attached.length;
   // A bare client ID can only be pinned to an identity when it is the only
   // one on the app; with external identities it may be any of them.
   const userIdentity = referenced ?? (attached.length === 1 && external === 0 ? attached[0] : undefined);
@@ -845,12 +814,12 @@ const APP_INSIGHTS_SETTINGS = new Set(["applicationinsights_connection_string", 
 // pairs) or a sites/config "appsettings" child (a key/value map).
 function appInsightsSettingValues(site: FlatArmResource, allResources: FlatArmResource[]): unknown[] {
   const values: unknown[] = [];
-  for (const entry of asArray(asRecord(asRecord(site.raw.properties).siteConfig).appSettings)) {
+  for (const entry of asArray(asRecord(asRecord(site.expanded.properties).siteConfig).appSettings)) {
     const pair = asRecord(entry);
     if (APP_INSIGHTS_SETTINGS.has(String(pair.name ?? "").toLowerCase())) values.push(pair.value);
   }
   for (const child of childResources(site, allResources, "config")) {
-    for (const [key, value] of Object.entries(asRecord(child.raw.properties))) {
+    for (const [key, value] of Object.entries(asRecord(child.expanded.properties))) {
       if (APP_INSIGHTS_SETTINGS.has(key.toLowerCase())) values.push(value);
     }
   }
@@ -866,10 +835,10 @@ function inferAppInsightsEdges(
   allResources: FlatArmResource[],
 ): void {
   if (item.node.type !== "applicationInsights") return;
-  const props = asRecord(item.flat.raw.properties);
+  const props = asRecord(item.flat.expanded.properties);
   addEdge(edges, item.node, findReferencedNode(props.WorkspaceResourceId, resources, ["logAnalytics"]), "depends_on");
-  const sites = resources.filter((candidate) => candidate.node.type === "appService" || candidate.node.type === "functionApp");
-  for (const tag of Object.keys(asRecord(item.flat.raw.tags))) {
+  const sites = resources.filter((candidate) => isSite(candidate.node));
+  for (const tag of Object.keys(asRecord(item.flat.expanded.tags))) {
     if (!/^hidden-link:/i.test(tag) || !/\/providers\/microsoft\.web\/sites\//i.test(tag)) continue;
     const name = tag.split("/").filter(Boolean).at(-1)?.toLowerCase();
     const site = sites.find((candidate) => candidate.flat.name.toLowerCase() === name)?.node;
@@ -878,7 +847,6 @@ function inferAppInsightsEdges(
   const components = resources.filter((candidate) => candidate.node.type === "applicationInsights");
   for (const site of sites) {
     for (const value of appInsightsSettingValues(site.flat, allResources)) {
-      // The resolver handles resourceId(...) with any whitespace and paths.
       const target = findReferencedNode(value, components, ["applicationInsights"]);
       if (target === item.node) addEdge(edges, site.node, item.node, "diagnostic");
     }
@@ -897,7 +865,7 @@ function inferEdges(resources: ImportedResource[], allResources: FlatArmResource
     // and scope, already drawn as identity edges; a depends_on edge back to
     // the principal would form a cycle.
     if (node.type !== "roleAssignment") {
-      for (const dep of asArray(flat.raw.dependsOn)) {
+      for (const dep of asArray(flat.expanded.dependsOn)) {
         addEdge(edges, node, findReferencedNode(dep, resources), "depends_on");
       }
     }
@@ -905,11 +873,11 @@ function inferEdges(resources: ImportedResource[], allResources: FlatArmResource
       const parentName = flat.fullName.split("/")[0];
       const vnet = resources.find((r) => r.node.type === "virtualNetwork" && r.flat.fullName === parentName)?.node;
       addEdge(edges, node, vnet, "depends_on");
-      const nsgId = asRecord(asRecord(flat.raw.properties).networkSecurityGroup).id;
+      const nsgId = asRecord(asRecord(flat.expanded.properties).networkSecurityGroup).id;
       addEdge(edges, node, findReferencedNode(nsgId, resources, ["networkSecurityGroup"]), "network");
     }
-    if (node.type === "appService" || node.type === "functionApp") {
-      const props = asRecord(flat.raw.properties);
+    if (isSite(node)) {
+      const props = asRecord(flat.expanded.properties);
       addEdge(edges, node, findReferencedNode(props.serverFarmId, resources, ["appServicePlan"]), "depends_on");
       if (node.type === "functionApp") {
         inferFunctionStorageEdge(edges, item, resources, allResources);
@@ -918,7 +886,7 @@ function inferEdges(resources: ImportedResource[], allResources: FlatArmResource
       inferRegistryEdge(edges, item, resources, warnings);
     }
     if (node.type === "aksCluster") {
-      const props = asRecord(flat.raw.properties);
+      const props = asRecord(flat.expanded.properties);
       const pool = asRecord(asArray(props.agentPoolProfiles)[0]);
       addEdge(edges, node, findReferencedNode(pool.vnetSubnetID, resources, ["subnet"]), "network");
       const oms = asRecord(asRecord(asRecord(props.addonProfiles).omsagent).config);
@@ -930,10 +898,7 @@ function inferEdges(resources: ImportedResource[], allResources: FlatArmResource
       );
     }
     if (node.type === "virtualMachineScaleSet") {
-      if (childResourceText(flat, allResources).toLowerCase().includes("azuremonitorlinuxagent")) {
-        node.properties = { ...node.properties, azureMonitorAgent: true };
-      }
-      const profile = asRecord(asRecord(flat.raw.properties).virtualMachineProfile);
+      const profile = asRecord(asRecord(flat.expanded.properties).virtualMachineProfile);
       const network = asRecord(profile.networkProfile);
       const nic = asRecord(asArray(network.networkInterfaceConfigurations)[0]);
       const ip = asRecord(asArray(asRecord(nic.properties).ipConfigurations)[0]);
@@ -941,7 +906,7 @@ function inferEdges(resources: ImportedResource[], allResources: FlatArmResource
       addEdge(edges, node, findReferencedNode(subnetId, resources, ["subnet"]), "network");
     }
     if (node.type === "privateEndpoint") {
-      const props = asRecord(flat.raw.properties);
+      const props = asRecord(flat.expanded.properties);
       addEdge(edges, node, findReferencedNode(asRecord(props.subnet).id, resources, ["subnet"]), "network");
       const connection = asRecord(asArray(props.privateLinkServiceConnections)[0]);
       const connectionProps = asRecord(connection.properties);
@@ -1020,7 +985,7 @@ function layoutImportedNodes(
         continue;
       }
     }
-    if (item.node.type === "appService" || item.node.type === "functionApp") {
+    if (isSite(item.node)) {
       const plan = edges
         .filter((edge) => edge.source === item.node.id && edge.kind === "depends_on")
         .map((edge) => nodeById.get(edge.target))
@@ -1126,9 +1091,7 @@ function layoutImportedNodes(
 export function parseArmTemplate(text: string): ArmImportResult {
   let parsed: unknown;
   try {
-    checkImportText(text);
-    parsed = JSON.parse(text);
-    checkObjectDepth(parsed);
+    parsed = parseJsonInput(text);
   } catch (err) {
     return {
       ok: false,
@@ -1155,15 +1118,13 @@ export function parseArmTemplate(text: string): ArmImportResult {
         warnings.push(`${def.label}: renamed "${armName}" to "${resourceName}" because exports allow only letters, numbers, dots, underscores and hyphens; check the name before deploying.`);
       }
       const node: GraphNode = {
-        id: `arm-node-${index + 1}`,
+        id: `${ARM_NODE_ID_PREFIX}${index + 1}`,
         type,
         name: def.label,
         resourceName,
-        // Names that exports suffix for global uniqueness are already unique
-        // Azure names here; keep them unless the import had to rename them.
-        ...(resourceName === armName && (type === "storageAccount" || type === "keyVault") ? { exactName: true } : {}),
+        ...(resourceName === armName && SUFFIXED_NAME_TYPES.has(type) ? { exactName: true } : {}),
         position: { x: 0, y: 0 },
-        properties: validatedProperties(type, resource, baseProperties(type, resource, flat, parameters, variables, warnings), warnings),
+        properties: validatedProperties(type, resource, armProperties(type, resource, flat, parameters, variables, warnings), warnings),
       };
       return { flat: resource, node };
     })
@@ -1176,7 +1137,7 @@ export function parseArmTemplate(text: string): ArmImportResult {
   let resourceGroup = known.find((r) => r.node.type === "resourceGroup")?.node;
   if (!resourceGroup) {
     resourceGroup = {
-      id: "arm-node-rg",
+      id: `${ARM_NODE_ID_PREFIX}rg`,
       type: "resourceGroup",
       name: "Resource Group",
       resourceName: "rg-imported-template",
@@ -1186,19 +1147,18 @@ export function parseArmTemplate(text: string): ArmImportResult {
     };
   }
 
-  for (const resource of flat) resource.raw = expandReferences(resource.raw, parameters, variables) as ArmResource;
   const inferred = inferEdges(known, flat, warnings);
   const { resources: kept, edges } = collapseEdgeGrantedRoles(known, inferred);
   const nodes = layoutImportedNodes(kept, edges, resourceGroup);
-  if (nodes.length > 200 || edges.length > 1000) {
-    return { ok: false, reason: `ARM template produces ${nodes.length} nodes and ${edges.length} edges; Bunya supports up to 200 nodes and 1,000 edges.` };
+  if (nodes.length > MAX_NODES || edges.length > MAX_EDGES) {
+    return { ok: false, reason: `ARM template produces ${nodes.length} nodes and ${edges.length} edges; Bunya supports up to ${MAX_NODES} nodes and ${MAX_EDGES.toLocaleString("en-AU")} edges.` };
   }
 
   // Portal exports write regions as display names, e.g. "Australia East".
   // expandReferences has already turned [parameters('location')] into
   // ['australiaeast']; strip the expression wrapper and quotes.
   const locations = known
-    .map((r) => resolveString(r.flat.raw.location, parameters, variables)?.toLowerCase().replace(/^\[\s*'(.*)'\s*\]$/, "$1").replace(/\s+/g, ""))
+    .map((r) => resolveString(r.flat.expanded.location, parameters, variables)?.toLowerCase().replace(/^\[\s*'(.*)'\s*\]$/, "$1").replace(/\s+/g, ""))
     .filter((value): value is string => !!value && value !== "global");
   const location = locations.find((value) => AZURE_REGIONS.includes(value as never));
   const otherLocations = [...new Set(locations.filter((value) => value !== location))];
@@ -1209,8 +1169,7 @@ export function parseArmTemplate(text: string): ArmImportResult {
   const draft = { nodes, edges } as unknown as GraphDocument;
   for (const node of nodes) {
     if (node.type !== "functionApp") continue;
-    const family = planFamily(sitePlan(draft, node)?.properties.sku);
-    node.properties = { ...node.properties, consumptionPlan: family === "consumption" || family === "flex" };
+    node.properties = { ...node.properties, consumptionPlan: isServerlessPlan(sitePlan(draft, node)?.properties.sku) };
   }
   const document: GraphDocument = {
     schemaVersion: 1,
@@ -1236,7 +1195,6 @@ export function parseArmTemplate(text: string): ArmImportResult {
     skippedCounts.set(resource.type, (skippedCounts.get(resource.type) ?? 0) + 1);
   }
   const skipped = [...skippedCounts.values()].reduce((sum, count) => sum + count, 0);
-  // Child settings (site config, host name bindings) belong to imported resources.
   const isChildSetting = (type: string) =>
     [...importedTypes].some((parent) => type.toLowerCase().startsWith(`${parent}/`));
   const describe = (entries: [string, number][]) =>

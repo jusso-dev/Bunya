@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { firstCutGraph } from "@/lib/graph/__fixtures__/firstCut";
 import { migrate } from "./migrate";
+import { parseArmTemplate } from "./arm-import";
 
 describe("migrate", () => {
   it("keeps the meaning of storage saved before public network access was split out", () => {
@@ -28,19 +29,18 @@ describe("migrate", () => {
   });
 
   it("keeps imported storage endpoints open when the old file never recorded them", () => {
+    const imported = parseArmTemplate(JSON.stringify({
+      resources: [{ type: "Microsoft.Storage/storageAccounts", name: "stimported", properties: { allowBlobPublicAccess: false } }],
+    }));
+    if (!imported.ok) throw new Error(imported.reason);
     const legacy = {
-      ...firstCutGraph,
-      nodes: firstCutGraph.nodes.map((node) => {
+      ...imported.document,
+      nodes: imported.document.nodes.map((node) => {
         if (node.type !== "storageAccount") return node;
         const { publicNetworkAccess: _removed, ...rest } = node.properties;
         void _removed;
-        return { ...node, id: "arm-node-15", properties: { ...rest, allowPublicAccess: false } };
+        return { ...node, properties: rest };
       }),
-      edges: firstCutGraph.edges.map((edge) => ({
-        ...edge,
-        source: firstCutGraph.nodes.find((n) => n.id === edge.source)?.type === "storageAccount" ? "arm-node-15" : edge.source,
-        target: firstCutGraph.nodes.find((n) => n.id === edge.target)?.type === "storageAccount" ? "arm-node-15" : edge.target,
-      })),
     };
     const storage = migrate(legacy).nodes.find((node) => node.type === "storageAccount")?.properties;
     expect(storage).toMatchObject({ allowPublicAccess: false, publicNetworkAccess: true });

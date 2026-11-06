@@ -1,17 +1,18 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { SERVICE_TYPES } from "@/lib/graph/schema";
 import manifest from "./icon-manifest.json";
-import { SERVICE_ICONS } from "./icons";
+import { serviceIconPath } from "./icons";
 
-const ICON_DIR = path.resolve(__dirname, "..", "..", "public", "azure-icons");
+const PUBLIC_DIR = path.resolve(__dirname, "..", "..", "public");
+const ICON_DIR = path.join(PUBLIC_DIR, "azure-icons");
 
 describe("Azure icon assets", () => {
-  it("maps every service type to its own official icon", () => {
+  it("ships an official icon for every service type", () => {
     for (const type of SERVICE_TYPES) {
-      expect(SERVICE_ICONS[type].src, type).toBe(`/azure-icons/${type}.svg`);
+      expect(existsSync(path.join(PUBLIC_DIR, serviceIconPath(type))), type).toBe(true);
       expect(manifest.icons[type as keyof typeof manifest.icons], type).toBeDefined();
     }
   });

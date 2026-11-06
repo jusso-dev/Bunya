@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { firstCutGraph } from "@/lib/graph/__fixtures__/firstCut";
+import { MAX_NODES } from "./schema";
 import {
   buildEnvelope,
   envelopeToBlob,
@@ -34,10 +35,11 @@ describe("portable export/import", () => {
   });
 
   it("explains graph limits for oversized ARM imports", () => {
-    const resources = Array.from({ length: 200 }, (_, index) => ({ type: "Microsoft.KeyVault/vaults", name: `vault-${index}` }));
+    // One Key Vault per resource plus the Resource Group the import adds.
+    const resources = Array.from({ length: MAX_NODES }, (_, index) => ({ type: "Microsoft.KeyVault/vaults", name: `vault-${index}` }));
     const result = parseImportText(JSON.stringify({ resources }));
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reason).toContain("up to 200 nodes");
+    if (!result.ok) expect(result.reason).toContain(`up to ${MAX_NODES} nodes`);
   });
   it("imports Key Vault SKUs from Azure exports and warns when they cannot be resolved", () => {
     const result = parseImportText(JSON.stringify({
