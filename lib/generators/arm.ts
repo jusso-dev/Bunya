@@ -9,7 +9,7 @@ import {
 } from "./shared/context";
 import { GeneratedFile, GeneratorResult } from "./types";
 import { expr, planBody, siteBody, toArm, type Refs } from "./shared/site-resource";
-import { siteHosting } from "./shared/hosting";
+import { contentShareName, siteHosting } from "./shared/hosting";
 import { ROLE_DEFINITION_IDS, defaultRoleNameFor } from "./shared/roles";
 import { subnetDelegations } from "@/lib/graph/topology";
 import { storagePublicNetwork } from "@/lib/catalogue/services";
@@ -273,6 +273,7 @@ function emitSite(node: GraphNode, ctx: GeneratorContext): ArmResource {
       ...body.dependsOn.map((dep) => armResourceId(dep, ctx)),
       ...(flex ? [containerId] : []),
       ...(acrPullGrantId(ctx, body.hosting) ?? []),
+      ...(contentShareId(ctx, node, body.hosting) ? [contentShareId(ctx, node, body.hosting)!] : []),
     ])],
   };
   return resource;
@@ -286,6 +287,30 @@ function acrPullGrantId(ctx: GeneratorContext, hosting: ReturnType<typeof siteHo
   const registryId = armResourceId(hosting.registry, ctx);
   const name = `guid(${registryId.slice(1, -1)}, '${resourceName(ctx, identity.id)}', 'AcrPull')`;
   return [`[extensionResourceId(${registryId.slice(1, -1)}, 'Microsoft.Authorization/roleAssignments', ${name})]`];
+}
+
+// Secured storage: the content share must exist before the app is created.
+function contentShareId(ctx: GeneratorContext, node: GraphNode, hosting: ReturnType<typeof siteHosting>): string | null {
+  if (!hosting.privateContentShare) return null;
+  const storageName = hosting.storage ? resourceName(ctx, hosting.storage.id) : "mainstorage";
+  return `[resourceId('Microsoft.Storage/storageAccounts/fileServices/shares', '${storageName}', 'default', '${contentShareName(ctx, node)}')]`;
+}
+
+function contentShares(ctx: GeneratorContext): ArmResource[] {
+  return ctx.document.nodes
+    .filter((node) => node.type === "functionApp")
+    .map((node) => ({ node, hosting: siteHosting(ctx, node) }))
+    .filter(({ hosting }) => hosting.privateContentShare)
+    .map(({ node, hosting }) => {
+      const storageName = hosting.storage ? resourceName(ctx, hosting.storage.id) : "mainstorage";
+      return {
+        type: "Microsoft.Storage/storageAccounts/fileServices/shares",
+        apiVersion: "2023-05-01",
+        name: `${storageName}/default/${contentShareName(ctx, node)}`,
+        properties: {},
+        dependsOn: [resourceId("Microsoft.Storage/storageAccounts", storageName)],
+      };
+    });
 }
 
 // Flex Consumption deploys packages from this blob container.
@@ -867,6 +892,7 @@ export function generateArm(document: GraphDocument): GeneratorResult {
     resources.push(resource);
   }
   resources.push(...flexDeploymentContainers(ctx));
+  resources.push(...contentShares(ctx));
   resources.push(...emitRoleAssignments(ctx));
   resources.push(...emitDiagnosticSettings(ctx));
 

@@ -234,4 +234,59 @@ describe("App Service hosting exports", () => {
       expect(file(generateTerraform(hostingGraph), "main.tf")).toMatch(/allow_nested_items_to_be_public = false\n\s+public_network_access_enabled\s+= true/);
     });
   });
+
+  describe("secured storage for Elastic Premium", () => {
+    // fn-ep moves onto a private storage account reached through the VNet.
+    const secured = (groupIds: string[]) => ({
+      ...hostingGraph,
+      nodes: [
+        ...hostingGraph.nodes.map((node) => (node.id === "fn-ep" ? { ...node, properties: { ...node.properties, vnetIntegration: true } } : node)),
+        { ...hostingGraph.nodes.find((node) => node.id === "stg-flex")!, id: "stg-ep", resourceName: "stepprivate" },
+        { ...hostingGraph.nodes.find((node) => node.id === "snet-web")!, id: "snet-ep", resourceName: "snet-ep", properties: { ...hostingGraph.nodes.find((node) => node.id === "snet-web")!.properties, addressPrefix: "10.20.4.0/24" } },
+        ...groupIds.map((groupId) => ({ ...hostingGraph.nodes.find((node) => node.id === "pe-blob")!, id: `pe-ep-${groupId}`, resourceName: `pe-ep-${groupId}`, properties: { groupId, manualApproval: false } })),
+      ],
+      edges: [
+        ...hostingGraph.edges.filter((edge) => edge.id !== "ep-stg"),
+        { id: "ep-stg", source: "fn-ep", target: "stg-ep", kind: "data" as const },
+        { id: "ep-snet", source: "fn-ep", target: "snet-ep", kind: "network" as const },
+        ...groupIds.flatMap((groupId) => [
+          { id: `pe-ep-${groupId}-snet`, source: `pe-ep-${groupId}`, target: "snet-pe", kind: "network" as const },
+          { id: `pe-ep-${groupId}-stg`, source: `pe-ep-${groupId}`, target: "stg-ep", kind: "network" as const },
+        ]),
+      ],
+    });
+
+    it("requires file, blob and table Private Endpoints", () => {
+      const result = generateArm(secured(["blob"]));
+      expect(result.ok ? "ok" : result.reason).toContain('"fn-ep" cannot reach Storage Account "stepprivate": its public network access is off, so add file, table Private Endpoints');
+      expect(result.ok ? "" : result.reason).toContain("Durable Functions also need a queue Private Endpoint");
+    });
+
+    it("creates the content share and reaches it over the VNet", () => {
+      const graph = secured(["blob", "file", "table"]);
+      const resources = JSON.parse(file(generateArm(graph), "azuredeploy.json")).resources as Arm[];
+      const worker = resources.find((r) => r.type === "Microsoft.Web/sites" && r.name === "fn-ep")!;
+      expect(worker.properties.vnetContentShareEnabled).toBe(true);
+      const share = resources.find((r) => r.type === "Microsoft.Storage/storageAccounts/fileServices/shares");
+      expect(share?.name).toMatch(/^stepprivate.*\/default\/fn-ep$/);
+      expect(worker.dependsOn?.some((dep) => dep.includes("fileServices/shares"))).toBe(true);
+      const contentShare = worker.properties.siteConfig.appSettings.find((s: { name: string }) => s.name === "WEBSITE_CONTENTSHARE");
+      expect(contentShare.value).toBe("fn-ep");
+
+      const bicep = file(generateBicep(graph), "main.bicep");
+      expect(bicep).toContain("vnetContentShareEnabled: true");
+      expect(bicep).toMatch(/_contentshare 'Microsoft.Storage\/storageAccounts\/fileServices\/shares@2023-05-01'/);
+
+      const main = file(generateTerraform(graph), "main.tf");
+      expect(main).toContain('resource "azurerm_storage_share" "fn_ep_content"');
+      expect(main).toContain('WEBSITE_CONTENTOVERVNET = "1"');
+      expect(main).toContain("WEBSITE_CONTENTSHARE    = azurerm_storage_share.fn_ep_content.name");
+    });
+
+    it("leaves public storage on the default content share", () => {
+      const worker = site("fn-ep");
+      expect(worker.properties).not.toHaveProperty("vnetContentShareEnabled");
+      expect(armResources().some((r) => r.type === "Microsoft.Storage/storageAccounts/fileServices/shares")).toBe(false);
+    });
+  });
 });

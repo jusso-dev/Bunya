@@ -79,6 +79,11 @@ exports[`estimateCost > snapshots line-item structure for the full-stack fixture
       "sku": "per-endpoint",
     },
     {
+      "monthly": 10.95,
+      "service": "Private Endpoint",
+      "sku": "per-endpoint",
+    },
+    {
       "monthly": 0,
       "service": "Resource Group",
       "sku": "container",
@@ -121,6 +126,6 @@ exports[`estimateCost > snapshots line-item structure for the full-stack fixture
   ],
   "currency": "AUD",
   "snapshotDate": "2026-05-19",
-  "total": 990.13,
+  "total": 1001.09,
 }
 `;

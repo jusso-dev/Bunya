@@ -14,7 +14,7 @@ import {
   resolveVirtualNetwork,
 } from "./shared/context";
 import { GeneratorResult, GeneratedFile } from "./types";
-import { siteHosting, type SiteHosting } from "./shared/hosting";
+import { contentShareName, siteHosting, type SiteHosting } from "./shared/hosting";
 import { roleAssignmentsFor } from "./shared/roles";
 import { subnetDelegations } from "@/lib/graph/topology";
 import { storagePublicNetwork } from "@/lib/catalogue/services";
@@ -292,6 +292,11 @@ function emitLinuxFunctionApp(node: GraphNode, ctx: GeneratorContext, hosting: S
   const planRef = hosting.plan ? `azurerm_service_plan.${ctx.identifiers.get(hosting.plan.id)}.id` : `azurerm_service_plan.main.id`;
   const storage = storageRef(ctx, hosting.storage);
   const settings = connectionSettings(ctx, node, hosting, false);
+  if (hosting.privateContentShare) {
+    // Secured storage: the provider requires a pre-created share named in
+    // WEBSITE_CONTENTSHARE when WEBSITE_CONTENTOVERVNET is set.
+    settings.push(`    WEBSITE_CONTENTOVERVNET = "1"`, `    WEBSITE_CONTENTSHARE    = azurerm_storage_share.${ident}_content.name`);
+  }
   const stack = hosting.image
     ? [
         `      docker {`,
@@ -305,6 +310,16 @@ function emitLinuxFunctionApp(node: GraphNode, ctx: GeneratorContext, hosting: S
       : [`      ${runtime === "powershell" ? "powershell_core" : runtime}_version = "${runtimeVersion}"`];
   const lines = [
     autoComment(ctx, node.id),
+    ...(hosting.privateContentShare
+      ? [
+          `resource "azurerm_storage_share" "${ident}_content" {`,
+          `  name               = "${contentShareName(ctx, node)}"`,
+          `  storage_account_id = ${storage}.id`,
+          `  quota              = 100`,
+          `}`,
+          ``,
+        ]
+      : []),
     `resource "azurerm_linux_function_app" "${ident}" {`,
     `  name                          = "${ctx.resourceNames.get(node.id)}"`,
     `  resource_group_name           = ${rgRef(ctx, node)}.name`,

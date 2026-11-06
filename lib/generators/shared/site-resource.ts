@@ -153,6 +153,9 @@ export function siteBody(ctx: GeneratorContext, node: GraphNode, refs: Refs): Si
     );
   }
   appSettings.push(...appInsights);
+  // Secured storage: the content share is reached over the VNet and must
+  // already exist (Microsoft Learn, "Secured deployments").
+  if (hosting.privateContentShare) properties.vnetContentShareEnabled = true;
   properties.siteConfig = {
     minTlsVersion: "1.2",
     linuxFxVersion: linuxFxVersion(node, hosting),

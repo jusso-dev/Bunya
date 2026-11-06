@@ -11,6 +11,7 @@ import {
 import { GeneratedFile, GeneratorResult } from "./types";
 import { expr, planBody, siteBody, toBicep, type Refs } from "./shared/site-resource";
 import { roleAssignmentsFor } from "./shared/roles";
+import { contentShareName } from "./shared/hosting";
 import { subnetDelegations } from "@/lib/graph/topology";
 import { storagePublicNetwork } from "@/lib/catalogue/services";
 
@@ -193,6 +194,16 @@ function emitSite(node: GraphNode, ctx: GeneratorContext): string {
   const ident = nodeRef(ctx, node.id);
   const body = siteBody(ctx, node, bicepRefs(ctx));
   const lines = [autoComment(ctx, node.id, "//")];
+  if (body.hosting.privateContentShare) {
+    // Secured storage: the content share must exist before the app.
+    const storageIdent = body.hosting.storage ? nodeRef(ctx, body.hosting.storage.id) : "mainStorage";
+    lines.push(
+      `resource ${ident}_contentshare 'Microsoft.Storage/storageAccounts/fileServices/shares@2023-05-01' = {`,
+      `  name: '\${${storageIdent}.name}/default/${contentShareName(ctx, node)}'`,
+      `}`,
+      ``,
+    );
+  }
   if (body.hosting.family === "flex" && node.type === "functionApp") {
     // Flex Consumption deploys packages from a blob container.
     const storage = body.hosting.storage;
@@ -228,6 +239,7 @@ function emitSite(node: GraphNode, ctx: GeneratorContext): string {
 function siteDependsOn(ctx: GeneratorContext, node: GraphNode, hosting: ReturnType<typeof siteBody>["hosting"]): string[] {
   const deps: string[] = [];
   if (hosting.family === "flex" && node.type === "functionApp") deps.push(`${nodeRef(ctx, node.id)}_deployment`);
+  if (hosting.privateContentShare) deps.push(`${nodeRef(ctx, node.id)}_contentshare`);
   if (hosting.registry && hosting.pullIdentity?.kind === "user") {
     deps.push(`${nodeRef(ctx, hosting.pullIdentity.node.id)}_${nodeRef(ctx, hosting.registry.id)}_acrpull`);
   }

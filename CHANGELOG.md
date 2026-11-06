@@ -45,8 +45,11 @@ project follows [Conventional Commits](https://www.conventionalcommits.org/).
 - Storage Accounts have separate settings for anonymous blob access and the
   public network endpoint, which one flag used to control. Saved diagrams keep
   their meaning. Function Apps must be able to reach their storage: either its
-  public endpoint is open, or the app is VNet-integrated into a VNet with a
-  blob Private Endpoint to it.
+  public endpoint is open, or the app is VNet-integrated into a VNet with
+  the Private Endpoints its plan needs (blob for Flex; blob and table, plus
+  file for Elastic Premium). Secured Elastic Premium storage gets a
+  pre-created content share and `vnetContentShareEnabled`
+  (`WEBSITE_CONTENTOVERVNET` in Terraform).
 - Flex runtime versions are exported in the form Azure expects (`22-lts` as
   `22`, .NET `8` as `8.0`). Imports only match a pull identity that the
   reference names. A warning rule explains first pulls with a system-assigned

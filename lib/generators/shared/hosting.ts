@@ -4,6 +4,7 @@
 import { parseContainerImage, planFamily, type ContainerImage, type PlanFamily } from "@/lib/catalogue/app-service-plans";
 import type { GraphNode } from "@/lib/graph/schema";
 import { flexRuntimeVersion, integrationDelegation, siteIntegrationSubnet } from "@/lib/graph/topology";
+import { storagePublicNetwork } from "@/lib/catalogue/services";
 import { GeneratorContext, outgoingOf, resolveAppServicePlan } from "./context";
 
 export type SiteHosting = {
@@ -25,6 +26,9 @@ export type SiteHosting = {
   workerRuntime: string;
   // Canonical Flex runtime version, the value validation checked.
   flexVersion: string;
+  // Content share reached over the VNet because storage has no public
+  // endpoint: needs vnetContentShareEnabled and a pre-created file share.
+  privateContentShare: boolean;
 };
 
 export function siteHosting(ctx: GeneratorContext, node: GraphNode): SiteHosting {
@@ -71,6 +75,7 @@ export function siteHosting(ctx: GeneratorContext, node: GraphNode): SiteHosting
     userIdentities,
     workerRuntime: runtime === "dotnet" ? "dotnet-isolated" : runtime,
     flexVersion: flexRuntimeVersion(runtime, String(node.properties.runtimeVersion ?? "22")),
+    privateContentShare: node.type === "functionApp" && (family === "consumption" || family === "elastic") && !!storage && !storagePublicNetwork(storage.properties),
   };
 }
 

@@ -110,22 +110,32 @@ export function flexRuntimeVersion(runtime: string, version: string): string {
   return runtime === "dotnet" && /^\d+$/.test(trimmed) ? `${trimmed}.0` : trimmed;
 }
 
-// Function Apps reach their storage account through the public endpoint
-// unless the app is VNet-integrated into a VNet holding a blob Private
-// Endpoint to that account.
-function storageReachable(document: GraphDocument, site: GraphNode, storage: GraphNode): boolean {
-  if (storagePublicNetwork(storage.properties)) return true;
+// Storage sub-resources a Function App needs over Private Endpoints when its
+// storage account has no public endpoint (Microsoft Learn, "Restrict your
+// storage account to a virtual network"). Elastic Premium keeps its content
+// share in Azure Files; every plan's host uses blob and table storage.
+// Durable Functions also need queue, which Bunya cannot see, so it is not required.
+export function requiredStorageEndpoints(sku: unknown): string[] {
+  const family = planFamily(sku);
+  if (family === "flex") return ["blob"];
+  if (family === "elastic") return ["blob", "file", "table"];
+  return ["blob", "table"];
+}
+
+// Sub-resources of `storage` with a Private Endpoint in the app's VNet.
+function privateStorageEndpoints(document: GraphDocument, site: GraphNode, storage: GraphNode): Set<string> {
   const subnet = siteIntegrationSubnet(document, site);
   const appVnet = subnet ? subnetVirtualNetwork(document, subnet) : undefined;
-  if (!appVnet) return false;
+  const found = new Set<string>();
+  if (!appVnet) return found;
   const byId = new Map(document.nodes.map((node) => [node.id, node]));
-  return document.nodes.some((pe) => {
-    if (pe.type !== "privateEndpoint" || (pe.properties.groupId ?? "blob") !== "blob") return false;
+  for (const pe of document.nodes.filter((node) => node.type === "privateEndpoint")) {
     const targets = document.edges.filter((edge) => edge.source === pe.id && edge.kind === "network").map((edge) => byId.get(edge.target));
-    if (!targets.some((target) => target?.id === storage.id)) return false;
+    if (!targets.some((target) => target?.id === storage.id)) continue;
     const peSubnet = targets.find((target) => target?.type === "subnet");
-    return !!peSubnet && subnetVirtualNetwork(document, peSubnet)?.id === appVnet.id;
-  });
+    if (peSubnet && subnetVirtualNetwork(document, peSubnet)?.id === appVnet.id) found.add(String(pe.properties.groupId ?? "blob"));
+  }
+  return found;
 }
 
 // The registry a site pulls its image from, when that registry is drawn.
@@ -182,8 +192,16 @@ function hostingProblems(document: GraphDocument): TopologyProblem[] {
     const backingStorage = site.type === "functionApp"
       ? document.edges.filter((edge) => edge.source === site.id && edge.kind === "data").map((edge) => byId.get(edge.target)).find((target) => target?.type === "storageAccount")
       : undefined;
-    if (backingStorage && !storageReachable(document, site, backingStorage)) {
-      problems.push({ nodeIds: [site.id, backingStorage.id], message: `${label(site)} cannot reach ${label(backingStorage)}: its public network access is off and the app has no VNet integration into a VNet with a blob Private Endpoint to it. Turn public network access on, or integrate the app and add the Private Endpoint.` });
+    if (backingStorage && !storagePublicNetwork(backingStorage.properties)) {
+      const needed = requiredStorageEndpoints(sku);
+      const present = privateStorageEndpoints(document, site, backingStorage);
+      const missing = needed.filter((groupId) => !present.has(groupId));
+      if (missing.length > 0) {
+        const how = siteIntegrationSubnet(document, site)
+          ? `add ${missing.join(", ")} Private Endpoints to it in the app's VNet`
+          : `integrate the app with a VNet that has ${needed.join(", ")} Private Endpoints to it`;
+        problems.push({ nodeIds: [site.id, backingStorage.id], message: `${label(site)} cannot reach ${label(backingStorage)}: its public network access is off, so ${how}, or turn public network access on.${needed.includes("table") ? " Durable Functions also need a queue Private Endpoint." : ""}` });
+      }
     }
     if (family === "flex" && site.type === "functionApp" && !document.edges.some((edge) => edge.source === site.id && edge.kind === "data" && byId.get(edge.target)?.type === "storageAccount")) {
       problems.push({ nodeIds: pair, message: `${label(site)} runs on Flex Consumption, which deploys packages from a storage account; draw a data edge from the app to the Storage Account it should use.` });
