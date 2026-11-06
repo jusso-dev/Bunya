@@ -44,7 +44,8 @@ type FlatArmResource = {
   // Every expression that depends only on the template (parameter defaults,
   // variables, string functions, resourceId) evaluated; the rest kept as written.
   raw: ArmResource;
-  // The same, for edge inference, which matches resource names in references.
+  // Evaluated the way names are (unknown parts dropped), so references in it
+  // match resource names; edge inference reads this.
   expanded: ArmResource;
   type: string;
   name: string;
@@ -156,10 +157,9 @@ function flattenResources(
     }
     const type = parent && !rawType.includes(".") ? `${parent.type}/${rawType}` : rawType;
     const fullName = parent && !rawName.includes("/") ? `${parent.fullName}/${rawName}` : rawName;
-    const resolved = evaluator.resolveAll(written) as ArmResource;
     const flat: FlatArmResource = {
-      raw: resolved,
-      expanded: resolved,
+      raw: evaluator.resolveAll(written) as ArmResource,
+      expanded: evaluator.resolveAllLenient(written) as ArmResource,
       type,
       name: cleanName(rawName, `resource-${index + 1}`),
       fullName,
@@ -724,6 +724,37 @@ function inferSiteSubnetEdge(
   }
 }
 
+// True when `from` reaches `to` along edges that order deployment.
+function reaches(edges: GraphEdge[], from: string, to: string): boolean {
+  const seen = new Set<string>([from]);
+  const queue = [from];
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    if (current === to) return true;
+    for (const edge of edges) {
+      if (edge.source !== current || edge.kind === "diagnostic" || seen.has(edge.target)) continue;
+      seen.add(edge.target);
+      queue.push(edge.target);
+    }
+  }
+  return false;
+}
+
+// A template's dependsOn can close a loop with the identity edges Bunya draws
+// for a grant (a vault waiting for the identity it grants a role to). Drop the
+// dependsOn edge that closes it; exporters order resources from the rest.
+function withoutOrderingCycles(edges: GraphEdge[], warnings: string[]): GraphEdge[] {
+  let kept = edges;
+  for (const edge of edges) {
+    if (edge.kind !== "depends_on") continue;
+    const others = kept.filter((other) => other !== edge);
+    if (!reaches(others, edge.target, edge.source)) continue;
+    kept = others;
+    warnings.push("A dependsOn that would form a loop with a role assignment was left out of the diagram; exports still order those resources.");
+  }
+  return kept;
+}
+
 // Replaces principal -> Role Assignment -> scope with principal -> scope when
 // the role is exactly the one exporters grant for that edge, so re-importing
 // an export does not grant the role twice.
@@ -743,6 +774,9 @@ function collapseEdgeGrantedRoles(
     // and VMSS principals keep the explicit node.
     if (!GRANT_PRINCIPALS.has(principals[0].type) || !GRANT_SCOPES.has(scopes[0].type)) continue;
     if (node.properties.roleDefinitionName !== edgeRoleFor(scopes[0].type)) continue;
+    // A scope that already depends on its principal (a vault reading the
+    // identity's tenant) would form a cycle with the direct grant edge.
+    if (reaches(edges, scopes[0].id, principals[0].id)) continue;
     removed.add(node.id);
     extra.push({ id: `${node.id}-grant`, source: principals[0].id, target: scopes[0].id, kind: "identity" });
   }
@@ -1175,7 +1209,9 @@ export function parseArmTemplate(text: string): ArmImportResult {
   }
 
   const inferred = inferEdges(known, flat, warnings);
-  const { resources: kept, edges } = collapseEdgeGrantedRoles(known, inferred);
+  const collapsed = collapseEdgeGrantedRoles(known, inferred);
+  const kept = collapsed.resources;
+  const edges = withoutOrderingCycles(collapsed.edges, warnings);
   const nodes = layoutImportedNodes(kept, edges, resourceGroup);
   if (nodes.length > MAX_NODES || edges.length > MAX_EDGES) {
     return { ok: false, reason: `ARM template produces ${nodes.length} nodes and ${edges.length} edges; Bunya supports up to ${MAX_NODES} nodes and ${MAX_EDGES.toLocaleString("en-AU")} edges.` };

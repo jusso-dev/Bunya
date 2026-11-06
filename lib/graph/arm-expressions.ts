@@ -241,6 +241,17 @@ export function createEvaluator(scope: TemplateScope) {
         const path = [segments[0], ...segments.slice(1).flatMap((segment, index) => [segment, names[index] ?? ""])];
         return `/providers/${path.join("/")}`;
       }
+      // Bunya targets Azure public cloud (Microsoft Learn, "environment").
+      case "environment":
+        return {
+          name: "AzureCloud",
+          suffixes: {
+            storage: "core.windows.net",
+            sqlServerHostname: ".database.windows.net",
+            keyvaultDns: ".vault.azure.net",
+            acrLoginServer: ".azurecr.io",
+          },
+        };
       case "length":
         return typeof args[0] === "string" || Array.isArray(args[0]) ? args[0].length : UNRESOLVED;
       default:
@@ -309,10 +320,22 @@ export function createEvaluator(scope: TemplateScope) {
     }
   };
 
+  // Every string evaluated leniently, for matching references to resource
+  // names that were themselves evaluated leniently.
+  const resolveAllLenient = (value: unknown): Value => {
+    lenient = true;
+    try {
+      return deep(value);
+    } finally {
+      lenient = false;
+    }
+  };
+
   return {
     evaluate,
     evaluateLenient,
     resolveAll: (value: unknown) => deep(value),
+    resolveAllLenient,
     parameter,
     variable,
   };
