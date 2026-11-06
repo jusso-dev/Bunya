@@ -34,7 +34,7 @@ test("an invalid number never reaches the saved diagram", async ({ page }) => {
   await capacity.fill("3.7");
   await capacity.blur();
   await expect(capacity).toHaveValue("4");
-  await page.waitForTimeout(400);
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("bunya.document.v1") ?? "{}").nodes?.[0]?.properties.capacity)).toBe(4);
   await page.reload();
   await expect(page.locator(".react-flow__node")).toHaveCount(1);
 });

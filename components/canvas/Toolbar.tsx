@@ -1,32 +1,32 @@
 "use client";
 
 import { toast } from "sonner";
-import { announceImport, IMPORT_NOTES_EVENT, ImportNotesDialog } from "@/components/ImportNotes";
+import { importDiagram, ImportNotesDialog } from "@/components/ImportNotes";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useGraphStore } from "@/lib/graph/store";
 import { STARTER_TEMPLATES, getTemplateById } from "@/lib/catalogue/templates";
 import {
   FRAGMENT_SIZE_WARNING_BYTES,
   fragmentByteLength,
-  saveToLocalStorage,
-  loadStoredDocument,
   serialiseToFragment,
-  deserialiseFromFragment,
   shareUrlFromFragment,
 } from "@/lib/graph/serialise";
 import {
   buildEnvelope,
   envelopeToBlob,
-  isPortableFile,
-  parseImportText,
   PORTABLE_EXTENSION,
-  readFileAsText,
   suggestedFilename,
 } from "@/lib/graph/portable";
 import { emptyGraph } from "@/lib/graph/schema";
 import { MAX_IMPORT_BYTES } from "@/lib/graph/limits";
 import { Dialog } from "@/components/Dialog";
+import { downloadBlob } from "@/lib/session/download";
+import { loadDocument } from "@/lib/session/import";
+import { startPersistence } from "@/lib/session/persistence";
+import { useSessionUi } from "@/lib/session/ui";
 import { OrganisationRulesPanel } from "./OrganisationRulesPanel";
+
+const MAX_IMPORT_MIB = MAX_IMPORT_BYTES / (1024 * 1024);
 
 function PanelToggles() {
   const collapsed = useGraphStore((s) => s.collapsed);
@@ -64,56 +64,20 @@ export function Toolbar() {
   const redo = useGraphStore((s) => s.redo);
   const canUndo = useGraphStore((s) => s.history.length > 0);
   const canRedo = useGraphStore((s) => s.future.length > 0);
-  const replaceDocument = useGraphStore((s) => s.replaceDocument);
-
-  const [ready, setReady] = useState(false);
-  const [saveFailed, setSaveFailed] = useState(false);
-  const [templateOpen, setTemplateOpen] = useState(false);
-  const [importOpen, setImportOpen] = useState(false);
-  const [notesOpen, setNotesOpen] = useState(false);
   const hasImportNotes = useGraphStore((s) => s.importNotes !== null);
 
-  useEffect(() => {
-    const open = () => setNotesOpen(true);
-    window.addEventListener(IMPORT_NOTES_EVENT, open);
-    return () => window.removeEventListener(IMPORT_NOTES_EVENT, open);
-  }, []);
-  const [importMessage, setImportMessage] = useState<string | null>(null);
+  const saveFailed = useSessionUi((s) => s.saveFailed);
+  const importOpen = useSessionUi((s) => s.importDialog.open);
+  const importMessage = useSessionUi((s) => s.importDialog.message);
+  const openImport = useSessionUi((s) => s.openImport);
+  const closeImport = useSessionUi((s) => s.closeImport);
+  const setImportNotesOpen = useSessionUi((s) => s.setImportNotesOpen);
+
+  const [templateOpen, setTemplateOpen] = useState(false);
   const [importText, setImportText] = useState("");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    const restore = async () => {
-      const hash = window.location.hash.slice(1);
-      const storedLoad = loadStoredDocument();
-      const stored = storedLoad.status === "ok" || storedLoad.status === "recovered" ? storedLoad.document : null;
-      const shared = hash.startsWith("bunya1:") ? await deserialiseFromFragment(hash) : null;
-      if (cancelled) return;
-      if (shared) replaceDocument(shared);
-      else if (stored) replaceDocument(stored);
-      if (!shared && storedLoad.status === "recovered") {
-        toast.warning("Your last change could not be loaded, so Bunya restored the previous saved version of this diagram.", { id: "storage-recovery" });
-      }
-      if (!shared && storedLoad.status === "unreadable") {
-        toast.error("Your saved diagram could not be loaded. It has been kept in this browser; import a recent export to continue.", { id: "storage-recovery", duration: Infinity });
-      }
-      if (hash.startsWith("bunya1:") && !shared) toast.warning("Shared diagram is invalid or too large. Restored your saved diagram.");
-      try {
-        const fx = Number(localStorage.getItem("bunya.settings.fxAudPerUsd"));
-        if (Number.isFinite(fx) && fx > 0) useGraphStore.getState().setFxAudPerUsd(fx);
-      } catch { /* Storage can be unavailable in private or restricted browsers. */ }
-      setReady(true);
-    };
-    void restore();
-    return () => { cancelled = true; };
-  }, [replaceDocument]);
-
-  useEffect(() => {
-    if (!ready) return;
-    const timer = window.setTimeout(() => setSaveFailed(!saveToLocalStorage(document)), 250);
-    return () => window.clearTimeout(timer);
-  }, [document, ready]);
+  useEffect(() => startPersistence(), []);
 
   const onShare = useCallback(async () => {
     let fragment: string;
@@ -125,7 +89,7 @@ export function Toolbar() {
       return;
     }
     const url = shareUrlFromFragment(fragment);
-    if (typeof window !== "undefined") window.history.replaceState(null, "", `#${fragment}`);
+    window.history.replaceState(null, "", `#${fragment}`);
     try {
       await navigator.clipboard.writeText(url);
       toast.success("Share URL copied to clipboard.", { id: "share" });
@@ -137,91 +101,43 @@ export function Toolbar() {
   const onLoadTemplate = (id: string) => {
     const template = getTemplateById(id);
     if (!template) return;
-    replaceDocument(template.document);
-    useGraphStore.getState().setImportNotes(null);
+    loadDocument(template.document);
     setTemplateOpen(false);
   };
 
   const onNew = () => {
-    replaceDocument(emptyGraph("untitled"));
-    useGraphStore.getState().setImportNotes(null);
+    loadDocument(emptyGraph("untitled"));
     toast.success("New diagram created.", {
       description: "Undo restores your previous diagram.",
       action: { label: "Undo", onClick: () => useGraphStore.getState().undo() },
     });
-    if (typeof window !== "undefined") window.history.replaceState(null, "", "#");
   };
 
-  const onExport = useCallback(() => {
-    const envelope = buildEnvelope(document);
-    const blob = envelopeToBlob(envelope);
-    const url = URL.createObjectURL(blob);
-    const a = window.document.createElement("a");
-    a.href = url;
-    a.download = suggestedFilename(document);
-    a.click();
-    URL.revokeObjectURL(url);
+  const onExport = () => {
+    const blob = envelopeToBlob(buildEnvelope(document));
+    const filename = suggestedFilename(document);
+    downloadBlob(blob, filename);
     if (blob.size > MAX_IMPORT_BYTES) {
-      toast.warning(`Exported ${a.download}.`, { description: "This file exceeds the 1 MiB import limit and cannot be reimported without reducing its size." });
+      toast.warning(`Exported ${filename}.`, { id: "export", description: `This file exceeds the ${MAX_IMPORT_MIB} MiB import limit and cannot be reimported without reducing its size.` });
     } else {
-      toast.success(`Exported ${a.download}.`, { id: "export" });
+      toast.success(`Exported ${filename}.`, { id: "export" });
     }
-  }, [document]);
+  };
 
-  const importFromFile = useCallback(
-    async (file: File) => {
-      if (!isPortableFile(file)) {
-        setImportOpen(true);
-        setImportMessage(`Skipped ${file.name}: upload a .json or .bunya.json file.`);
-        return;
-      }
-      setImportOpen(true);
-      let text: string;
-      try { text = await readFileAsText(file); }
-      catch (error) { setImportMessage(error instanceof Error ? error.message : "Could not read file."); return; }
-      const result = parseImportText(text);
-      if (!result.ok) {
-        setImportMessage(`Import failed: ${result.reason}`);
-        return;
-      }
-      replaceDocument(result.document);
-      if (typeof window !== "undefined") window.history.replaceState(null, "", "#");
-      announceImport(file.name, result.document.nodes.length, result.warning);
-      setImportMessage(null);
-      setImportOpen(false);
-    },
-    [replaceDocument],
-  );
-
-  const onImportClick = () => fileInputRef.current?.click();
-
-  const onImportPaste = useCallback(() => {
+  const onImportPaste = async () => {
     const text = importText.trim();
     if (!text) {
-      setImportMessage("Paste a Bunya export or ARM template JSON first.");
+      openImport("Paste a Bunya export or ARM template JSON first.");
       return;
     }
-    const result = parseImportText(text);
-    if (!result.ok) {
-      setImportMessage(`Import failed: ${result.reason}`);
-      return;
-    }
-    replaceDocument(result.document);
-    if (typeof window !== "undefined") window.history.replaceState(null, "", "#");
-    setImportText("");
-    setImportMessage(null);
-    setImportOpen(false);
-    announceImport("pasted JSON", result.document.nodes.length, result.warning);
-  }, [importText, replaceDocument]);
+    if (await importDiagram({ text, label: "pasted JSON" })) setImportText("");
+  };
 
-  const onFileChange = useCallback(
-    async (event: React.ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0];
-      if (file) await importFromFile(file);
-      event.target.value = "";
-    },
-    [importFromFile],
-  );
+  const onFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (file) await importDiagram(file);
+  };
 
   return (
     <header className="relative z-30 flex shrink-0 flex-wrap items-center gap-2 border-b border-zinc-200 bg-white px-4 py-2 dark:border-zinc-800 dark:bg-zinc-950">
@@ -283,17 +199,14 @@ export function Toolbar() {
         <div className="relative">
           <button
             type="button"
-            onClick={() => {
-              setImportMessage(null);
-              setImportOpen((v) => !v);
-            }}
+            onClick={() => (importOpen ? closeImport() : openImport())}
             className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
             title={`Import a ${PORTABLE_EXTENSION} file or Azure ARM template`}
           >
             Import
           </button>
           {importOpen ? (
-            <Dialog label="Import diagram" onClose={() => setImportOpen(false)}>
+            <Dialog label="Import diagram" onClose={closeImport}>
             <div className="flex w-96 max-w-full flex-col gap-2">
               <div className="text-xs font-semibold text-zinc-800 dark:text-zinc-100">
                 Import JSON
@@ -303,7 +216,7 @@ export function Toolbar() {
                 value={importText}
                 onChange={(e) => {
                   setImportText(e.target.value);
-                  setImportMessage(null);
+                  if (importMessage) openImport();
                 }}
                 rows={7}
                 className="w-full resize-none rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1.5 font-mono text-[11px] text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100"
@@ -321,7 +234,7 @@ export function Toolbar() {
               <div className="flex items-center justify-between gap-2">
                 <button
                   type="button"
-                  onClick={onImportClick}
+                  onClick={() => fileInputRef.current?.click()}
                   className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
                 >
                   Upload JSON
@@ -331,8 +244,7 @@ export function Toolbar() {
                     type="button"
                     onClick={() => {
                       setImportText("");
-                      setImportMessage(null);
-                      setImportOpen(false);
+                      closeImport();
                     }}
                     className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
                   >
@@ -340,7 +252,7 @@ export function Toolbar() {
                   </button>
                   <button
                     type="button"
-                    onClick={onImportPaste}
+                    onClick={() => void onImportPaste()}
                     className="rounded-md bg-zinc-900 px-2 py-1 text-xs font-medium text-white hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
                   >
                     Import
@@ -354,13 +266,13 @@ export function Toolbar() {
         {hasImportNotes ? (
           <button
             type="button"
-            onClick={() => setNotesOpen(true)}
+            onClick={() => setImportNotesOpen(true)}
             className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-900 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100 dark:hover:bg-amber-900/40"
           >
             Import notes
           </button>
         ) : null}
-        {notesOpen ? <ImportNotesDialog onClose={() => setNotesOpen(false)} /> : null}
+        <ImportNotesDialog />
         <OrganisationRulesPanel />
         <button
           type="button"
@@ -388,7 +300,7 @@ export function Toolbar() {
           ref={fileInputRef}
           type="file"
           accept=".json,application/json,application/x-bunya+json"
-          onChange={onFileChange}
+          onChange={(event) => void onFileChange(event)}
           className="hidden"
           aria-label="Import Bunya file"
         />
