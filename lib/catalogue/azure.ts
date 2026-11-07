@@ -40,15 +40,18 @@ const SERVICE_BY_ARM_TYPE: Record<string, ServiceType> = Object.fromEntries(
     .map(([type, arm]) => [arm.toLowerCase(), type]),
 );
 
-export function armTypeOf(type: ServiceType): string {
-  return ARM_TYPES[type];
-}
-
 export function serviceTypeOfArm(armType: string, kind = ""): ServiceType | null {
   const type = SERVICE_BY_ARM_TYPE[armType.toLowerCase()] ?? null;
   if (type === "appService" && kind.toLowerCase().includes("functionapp")) return "functionApp";
   return type;
 }
+
+// Resources that accept Azure Monitor diagnostic settings. Metric alerts,
+// identities, private endpoints and networking containers do not.
+export const DIAGNOSTIC_SOURCES: ReadonlySet<ServiceType> = new Set([
+  "appService", "functionApp", "storageAccount", "keyVault", "sqlDatabase", "cosmosDb", "containerRegistry",
+  "aksCluster", "virtualMachineScaleSet", "applicationGateway", "frontDoor", "apiManagement",
+]);
 
 export const AUSTRALIAN_REGIONS: readonly string[] = [...AZURE_REGIONS].sort();
 

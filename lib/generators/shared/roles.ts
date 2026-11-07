@@ -51,6 +51,14 @@ export function portableGrants(ctx: GeneratorContext): RoleGrant[] {
   return roleGrants(ctx).filter((grant) => !grant.drawn && GRANT_PRINCIPALS.has(grant.principal.type) && GRANT_SCOPES.has(grant.scope.type));
 }
 
-export function roleSlug(role: RoleName): string {
-  return role.toLowerCase().replace(/[^a-z0-9]+/g, "_");
+// Name suffix of a grant's resource. Key Vault grants were first written beside
+// the vault as "_secrets"; keeping that name keeps existing Terraform state and
+// Bicep deployments matching.
+export function grantSuffix({ scope, role }: Pick<RoleGrant, "scope" | "role">): string {
+  return scope.type === "keyVault" ? "secrets" : role.toLowerCase().replace(/[^a-z0-9]+/g, "_");
+}
+
+// Key Vault grants are written beside the vault, every other grant after all resources.
+export function writtenWithScope(grant: Pick<RoleGrant, "scope">): boolean {
+  return grant.scope.type === "keyVault";
 }

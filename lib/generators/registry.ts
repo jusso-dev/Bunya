@@ -38,9 +38,6 @@ export type OutputId = (typeof OUTPUTS)[number]["id"];
 
 export const OUTPUT_IDS = OUTPUTS.map((output) => output.id) as [OutputId, ...OutputId[]];
 
-export function getOutput(id: OutputId): Output {
-  return OUTPUTS.find((output) => output.id === id)!;
-}
 
 export function bundlePath(output: Output, file: GeneratedFile): string {
   return output.folder ? `${output.folder}/${file.path}` : file.path;

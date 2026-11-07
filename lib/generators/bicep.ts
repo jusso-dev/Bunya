@@ -14,13 +14,13 @@ import {
 } from "./shared/context";
 import { GeneratedFile, GeneratorResult } from "./types";
 import { expr, planBody, siteBody, toBicep, type Refs, type SiteBody } from "./shared/site-resource";
-import { portableGrants, roleSlug, type RoleGrant } from "./shared/roles";
+import { grantSuffix, portableGrants, writtenWithScope, type RoleGrant } from "./shared/roles";
 import { quote } from "./shared/quote";
 import { apiVersion } from "./shared/api-versions";
 import { contentShareName, deploymentContainerName } from "./shared/hosting";
 import { privateEndpointTarget, subnetDelegations } from "@/lib/graph/topology";
 import { storagePublicNetwork } from "@/lib/catalogue/services";
-import { tlsVersionToArm } from "@/lib/catalogue/azure";
+import { DIAGNOSTIC_SOURCES, tlsVersionToArm } from "@/lib/catalogue/azure";
 
 function typed(armType: string): string {
   return `${armType}@${apiVersion(armType)}`;
@@ -146,7 +146,8 @@ function emitPrivateEndpoint(node: GraphNode, ctx: GeneratorContext): string {
   const ident = nodeRef(ctx, node.id);
   const subnetIdent = nodeRef(ctx, subnetOf(ctx, node)!.id);
   const target = privateEndpointTarget(ctx.document, node);
-  const targetId = target ? `${nodeRef(ctx, target.id)}.id` : "null";
+  // A SQL endpoint connects to the logical server, not the database.
+  const targetId = !target ? "null" : target.type === "sqlDatabase" ? `${nodeRef(ctx, target.id)}Server.id` : `${nodeRef(ctx, target.id)}.id`;
   const groupId = String(node.properties.groupId);
   return [
     autoComment(ctx, node.id, "//"),
@@ -193,7 +194,7 @@ const deploymentRef = (ctx: GeneratorContext, site: GraphNode) => `${nodeRef(ctx
 const zoneGroupRef = (ctx: GeneratorContext, pe: GraphNode) => `${nodeRef(ctx, pe.id)}_dns`;
 const dnsLinkRef = (ctx: GeneratorContext, zone: GraphNode, vnet: GraphNode) => `${nodeRef(ctx, zone.id)}_${ctx.identifiers.get(vnet.id)}_link`;
 const grantRef = (ctx: GeneratorContext, { principal, scope, role }: Pick<RoleGrant, "principal" | "scope" | "role">) =>
-  `${nodeRef(ctx, principal.id)}_${nodeRef(ctx, scope.id)}_${scope.type === "keyVault" ? "secrets" : roleSlug(role)}`;
+  `${nodeRef(ctx, principal.id)}_${nodeRef(ctx, scope.id)}_${grantSuffix({ scope, role })}`;
 
 function emitAppServicePlan(node: GraphNode, ctx: GeneratorContext): string {
   const ident = nodeRef(ctx, node.id);
@@ -537,7 +538,7 @@ function emitKeyVault(node: GraphNode, ctx: GeneratorContext): string {
     tagsLiteral(ctx, node),
     `}`,
   ];
-  for (const grant of portableGrants(ctx).filter((candidate) => candidate.scope.id === node.id)) lines.push(``, roleAssignment(ctx, grant));
+  for (const grant of portableGrants(ctx).filter((candidate) => writtenWithScope(candidate) && candidate.scope.id === node.id)) lines.push(``, roleAssignment(ctx, grant));
   return lines.filter(Boolean).join("\n");
 }
 
@@ -793,7 +794,7 @@ function emitDiagnostics(ctx: GeneratorContext): string {
   const blocks: string[] = [];
   for (const edge of ctx.edges) {
     const target = ctx.nodesById.get(edge.target)!;
-    if (edge.kind !== "diagnostic" || target.type !== "logAnalytics") continue;
+    if (edge.kind !== "diagnostic" || target.type !== "logAnalytics" || !DIAGNOSTIC_SOURCES.has(ctx.nodesById.get(edge.source)!.type)) continue;
     const sIdent = nodeRef(ctx, edge.source);
     const tIdent = nodeRef(ctx, target.id);
     blocks.push(
@@ -842,7 +843,7 @@ function roleAssignment(ctx: GeneratorContext, grant: RoleGrant): string {
 
 function emitRoleGrants(ctx: GeneratorContext): string {
   return portableGrants(ctx)
-    .filter((grant) => grant.scope.type !== "keyVault")
+    .filter((grant) => !writtenWithScope(grant))
     .map((grant) => roleAssignment(ctx, grant))
     .join("\n\n");
 }

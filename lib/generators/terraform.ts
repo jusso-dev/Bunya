@@ -16,11 +16,11 @@ import {
 } from "./shared/context";
 import { GeneratorResult, GeneratedFile } from "./types";
 import { contentShareName, deploymentContainerName, siteHosting, type SiteHosting } from "./shared/hosting";
-import { portableGrants, roleSlug, type RoleGrant } from "./shared/roles";
+import { grantSuffix, portableGrants, writtenWithScope, type RoleGrant } from "./shared/roles";
 import { quote } from "./shared/quote";
 import { isSite, privateEndpointTarget, subnetDelegations } from "@/lib/graph/topology";
 import { storagePublicNetwork } from "@/lib/catalogue/services";
-import { tlsVersionToArm } from "@/lib/catalogue/azure";
+import { DIAGNOSTIC_SOURCES, tlsVersionToArm } from "@/lib/catalogue/azure";
 import { isServerlessPlan } from "@/lib/catalogue/app-service-plans";
 
 const TF_TYPES: Partial<Record<ServiceType, string>> = {
@@ -646,7 +646,7 @@ function emitKeyVault(node: GraphNode, ctx: GeneratorContext): string {
     tagsBlock(ctx, node),
     `}`,
   ];
-  for (const grant of portableGrants(ctx).filter((candidate) => candidate.scope.id === node.id)) lines.push(``, roleAssignment(ctx, grant));
+  for (const grant of portableGrants(ctx).filter((candidate) => writtenWithScope(candidate) && candidate.scope.id === node.id)) lines.push(``, roleAssignment(ctx, grant));
   return lines.filter(Boolean).join("\n");
 }
 
@@ -890,11 +890,6 @@ const EMITTERS: Record<ServiceType, (node: GraphNode, ctx: GeneratorContext) => 
   roleAssignment: emitRoleAssignmentNode,
 };
 
-const DIAGNOSTIC_SOURCES: ReadonlySet<ServiceType> = new Set([
-  "appService", "functionApp", "storageAccount", "keyVault", "sqlDatabase", "cosmosDb", "containerRegistry",
-  "aksCluster", "virtualMachineScaleSet", "applicationGateway", "frontDoor", "apiManagement",
-]);
-
 function emitDiagnostics(ctx: GeneratorContext): string {
   const blocks: string[] = [];
   for (const edge of ctx.edges) {
@@ -922,11 +917,8 @@ function emitDiagnostics(ctx: GeneratorContext): string {
   return blocks.join("\n\n");
 }
 
-// Terraform address of a grant. Key Vault grants keep their original
-// "_secrets" names so existing state still matches.
 function grantName(ctx: GeneratorContext, { principal, scope, role }: Pick<RoleGrant, "principal" | "scope" | "role">): string {
-  const suffix = scope.type === "keyVault" ? "secrets" : roleSlug(role);
-  return `${ctx.identifiers.get(principal.id)}_${ctx.identifiers.get(scope.id)}_${suffix}`;
+  return `${ctx.identifiers.get(principal.id)}_${ctx.identifiers.get(scope.id)}_${grantSuffix({ scope, role })}`;
 }
 
 function roleAssignment(ctx: GeneratorContext, grant: RoleGrant): string {
@@ -942,7 +934,7 @@ function roleAssignment(ctx: GeneratorContext, grant: RoleGrant): string {
 
 function emitRoleGrants(ctx: GeneratorContext): string {
   return portableGrants(ctx)
-    .filter((grant) => grant.scope.type !== "keyVault")
+    .filter((grant) => !writtenWithScope(grant))
     .map((grant) => roleAssignment(ctx, grant))
     .join("\n\n");
 }

@@ -17,7 +17,7 @@ import { expr, planBody, siteBody, toArm, type Refs } from "./shared/site-resour
 import { contentShareName, deploymentContainerName, siteHosting, type SiteHosting } from "./shared/hosting";
 import { roleGrants, type RoleGrant } from "./shared/roles";
 import { apiVersion } from "./shared/api-versions";
-import { ARM_TYPES, tlsVersionToArm } from "@/lib/catalogue/azure";
+import { ARM_TYPES, DIAGNOSTIC_SOURCES, tlsVersionToArm } from "@/lib/catalogue/azure";
 import { privateEndpointTarget, subnetDelegations } from "@/lib/graph/topology";
 import { storagePublicNetwork } from "@/lib/catalogue/services";
 
@@ -117,7 +117,7 @@ function emitNsg(node: GraphNode, ctx: GeneratorContext): ArmResource {
 function emitPrivateEndpoint(node: GraphNode, ctx: GeneratorContext): ArmResource {
   const target = privateEndpointTarget(ctx.document, node);
   const subnetId = armResourceId(subnetOf(ctx, node)!, ctx);
-  const targetId = target ? armResourceId(target, ctx) : null;
+  const targetId = !target ? null : target.type === "sqlDatabase" ? `[resourceId('Microsoft.Sql/servers', '${sqlServerName(ctx, target)}')]` : armResourceId(target, ctx);
   const zones = endpointZones(ctx, node);
   // ARM deploys in parallel: wait for the subnet and the target service.
   const dependencies = [subnetId, ...(targetId ? [targetId] : [])];
@@ -687,7 +687,7 @@ function emitRoleAssignments(ctx: GeneratorContext): ArmResource[] {
 // Diagnostic settings are extension resources on the source.
 function emitDiagnosticSettings(ctx: GeneratorContext): ArmResource[] {
   return ctx.edges
-    .filter((edge) => edge.kind === "diagnostic" && ctx.nodesById.get(edge.target)!.type === "logAnalytics")
+    .filter((edge) => edge.kind === "diagnostic" && ctx.nodesById.get(edge.target)!.type === "logAnalytics" && DIAGNOSTIC_SOURCES.has(ctx.nodesById.get(edge.source)!.type))
     .map((edge) => {
       const source = ctx.nodesById.get(edge.source)!;
       const target = ctx.nodesById.get(edge.target)!;
