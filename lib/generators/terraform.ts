@@ -23,7 +23,6 @@ import { storagePublicNetwork } from "@/lib/catalogue/services";
 import { tlsVersionToArm } from "@/lib/catalogue/azure";
 import { isServerlessPlan } from "@/lib/catalogue/app-service-plans";
 
-// azurerm resource type of each service; Function Apps depend on their plan.
 const TF_TYPES: Partial<Record<ServiceType, string>> = {
   resourceGroup: "azurerm_resource_group",
   virtualNetwork: "azurerm_virtual_network",
@@ -56,7 +55,6 @@ function tfType(ctx: GeneratorContext, node: GraphNode): string {
   return siteHosting(ctx, node).flex ? "azurerm_function_app_flex_consumption" : "azurerm_linux_function_app";
 }
 
-// Terraform address of a node's main resource.
 function ref(ctx: GeneratorContext, node: GraphNode): string {
   return `${tfType(ctx, node)}.${ctx.identifiers.get(node.id)}`;
 }
@@ -170,7 +168,6 @@ function emitPrivateEndpoint(node: GraphNode, ctx: GeneratorContext): string {
   ].filter(Boolean).join("\n");
 }
 
-// Registers the endpoint's private IP in the zones it is wired to.
 function privateDnsZoneGroup(ctx: GeneratorContext, node: GraphNode): string[] {
   const zones = endpointZones(ctx, node);
   if (zones.length === 0) return [];
@@ -201,7 +198,6 @@ function emitAppServicePlan(node: GraphNode, ctx: GeneratorContext): string {
   ].filter(Boolean).join("\n");
 }
 
-// App settings shared by web and function apps, from data/identity/diagnostic edges.
 function connectionSettings(ctx: GeneratorContext, node: GraphNode, hosting: SiteHosting, includeStorage: boolean): string[] {
   const settings: string[] = [];
   for (const t of targets(ctx, node.id, "data")) {
@@ -230,7 +226,6 @@ function identityBlock(ctx: GeneratorContext, hosting: SiteHosting): string[] {
   return [`  identity {`, `    type         = "SystemAssigned, UserAssigned"`, `    identity_ids = [${ids.join(", ")}]`, `  }`];
 }
 
-// site_config lines for registry pulls with managed identity.
 function registryConfig(ctx: GeneratorContext, hosting: SiteHosting): string[] {
   if (!hosting.image || !hosting.pullIdentity) return [];
   const lines = [`    container_registry_use_managed_identity = true`];
@@ -895,7 +890,6 @@ const EMITTERS: Record<ServiceType, (node: GraphNode, ctx: GeneratorContext) => 
   roleAssignment: emitRoleAssignmentNode,
 };
 
-// Sources Terraform writes diagnostic settings for.
 const DIAGNOSTIC_SOURCES: ReadonlySet<ServiceType> = new Set([
   "appService", "functionApp", "storageAccount", "keyVault", "sqlDatabase", "cosmosDb", "containerRegistry",
   "aksCluster", "virtualMachineScaleSet", "applicationGateway", "frontDoor", "apiManagement",
@@ -946,7 +940,6 @@ function roleAssignment(ctx: GeneratorContext, grant: RoleGrant): string {
   ].join("\n");
 }
 
-// Grants on registries and storage; Key Vault grants sit beside the vault.
 function emitRoleGrants(ctx: GeneratorContext): string {
   return portableGrants(ctx)
     .filter((grant) => grant.scope.type !== "keyVault")

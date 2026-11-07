@@ -35,7 +35,6 @@ function templateReason(ctx: GeneratorContext, noPrivateCreate: ReadonlySet<Serv
   return null;
 }
 
-// A deploy script that runs the ARM template, when the diagram needs one.
 export function templateDeployment(ctx: GeneratorContext, shell: "bash" | "powershell", noPrivateCreate: ReadonlySet<ServiceType>): GeneratorResult | null {
   const reason = templateReason(ctx, noPrivateCreate);
   if (!reason) return null;

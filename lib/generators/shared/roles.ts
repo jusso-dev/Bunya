@@ -51,7 +51,6 @@ export function portableGrants(ctx: GeneratorContext): RoleGrant[] {
   return roleGrants(ctx).filter((grant) => !grant.drawn && GRANT_PRINCIPALS.has(grant.principal.type) && GRANT_SCOPES.has(grant.scope.type));
 }
 
-// Slug of a role for resource names, e.g. "AcrPull" -> "acrpull".
 export function roleSlug(role: RoleName): string {
   return role.toLowerCase().replace(/[^a-z0-9]+/g, "_");
 }

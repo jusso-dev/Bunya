@@ -25,7 +25,6 @@ function isIdMap(value: unknown): value is IdMap {
   return typeof value === "object" && value !== null && (value as IdMap).__idmap === true;
 }
 
-// How each exporter refers to other resources.
 export type Refs = {
   id(node: GraphNode): Expr;
   // Connection string for a storage account, with its account key.
@@ -167,7 +166,6 @@ export function siteBody(ctx: GeneratorContext, node: GraphNode, refs: Refs): Si
   return { kind: siteKind(node, hosting), identity: identityBlock(hosting, refs), properties, dependsOn, hosting };
 }
 
-// Renders a Value as a Bicep literal at the given indent.
 export function toBicep(value: Value | undefined, indent = 0): string {
   const pad = "  ".repeat(indent);
   const inner = "  ".repeat(indent + 1);
@@ -187,7 +185,6 @@ export function toBicep(value: Value | undefined, indent = 0): string {
     .join("\n")}\n${pad}}`;
 }
 
-// Converts a Value to ARM JSON, rendering expressions as "[...]" strings.
 export function toArm(value: Value | undefined): unknown {
   if (value === undefined) return undefined;
   if (value === null) return null;

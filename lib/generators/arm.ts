@@ -36,8 +36,6 @@ type ArmResource = {
   resources?: ArmResource[];
 };
 
-// `resourceId(...)` for a resource type and its name segments, without the
-// [ ] that turn it into a template expression.
 function idExpr(type: string, ...names: string[]): string {
   return `resourceId('${type}', ${names.map((part) => `'${part}'`).join(", ")})`;
 }
@@ -46,7 +44,6 @@ function resourceId(type: string, ...names: string[]): string {
   return `[${idExpr(type, ...names)}]`;
 }
 
-// `reference(...)` to a resource's runtime properties.
 function referenceExpr(type: string, name: string): string {
   return `reference(resourceId('${type}', '${name}'), '${apiVersion(type)}')`;
 }
@@ -55,7 +52,6 @@ function dependsOn(ctx: GeneratorContext, node: GraphNode): string[] {
   return targets(ctx, node.id, "depends_on").flatMap((target) => (target.type === "resourceGroup" ? [] : [armResourceId(target, ctx)]));
 }
 
-// Name segments of a node's resource ID.
 function idNames(ctx: GeneratorContext, node: GraphNode): string[] {
   if (node.type === "subnet") return [ctx.name(subnetVnet(ctx, node).id), ctx.name(node.id)];
   if (node.type === "sqlDatabase") return [sqlServerName(ctx, node), ctx.name(node.id)];
@@ -216,8 +212,6 @@ function emitAppServicePlan(node: GraphNode, ctx: GeneratorContext): ArmResource
   };
 }
 
-// Name segments of the blob container and file share Bunya adds to a
-// Function App's storage account.
 function deploymentContainerNames(ctx: GeneratorContext, site: GraphNode, hosting: SiteHosting): string[] {
   return [ctx.name(hosting.storage!.id), "default", deploymentContainerName(ctx, site)];
 }
@@ -659,7 +653,6 @@ function emitUserAssignedIdentity(node: GraphNode, ctx: GeneratorContext): ArmRe
   };
 }
 
-// Principal ID of a node's managed identity once it is deployed.
 function principalIdExpression(principal: GraphNode, ctx: GeneratorContext): string {
   const type = ARM_TYPES[principal.type];
   const name = ctx.name(principal.id);

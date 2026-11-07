@@ -22,12 +22,10 @@ import { privateEndpointTarget, subnetDelegations } from "@/lib/graph/topology";
 import { storagePublicNetwork } from "@/lib/catalogue/services";
 import { tlsVersionToArm } from "@/lib/catalogue/azure";
 
-// Resource type with the API version Bunya deploys it with.
 function typed(armType: string): string {
   return `${armType}@${apiVersion(armType)}`;
 }
 
-// Bicep symbol of a node's main resource.
 function nodeRef(ctx: GeneratorContext, id: string): string {
   return `node_${ctx.document.nodes.findIndex((node) => node.id === id)}_${ctx.identifiers.get(id)}_resource`;
 }
@@ -120,7 +118,6 @@ function emitNsg(node: GraphNode, ctx: GeneratorContext): string {
   ].filter(Boolean).join("\n");
 }
 
-// Registers the endpoint's private IP in the zones it is wired to.
 function bicepZoneGroup(ctx: GeneratorContext, node: GraphNode): string[] {
   const zones = endpointZones(ctx, node);
   if (zones.length === 0) return [];
@@ -191,13 +188,10 @@ function bicepRefs(ctx: GeneratorContext): Refs {
   };
 }
 
-// Symbols of resources Bunya adds beside a node, which other resources
-// wait for by name.
 const contentShareRef = (ctx: GeneratorContext, site: GraphNode) => `${nodeRef(ctx, site.id)}_contentshare`;
 const deploymentRef = (ctx: GeneratorContext, site: GraphNode) => `${nodeRef(ctx, site.id)}_deployment`;
 const zoneGroupRef = (ctx: GeneratorContext, pe: GraphNode) => `${nodeRef(ctx, pe.id)}_dns`;
 const dnsLinkRef = (ctx: GeneratorContext, zone: GraphNode, vnet: GraphNode) => `${nodeRef(ctx, zone.id)}_${ctx.identifiers.get(vnet.id)}_link`;
-// Key Vault grants keep their original "_secrets" symbols.
 const grantRef = (ctx: GeneratorContext, { principal, scope, role }: Pick<RoleGrant, "principal" | "scope" | "role">) =>
   `${nodeRef(ctx, principal.id)}_${nodeRef(ctx, scope.id)}_${scope.type === "keyVault" ? "secrets" : roleSlug(role)}`;
 
@@ -256,13 +250,12 @@ function emitSite(node: GraphNode, ctx: GeneratorContext): string {
   return lines.filter(Boolean).join("\n");
 }
 
-// Bicep infers most ordering; add the Flex deployment container and, for a
-// user-assigned pull identity, its AcrPull grant so the first pull succeeds.
+// Bicep infers most ordering. A user-assigned pull identity needs its AcrPull
+// grant before the site starts, so the first pull succeeds.
 function siteDependsOn(ctx: GeneratorContext, node: GraphNode, hosting: SiteBody["hosting"]): string[] {
   const deps: string[] = [];
   if (hosting.flex) deps.push(deploymentRef(ctx, node));
   if (hosting.privateContentShare) deps.push(contentShareRef(ctx, node));
-  // Private storage: wait for its endpoints and their DNS zone groups.
   for (const { pe, hasDns } of hosting.storageEndpoints) {
     deps.push(nodeRef(ctx, pe.id));
     if (hasDns) deps.push(zoneGroupRef(ctx, pe));
@@ -847,7 +840,6 @@ function roleAssignment(ctx: GeneratorContext, grant: RoleGrant): string {
   ].join("\n");
 }
 
-// Grants on registries and storage; Key Vault grants sit beside the vault.
 function emitRoleGrants(ctx: GeneratorContext): string {
   return portableGrants(ctx)
     .filter((grant) => grant.scope.type !== "keyVault")

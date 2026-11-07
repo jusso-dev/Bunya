@@ -1,6 +1,3 @@
-// Hosting facts every exporter needs for a web or function app: its plan
-// family, container image, registry pull identity, VNet integration subnet,
-// Application Insights component and Flex deployment container.
 import { parseContainerImage, planFamily, type ContainerImage, type PlanFamily } from "@/lib/catalogue/app-service-plans";
 import type { GraphNode } from "@/lib/graph/schema";
 import { flexRuntimeVersion, siteIntegrationSubnet, sitePlan } from "@/lib/graph/topology";

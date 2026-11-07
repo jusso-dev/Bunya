@@ -10,7 +10,6 @@ import { MAX_LITERAL, assertExportLiterals } from "../../graph/literal";
 // may also use parentheses, e.g. the catalogue label "Web App (App Service)".
 const displayName = /^[\p{L}\p{N} ._/@:+,=*()-]*$/u;
 
-// Schema errors arrive as JSON issue lists; turn them into sentences.
 function readableError(error: unknown): string {
   if (error instanceof ZodError) {
     const lines = error.issues.slice(0, 10).map((issue) => {
@@ -49,8 +48,6 @@ export function validateGeneration(document: GraphDocument, deployment = true): 
       node.properties = properties;
     }
     if (deployment) {
-      // Check the graph as drawn and as exporters emit it, including plans and
-      // edges implicit expansion adds for unattached apps.
       const messages = new Set<string>();
       const problems = [...topologyProblems(parsed), ...topologyProblems(expandImplicits(parsed).document)].filter((problem) => {
         if (messages.has(problem.message)) return false;
