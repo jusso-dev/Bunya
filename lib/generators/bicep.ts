@@ -27,10 +27,6 @@ function typed(armType: string): string {
   return `${armType}@${apiVersion(armType)}`;
 }
 
-function name(ctx: GeneratorContext, id: string): string {
-  return ctx.name(id);
-}
-
 // Bicep symbol of a node's main resource.
 function nodeRef(ctx: GeneratorContext, id: string): string {
   return `node_${ctx.document.nodes.findIndex((node) => node.id === id)}_${ctx.identifiers.get(id)}_resource`;
@@ -57,7 +53,7 @@ function emitVirtualNetwork(node: GraphNode, ctx: GeneratorContext): string {
   return [
     autoComment(ctx, node.id, "//"),
     `resource ${ident} '${typed("Microsoft.Network/virtualNetworks")}' = {`,
-    `  name: '${name(ctx, node.id)}'`,
+    `  name: '${ctx.name(node.id)}'`,
     `  location: location`,
     `  properties: {`,
     `    addressSpace: {`,
@@ -81,7 +77,7 @@ function emitSubnet(node: GraphNode, ctx: GeneratorContext): string {
   return [
     autoComment(ctx, node.id, "//"),
     `resource ${ident} '${typed("Microsoft.Network/virtualNetworks/subnets")}' = {`,
-    `  name: '${name(ctx, node.id)}'`,
+    `  name: '${ctx.name(node.id)}'`,
     `  parent: ${nodeRef(ctx, subnetVnet(ctx, node).id)}`,
     `  properties: {`,
     `    addressPrefix: '${prefix}'`,
@@ -114,7 +110,7 @@ function emitNsg(node: GraphNode, ctx: GeneratorContext): string {
   return [
     autoComment(ctx, node.id, "//"),
     `resource ${ident} '${typed("Microsoft.Network/networkSecurityGroups")}' = {`,
-    `  name: '${name(ctx, node.id)}'`,
+    `  name: '${ctx.name(node.id)}'`,
     `  location: location`,
     `  properties: {`,
     `    securityRules: []`,
@@ -158,7 +154,7 @@ function emitPrivateEndpoint(node: GraphNode, ctx: GeneratorContext): string {
   return [
     autoComment(ctx, node.id, "//"),
     `resource ${ident} '${typed("Microsoft.Network/privateEndpoints")}' = {`,
-    `  name: '${name(ctx, node.id)}'`,
+    `  name: '${ctx.name(node.id)}'`,
     `  location: location`,
     `  properties: {`,
     `    subnet: {`,
@@ -166,7 +162,7 @@ function emitPrivateEndpoint(node: GraphNode, ctx: GeneratorContext): string {
     `    }`,
     `    privateLinkServiceConnections: [`,
     `      {`,
-    `        name: '${name(ctx, node.id)}-psc'`,
+    `        name: '${ctx.name(node.id)}-psc'`,
     `        properties: {`,
     `          privateLinkServiceId: ${targetId}`,
     `          groupIds: [`,
@@ -211,7 +207,7 @@ function emitAppServicePlan(node: GraphNode, ctx: GeneratorContext): string {
   return [
     autoComment(ctx, node.id, "//"),
     `resource ${ident} '${typed("Microsoft.Web/serverfarms")}' = {`,
-    `  name: '${name(ctx, node.id)}'`,
+    `  name: '${ctx.name(node.id)}'`,
     `  location: location`,
     `  kind: '${body.kind}'`,
     `  sku: ${toBicep(body.sku, 1)}`,
@@ -248,7 +244,7 @@ function emitSite(node: GraphNode, ctx: GeneratorContext): string {
   }
   lines.push(
     `resource ${ident} '${typed("Microsoft.Web/sites")}' = {`,
-    `  name: '${name(ctx, node.id)}'`,
+    `  name: '${ctx.name(node.id)}'`,
     `  location: location`,
     `  kind: '${body.kind}'`,
     `  identity: ${toBicep(body.identity, 1)}`,
@@ -284,7 +280,7 @@ function emitStaticWebApp(node: GraphNode, ctx: GeneratorContext): string {
   return [
     autoComment(ctx, node.id, "//"),
     `resource ${ident} '${typed("Microsoft.Web/staticSites")}' = {`,
-    `  name: '${name(ctx, node.id)}'`,
+    `  name: '${ctx.name(node.id)}'`,
     `  location: location`,
     `  sku: {`,
     `    name: '${sku}'`,
@@ -306,13 +302,13 @@ function emitAksCluster(node: GraphNode, ctx: GeneratorContext): string {
   const lines = [
     autoComment(ctx, node.id, "//"),
     `resource ${ident} '${typed("Microsoft.ContainerService/managedClusters")}' = {`,
-    `  name: '${name(ctx, node.id)}'`,
+    `  name: '${ctx.name(node.id)}'`,
     `  location: location`,
     `  identity: {`,
     `    type: '${node.properties.managedIdentity === false ? "None" : "SystemAssigned"}'`,
     `  }`,
     `  properties: {`,
-    `    dnsPrefix: '${(node.properties.dnsPrefix as string) || name(ctx, node.id)}'`,
+    `    dnsPrefix: '${(node.properties.dnsPrefix as string) || ctx.name(node.id)}'`,
     `    enableRBAC: true`,
     `    agentPoolProfiles: [`,
     `      {`,
@@ -364,7 +360,7 @@ function emitVmss(node: GraphNode, ctx: GeneratorContext): string {
   return [
     autoComment(ctx, node.id, "//"),
     `resource ${ident} '${typed("Microsoft.Compute/virtualMachineScaleSets")}' = {`,
-    `  name: '${name(ctx, node.id)}'`,
+    `  name: '${ctx.name(node.id)}'`,
     `  location: location`,
     `  sku: {`,
     `    name: '${String(node.properties.sku)}'`,
@@ -399,7 +395,7 @@ function emitVmss(node: GraphNode, ctx: GeneratorContext): string {
     `        }`,
     `      }`,
     `      osProfile: {`,
-    `        computerNamePrefix: '${name(ctx, node.id).slice(0, 9)}'`,
+    `        computerNamePrefix: '${ctx.name(node.id).slice(0, 9)}'`,
     `        adminUsername: vmAdminUsername`,
     `        linuxConfiguration: {`,
     `          disablePasswordAuthentication: true`,
@@ -449,7 +445,7 @@ function emitStorageAccount(node: GraphNode, ctx: GeneratorContext): string {
   return [
     autoComment(ctx, node.id, "//"),
     `resource ${ident} '${typed("Microsoft.Storage/storageAccounts")}' = {`,
-    `  name: '${name(ctx, node.id)}'`,
+    `  name: '${ctx.name(node.id)}'`,
     `  location: location`,
     `  kind: '${kind}'`,
     `  sku: {`,
@@ -485,7 +481,7 @@ function emitSqlDatabase(node: GraphNode, ctx: GeneratorContext): string {
     `}`,
     ``,
     `resource ${ident} '${typed("Microsoft.Sql/servers/databases")}' = {`,
-    `  name: '${name(ctx, node.id)}'`,
+    `  name: '${ctx.name(node.id)}'`,
     `  parent: ${ident}Server`,
     `  location: location`,
     `  sku: {`,
@@ -503,7 +499,7 @@ function emitCosmosDb(node: GraphNode, ctx: GeneratorContext): string {
   return [
     autoComment(ctx, node.id, "//"),
     `resource ${ident} '${typed("Microsoft.DocumentDB/databaseAccounts")}' = {`,
-    `  name: '${name(ctx, node.id)}'`,
+    `  name: '${ctx.name(node.id)}'`,
     `  location: location`,
     `  kind: 'GlobalDocumentDB'`,
     `  properties: {`,
@@ -532,7 +528,7 @@ function emitKeyVault(node: GraphNode, ctx: GeneratorContext): string {
   const lines = [
     autoComment(ctx, node.id, "//"),
     `resource ${ident} '${typed("Microsoft.KeyVault/vaults")}' = {`,
-    `  name: '${name(ctx, node.id)}'`,
+    `  name: '${ctx.name(node.id)}'`,
     `  location: location`,
     `  properties: {`,
     `    sku: {`,
@@ -558,7 +554,7 @@ function emitAppInsights(node: GraphNode, ctx: GeneratorContext): string {
   return [
     autoComment(ctx, node.id, "//"),
     `resource ${ident} '${typed("Microsoft.Insights/components")}' = {`,
-    `  name: '${name(ctx, node.id)}'`,
+    `  name: '${ctx.name(node.id)}'`,
     `  location: location`,
     `  kind: 'web'`,
     `  properties: {`,
@@ -575,7 +571,7 @@ function emitLogAnalytics(node: GraphNode, ctx: GeneratorContext): string {
   return [
     autoComment(ctx, node.id, "//"),
     `resource ${ident} '${typed("Microsoft.OperationalInsights/workspaces")}' = {`,
-    `  name: '${name(ctx, node.id)}'`,
+    `  name: '${ctx.name(node.id)}'`,
     `  location: location`,
     `  properties: {`,
     `    sku: {`,
@@ -594,7 +590,7 @@ function emitFrontDoor(node: GraphNode, ctx: GeneratorContext): string {
   return [
     autoComment(ctx, node.id, "//"),
     `resource ${ident} '${typed("Microsoft.Cdn/profiles")}' = {`,
-    `  name: '${name(ctx, node.id)}'`,
+    `  name: '${ctx.name(node.id)}'`,
     `  location: 'global'`,
     `  sku: {`,
     `    name: '${sku}'`,
@@ -611,7 +607,7 @@ function emitApplicationGateway(node: GraphNode, ctx: GeneratorContext): string 
     autoComment(ctx, node.id, "//"),
     `// Application Gateway shell. Configure listeners and pools per your topology.`,
     `resource ${ident} '${typed("Microsoft.Network/applicationGateways")}' = {`,
-    `  name: '${name(ctx, node.id)}'`,
+    `  name: '${ctx.name(node.id)}'`,
     `  location: location`,
     `  properties: {`,
     `    sku: {`,
@@ -638,7 +634,7 @@ function emitApim(node: GraphNode, ctx: GeneratorContext): string {
   return [
     autoComment(ctx, node.id, "//"),
     `resource ${ident} '${typed("Microsoft.ApiManagement/service")}' = {`,
-    `  name: '${name(ctx, node.id)}'`,
+    `  name: '${ctx.name(node.id)}'`,
     `  location: location`,
     `  sku: {`,
     `    name: '${sku}'`,
@@ -659,7 +655,7 @@ function emitContainerRegistry(node: GraphNode, ctx: GeneratorContext): string {
   return [
     autoComment(ctx, node.id, "//"),
     `resource ${ident} '${typed("Microsoft.ContainerRegistry/registries")}' = {`,
-    `  name: '${name(ctx, node.id)}'`,
+    `  name: '${ctx.name(node.id)}'`,
     `  location: location`,
     `  sku: {`,
     `    name: '${sku}'`,
@@ -678,7 +674,7 @@ function emitUserAssignedIdentity(node: GraphNode, ctx: GeneratorContext): strin
   return [
     autoComment(ctx, node.id, "//"),
     `resource ${ident} '${typed("Microsoft.ManagedIdentity/userAssignedIdentities")}' = {`,
-    `  name: '${name(ctx, node.id)}'`,
+    `  name: '${ctx.name(node.id)}'`,
     `  location: location`,
     tagsLiteral(ctx, node),
     `}`,
@@ -716,7 +712,7 @@ function emitActionGroup(node: GraphNode, ctx: GeneratorContext): string {
   return [
     autoComment(ctx, node.id, "//"),
     `resource ${ident} '${typed("Microsoft.Insights/actionGroups")}' = {`,
-    `  name: '${name(ctx, node.id)}'`,
+    `  name: '${ctx.name(node.id)}'`,
     `  location: 'global'`,
     `  properties: {`,
     `    groupShortName: '${String(node.properties.shortName)}'`,
@@ -740,10 +736,10 @@ function emitMonitorAlert(node: GraphNode, ctx: GeneratorContext): string {
   const actionIdent = actionGroup ? nodeRef(ctx, actionGroup.id) : undefined;
   return [
     autoComment(ctx, node.id, "//"),
-    `// Monitor Alert ${name(ctx, node.id)}: add workload-specific metric/log criteria before production deployment.`,
+    `// Monitor Alert ${ctx.name(node.id)}: add workload-specific metric/log criteria before production deployment.`,
     ...(actionIdent ? [`// Routes to action group: ${actionIdent}`] : []),
     `resource ${ident} '${typed("Microsoft.Insights/metricAlerts")}' = {`,
-    `  name: '${name(ctx, node.id)}'`,
+    `  name: '${ctx.name(node.id)}'`,
     `  location: 'global'`,
     `  properties: {`,
     `    description: '${String(node.properties.condition)}'`,
@@ -766,7 +762,7 @@ function emitMonitorAlert(node: GraphNode, ctx: GeneratorContext): string {
 function emitRoleAssignmentNode(node: GraphNode, ctx: GeneratorContext): string {
   return [
     autoComment(ctx, node.id, "//"),
-    `// Role Assignment ${name(ctx, node.id)} (${String(node.properties.roleDefinitionName)})`,
+    `// Role Assignment ${ctx.name(node.id)} (${String(node.properties.roleDefinitionName)})`,
     `// Direct identity edges are expanded into deployable roleAssignments where the generator can resolve principalId and scope.`,
   ].filter(Boolean).join("\n");
 }

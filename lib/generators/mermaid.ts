@@ -1,4 +1,4 @@
-import { GraphDocument } from "@/lib/graph/schema";
+import type { EdgeKind, GraphDocument } from "@/lib/graph/schema";
 import { GeneratedFile, GeneratorResult } from "./types";
 import { prepareGeneration } from "./shared/context";
 import { getServiceDefinition } from "@/lib/catalogue/services";
@@ -13,7 +13,7 @@ const CATEGORY_CLASS: Record<string, string> = {
   integration: "classDef integration fill:#cffafe,stroke:#0e7490,color:#083344;",
 };
 
-const EDGE_STYLE: Record<string, string> = {
+const EDGE_STYLE: Record<EdgeKind, string> = {
   network: "-.->|net|",
   identity: "==>|identity|",
   data: "-->|data|",
@@ -44,7 +44,7 @@ export function generateMermaid(document: GraphDocument): GeneratorResult {
   }
 
   for (const edge of ctx.edges) {
-    const arrow = EDGE_STYLE[edge.kind] ?? "-->";
+    const arrow = EDGE_STYLE[edge.kind];
     lines.push(`    ${ids.get(edge.source)} ${arrow} ${ids.get(edge.target)}`);
   }
 

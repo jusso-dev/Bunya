@@ -51,20 +51,16 @@ function referenceExpr(type: string, name: string): string {
   return `reference(resourceId('${type}', '${name}'), '${apiVersion(type)}')`;
 }
 
-function resourceName(ctx: GeneratorContext, id: string): string {
-  return ctx.name(id);
-}
-
 function dependsOn(ctx: GeneratorContext, node: GraphNode): string[] {
   return targets(ctx, node.id, "depends_on").flatMap((target) => (target.type === "resourceGroup" ? [] : [armResourceId(target, ctx)]));
 }
 
 // Name segments of a node's resource ID.
 function idNames(ctx: GeneratorContext, node: GraphNode): string[] {
-  if (node.type === "subnet") return [resourceName(ctx, subnetVnet(ctx, node).id), resourceName(ctx, node.id)];
-  if (node.type === "sqlDatabase") return [sqlServerName(ctx, node), resourceName(ctx, node.id)];
+  if (node.type === "subnet") return [ctx.name(subnetVnet(ctx, node).id), ctx.name(node.id)];
+  if (node.type === "sqlDatabase") return [sqlServerName(ctx, node), ctx.name(node.id)];
   if (node.type === "privateDnsZone") return [dnsZoneName(node)];
-  return [resourceName(ctx, node.id)];
+  return [ctx.name(node.id)];
 }
 
 function armIdExpr(node: GraphNode, ctx: GeneratorContext): string {
@@ -79,7 +75,7 @@ function emitVirtualNetwork(node: GraphNode, ctx: GeneratorContext): ArmResource
   return {
     type: "Microsoft.Network/virtualNetworks",
     apiVersion: apiVersion("Microsoft.Network/virtualNetworks"),
-    name: resourceName(ctx, node.id),
+    name: ctx.name(node.id),
     location: "[parameters('location')]",
     tags: ctx.tags(node),
     properties: {
@@ -94,11 +90,11 @@ function emitVirtualNetwork(node: GraphNode, ctx: GeneratorContext): ArmResource
 }
 
 function emitSubnet(node: GraphNode, ctx: GeneratorContext): ArmResource {
-  const vnetName = resourceName(ctx, subnetVnet(ctx, node).id);
+  const vnetName = ctx.name(subnetVnet(ctx, node).id);
   return {
     type: "Microsoft.Network/virtualNetworks/subnets",
     apiVersion: apiVersion("Microsoft.Network/virtualNetworks/subnets"),
-    name: `${vnetName}/${resourceName(ctx, node.id)}`,
+    name: `${vnetName}/${ctx.name(node.id)}`,
     properties: {
       addressPrefix: String(node.properties.addressPrefix),
       privateEndpointNetworkPolicies:
@@ -115,7 +111,7 @@ function emitNsg(node: GraphNode, ctx: GeneratorContext): ArmResource {
   return {
     type: "Microsoft.Network/networkSecurityGroups",
     apiVersion: apiVersion("Microsoft.Network/networkSecurityGroups"),
-    name: resourceName(ctx, node.id),
+    name: ctx.name(node.id),
     location: "[parameters('location')]",
     tags: ctx.tags(node),
     properties: { securityRules: [] },
@@ -132,7 +128,7 @@ function emitPrivateEndpoint(node: GraphNode, ctx: GeneratorContext): ArmResourc
   return {
     type: "Microsoft.Network/privateEndpoints",
     apiVersion: apiVersion("Microsoft.Network/privateEndpoints"),
-    name: resourceName(ctx, node.id),
+    name: ctx.name(node.id),
     location: "[parameters('location')]",
     tags: ctx.tags(node),
     dependsOn: dependencies,
@@ -140,7 +136,7 @@ function emitPrivateEndpoint(node: GraphNode, ctx: GeneratorContext): ArmResourc
       subnet: { id: subnetId },
       privateLinkServiceConnections: [
         {
-          name: `${resourceName(ctx, node.id)}-psc`,
+          name: `${ctx.name(node.id)}-psc`,
           properties: {
             privateLinkServiceId: targetId,
             groupIds: [String(node.properties.groupId)],
@@ -157,7 +153,7 @@ function emitPrivateEndpoint(node: GraphNode, ctx: GeneratorContext): ArmResourc
             dependsOn: [armResourceId(node, ctx), ...zones.map((zone) => armResourceId(zone, ctx))],
             properties: {
               privateDnsZoneConfigs: zones.map((zone) => ({
-                name: resourceName(ctx, zone.id),
+                name: ctx.name(zone.id),
                 properties: {
                   privateDnsZoneId: armResourceId(zone, ctx),
                 },
@@ -197,12 +193,12 @@ function armRefs(ctx: GeneratorContext): Refs {
   return {
     id: (node) => expr(armIdExpr(node, ctx)),
     storageConnectionString: (storage) => {
-      const st = resourceName(ctx, storage.id);
+      const st = ctx.name(storage.id);
       return expr(`concat('DefaultEndpointsProtocol=https;AccountName=${st};EndpointSuffix=', environment().suffixes.storage, ';AccountKey=', listKeys(resourceId('${storageType}','${st}'),'${apiVersion(storageType)}').keys[0].value)`);
     },
-    deploymentContainerUrl: (storage, site) => expr(`concat(${referenceExpr(storageType, resourceName(ctx, storage.id))}.primaryEndpoints.blob, '${deploymentContainerName(ctx, site)}')`),
-    appInsightsConnectionString: (component) => expr(`${referenceExpr("Microsoft.Insights/components", resourceName(ctx, component.id))}.ConnectionString`),
-    userIdentityClientId: (identity) => expr(`${referenceExpr("Microsoft.ManagedIdentity/userAssignedIdentities", resourceName(ctx, identity.id))}.clientId`),
+    deploymentContainerUrl: (storage, site) => expr(`concat(${referenceExpr(storageType, ctx.name(storage.id))}.primaryEndpoints.blob, '${deploymentContainerName(ctx, site)}')`),
+    appInsightsConnectionString: (component) => expr(`${referenceExpr("Microsoft.Insights/components", ctx.name(component.id))}.ConnectionString`),
+    userIdentityClientId: (identity) => expr(`${referenceExpr("Microsoft.ManagedIdentity/userAssignedIdentities", ctx.name(identity.id))}.clientId`),
   };
 }
 
@@ -211,7 +207,7 @@ function emitAppServicePlan(node: GraphNode, ctx: GeneratorContext): ArmResource
   return {
     type: "Microsoft.Web/serverfarms",
     apiVersion: apiVersion("Microsoft.Web/serverfarms"),
-    name: resourceName(ctx, node.id),
+    name: ctx.name(node.id),
     location: "[parameters('location')]",
     kind: body.kind,
     sku: toArm(body.sku) as Record<string, unknown>,
@@ -223,11 +219,11 @@ function emitAppServicePlan(node: GraphNode, ctx: GeneratorContext): ArmResource
 // Name segments of the blob container and file share Bunya adds to a
 // Function App's storage account.
 function deploymentContainerNames(ctx: GeneratorContext, site: GraphNode, hosting: SiteHosting): string[] {
-  return [resourceName(ctx, hosting.storage!.id), "default", deploymentContainerName(ctx, site)];
+  return [ctx.name(hosting.storage!.id), "default", deploymentContainerName(ctx, site)];
 }
 
 function contentShareNames(ctx: GeneratorContext, site: GraphNode, hosting: SiteHosting): string[] {
-  return [resourceName(ctx, hosting.storage!.id), "default", contentShareName(ctx, site)];
+  return [ctx.name(hosting.storage!.id), "default", contentShareName(ctx, site)];
 }
 
 function emitSite(node: GraphNode, ctx: GeneratorContext): ArmResource {
@@ -236,7 +232,7 @@ function emitSite(node: GraphNode, ctx: GeneratorContext): ArmResource {
   return {
     type: "Microsoft.Web/sites",
     apiVersion: apiVersion("Microsoft.Web/sites"),
-    name: resourceName(ctx, node.id),
+    name: ctx.name(node.id),
     location: "[parameters('location')]",
     kind: body.kind,
     identity: toArm(body.identity) as Record<string, unknown>,
@@ -255,7 +251,7 @@ function emitSite(node: GraphNode, ctx: GeneratorContext): ArmResource {
       // for the storage Private Endpoints, their DNS zone groups and links.
       ...hosting.storageEndpoints.flatMap(({ pe, hasDns }) => [
         armResourceId(pe, ctx),
-        ...(hasDns ? [resourceId("Microsoft.Network/privateEndpoints/privateDnsZoneGroups", resourceName(ctx, pe.id), "default")] : []),
+        ...(hasDns ? [resourceId("Microsoft.Network/privateEndpoints/privateDnsZoneGroups", ctx.name(pe.id), "default")] : []),
       ]),
       ...hosting.storageDnsLinks.map(({ zone, vnet }) => resourceId("Microsoft.Network/privateDnsZones/virtualNetworkLinks", dnsZoneName(zone), dnsLinkName(ctx, vnet))),
     ])],
@@ -294,7 +290,7 @@ function emitStaticWebApp(node: GraphNode, ctx: GeneratorContext): ArmResource {
   return {
     type: "Microsoft.Web/staticSites",
     apiVersion: apiVersion("Microsoft.Web/staticSites"),
-    name: resourceName(ctx, node.id),
+    name: ctx.name(node.id),
     location: "[parameters('location')]",
     sku: { name: sku, tier: sku },
     properties: {},
@@ -308,7 +304,7 @@ function emitAksCluster(node: GraphNode, ctx: GeneratorContext): ArmResource {
   const authorizedRanges = (node.properties.authorizedIpRanges as string[]);
   const privateCluster = node.properties.privateCluster === true;
   const properties: Record<string, unknown> = {
-    dnsPrefix: (node.properties.dnsPrefix as string) || resourceName(ctx, node.id),
+    dnsPrefix: (node.properties.dnsPrefix as string) || ctx.name(node.id),
     enableRBAC: true,
     agentPoolProfiles: [
       {
@@ -349,7 +345,7 @@ function emitAksCluster(node: GraphNode, ctx: GeneratorContext): ArmResource {
   return {
     type: "Microsoft.ContainerService/managedClusters",
     apiVersion: apiVersion("Microsoft.ContainerService/managedClusters"),
-    name: resourceName(ctx, node.id),
+    name: ctx.name(node.id),
     location: "[parameters('location')]",
     identity: { type: node.properties.managedIdentity === false ? "None" : "SystemAssigned" },
     properties,
@@ -363,7 +359,7 @@ function emitVmss(node: GraphNode, ctx: GeneratorContext): ArmResource {
   return {
     type: "Microsoft.Compute/virtualMachineScaleSets",
     apiVersion: apiVersion("Microsoft.Compute/virtualMachineScaleSets"),
-    name: resourceName(ctx, node.id),
+    name: ctx.name(node.id),
     location: "[parameters('location')]",
     sku: { name: sku, tier: "Standard", capacity },
     identity: { type: "SystemAssigned" },
@@ -390,7 +386,7 @@ function emitVmss(node: GraphNode, ctx: GeneratorContext): ArmResource {
           },
         },
         osProfile: {
-          computerNamePrefix: resourceName(ctx, node.id).slice(0, 9),
+          computerNamePrefix: ctx.name(node.id).slice(0, 9),
           adminUsername: "[parameters('vmAdminUsername')]",
           linuxConfiguration: {
             disablePasswordAuthentication: true,
@@ -434,7 +430,7 @@ function emitStorage(node: GraphNode, ctx: GeneratorContext): ArmResource {
   return {
     type: "Microsoft.Storage/storageAccounts",
     apiVersion: apiVersion("Microsoft.Storage/storageAccounts"),
-    name: resourceName(ctx, node.id),
+    name: ctx.name(node.id),
     location: "[parameters('location')]",
     kind: String(node.properties.kind),
     sku: { name: String(node.properties.sku) },
@@ -466,7 +462,7 @@ function emitSqlDatabase(node: GraphNode, ctx: GeneratorContext): ArmResource {
       {
         type: "databases",
         apiVersion: apiVersion("Microsoft.Sql/servers/databases"),
-        name: resourceName(ctx, node.id),
+        name: ctx.name(node.id),
         location: "[parameters('location')]",
         sku: { name: String(node.properties.sku) },
         dependsOn: [resourceId("Microsoft.Sql/servers", serverName)],
@@ -479,7 +475,7 @@ function emitCosmos(node: GraphNode, ctx: GeneratorContext): ArmResource {
   return {
     type: "Microsoft.DocumentDB/databaseAccounts",
     apiVersion: apiVersion("Microsoft.DocumentDB/databaseAccounts"),
-    name: resourceName(ctx, node.id),
+    name: ctx.name(node.id),
     location: "[parameters('location')]",
     kind: "GlobalDocumentDB",
     properties: {
@@ -498,7 +494,7 @@ function emitKeyVault(node: GraphNode, ctx: GeneratorContext): ArmResource {
   return {
     type: "Microsoft.KeyVault/vaults",
     apiVersion: apiVersion("Microsoft.KeyVault/vaults"),
-    name: resourceName(ctx, node.id),
+    name: ctx.name(node.id),
     location: "[parameters('location')]",
     properties: {
       sku: { family: "A", name: String(node.properties.sku) },
@@ -518,7 +514,7 @@ function emitAppInsights(node: GraphNode, ctx: GeneratorContext): ArmResource {
   return {
     type: "Microsoft.Insights/components",
     apiVersion: apiVersion("Microsoft.Insights/components"),
-    name: resourceName(ctx, node.id),
+    name: ctx.name(node.id),
     location: "[parameters('location')]",
     kind: "web",
     properties: {
@@ -533,7 +529,7 @@ function emitLogAnalytics(node: GraphNode, ctx: GeneratorContext): ArmResource {
   return {
     type: "Microsoft.OperationalInsights/workspaces",
     apiVersion: apiVersion("Microsoft.OperationalInsights/workspaces"),
-    name: resourceName(ctx, node.id),
+    name: ctx.name(node.id),
     location: "[parameters('location')]",
     properties: {
       sku: { name: String(node.properties.sku) },
@@ -547,7 +543,7 @@ function emitActionGroup(node: GraphNode, ctx: GeneratorContext): ArmResource {
   return {
     type: "Microsoft.Insights/actionGroups",
     apiVersion: apiVersion("Microsoft.Insights/actionGroups"),
-    name: resourceName(ctx, node.id),
+    name: ctx.name(node.id),
     location: "global",
     properties: {
       groupShortName: String(node.properties.shortName),
@@ -570,7 +566,7 @@ function emitMonitorAlert(node: GraphNode, ctx: GeneratorContext): ArmResource {
   return {
     type: "Microsoft.Insights/metricAlerts",
     apiVersion: apiVersion("Microsoft.Insights/metricAlerts"),
-    name: resourceName(ctx, node.id),
+    name: ctx.name(node.id),
     location: "global",
     properties: {
       description: String(node.properties.condition),
@@ -594,7 +590,7 @@ function emitFrontDoor(node: GraphNode, ctx: GeneratorContext): ArmResource {
   return {
     type: "Microsoft.Cdn/profiles",
     apiVersion: apiVersion("Microsoft.Cdn/profiles"),
-    name: resourceName(ctx, node.id),
+    name: ctx.name(node.id),
     location: "global",
     sku: { name: String(node.properties.sku) },
     tags: ctx.tags(node),
@@ -606,7 +602,7 @@ function emitApplicationGateway(node: GraphNode, ctx: GeneratorContext): ArmReso
   return {
     type: "Microsoft.Network/applicationGateways",
     apiVersion: apiVersion("Microsoft.Network/applicationGateways"),
-    name: resourceName(ctx, node.id),
+    name: ctx.name(node.id),
     location: "[parameters('location')]",
     properties: {
       sku: { name: sku, tier: sku, capacity: Number(node.properties.capacity) },
@@ -626,7 +622,7 @@ function emitApim(node: GraphNode, ctx: GeneratorContext): ArmResource {
   return {
     type: "Microsoft.ApiManagement/service",
     apiVersion: apiVersion("Microsoft.ApiManagement/service"),
-    name: resourceName(ctx, node.id),
+    name: ctx.name(node.id),
     location: "[parameters('location')]",
     sku: { name: String(node.properties.sku), capacity: 0 },
     properties: {
@@ -641,7 +637,7 @@ function emitContainerRegistry(node: GraphNode, ctx: GeneratorContext): ArmResou
   return {
     type: "Microsoft.ContainerRegistry/registries",
     apiVersion: apiVersion("Microsoft.ContainerRegistry/registries"),
-    name: resourceName(ctx, node.id),
+    name: ctx.name(node.id),
     location: "[parameters('location')]",
     sku: { name: String(node.properties.sku) },
     properties: {
@@ -656,7 +652,7 @@ function emitUserAssignedIdentity(node: GraphNode, ctx: GeneratorContext): ArmRe
   return {
     type: "Microsoft.ManagedIdentity/userAssignedIdentities",
     apiVersion: apiVersion("Microsoft.ManagedIdentity/userAssignedIdentities"),
-    name: resourceName(ctx, node.id),
+    name: ctx.name(node.id),
     location: "[parameters('location')]",
     properties: {},
     tags: ctx.tags(node),
@@ -666,14 +662,14 @@ function emitUserAssignedIdentity(node: GraphNode, ctx: GeneratorContext): ArmRe
 // Principal ID of a node's managed identity once it is deployed.
 function principalIdExpression(principal: GraphNode, ctx: GeneratorContext): string {
   const type = ARM_TYPES[principal.type];
-  const name = resourceName(ctx, principal.id);
+  const name = ctx.name(principal.id);
   const reference = `reference(resourceId('${type}','${name}'), '${apiVersion(type)}'`;
   return principal.type === "userAssignedIdentity" ? `[${reference}).principalId]` : `[${reference}, 'Full').identity.principalId]`;
 }
 
 // guid() name of a role assignment, so a re-deployment updates it in place.
 function grantName(ctx: GeneratorContext, { principal, scope, role }: Pick<RoleGrant, "principal" | "scope" | "role">): string {
-  return `guid(${armIdExpr(scope, ctx)}, '${resourceName(ctx, principal.id)}', '${role}')`;
+  return `guid(${armIdExpr(scope, ctx)}, '${ctx.name(principal.id)}', '${role}')`;
 }
 
 function grantId(ctx: GeneratorContext, grant: Pick<RoleGrant, "principal" | "scope" | "role">): string {
