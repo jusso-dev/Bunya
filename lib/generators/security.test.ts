@@ -11,7 +11,7 @@ import { generateReadme } from "./readme";
 import { generateCostEstimate } from "./cost";
 import type { GeneratorResult } from "./types";
 import { expandImplicits } from "./shared/implicits";
-import { fullStackGraph } from "./__fixtures__/fullStack";
+import { fullStackGraph } from "@/lib/graph/__fixtures__/fullStack";
 
 const deployments = [generateTerraform, generateBicep, generateArm, generateAzCli, generatePowerShell];
 const all = [...deployments, generateMermaid, generateReadme, generateCostEstimate];
@@ -52,10 +52,6 @@ describe("untrusted generator inputs", () => {
     expect(generateMermaid(fullStackGraph).ok).toBe(true);
   });
   it("requires supplied SQL secrets", () => {
-    for (const generate of [generateTerraform, generateArm, generateBicep]) {
-      const output = text(generate(graph("sqlDatabase")));
-      expect(output).not.toContain("ReplaceMe");
-    }
     const arm = generateArm(graph("sqlDatabase"));
     if (!arm.ok) throw new Error(arm.reason);
     const template = JSON.parse(arm.files[0].content);

@@ -1,4 +1,4 @@
-import type { GraphDocument, GraphEdge, GraphNode, ServiceType } from "@/lib/graph/schema";
+import type { GraphDocument, GraphNode, ServiceType } from "@/lib/graph/schema";
 import {
   Autofix,
   Check,
@@ -8,7 +8,6 @@ import {
   RuleSource,
   Severity,
 } from "./schema";
-import { armTypeOf } from "./mapping";
 
 export type NodeRuleInput = {
   id: string;
@@ -30,7 +29,7 @@ export function nodeRule(input: NodeRuleInput): RuleEntry {
     source: input.source,
     category: input.category,
     severity: input.severity,
-    appliesTo: input.serviceTypes.map(armTypeOf),
+    appliesTo: input.serviceTypes,
     message: input.message,
     longExplanation: input.longExplanation,
     tags: input.tags,
@@ -63,9 +62,7 @@ export type GraphRuleInput = {
 };
 
 export function graphRule(input: GraphRuleInput): RuleEntry {
-  const appliesTo = input.appliesToServices
-    ? ["graph", ...input.appliesToServices.map(armTypeOf)]
-    : ["graph"];
+  const appliesTo: Rule["appliesTo"] = ["graph", ...(input.appliesToServices ?? [])];
   const rule: Rule = {
     id: input.id,
     source: input.source,
@@ -83,21 +80,10 @@ export function graphRule(input: GraphRuleInput): RuleEntry {
   return { rule, check, autofixes: input.autofixes };
 }
 
-export function hasEdge(
-  graph: GraphDocument,
-  predicate: (e: GraphEdge, source: GraphNode | undefined, target: GraphNode | undefined) => boolean,
-): boolean {
-  return graph.edges.some((e) => {
-    const s = graph.nodes.find((n) => n.id === e.source);
-    const t = graph.nodes.find((n) => n.id === e.target);
-    return predicate(e, s, t);
-  });
-}
-
 export function nodesOfType(graph: GraphDocument, type: ServiceType): GraphNode[] {
   return graph.nodes.filter((n) => n.type === type);
 }
 
-export function findNodeById(graph: GraphDocument, id: string): GraphNode | undefined {
-  return graph.nodes.find((n) => n.id === id);
+export function getProp<T = unknown>(node: { properties: Record<string, unknown> }, key: string): T | undefined {
+  return node.properties[key] as T | undefined;
 }

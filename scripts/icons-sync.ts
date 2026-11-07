@@ -17,11 +17,9 @@
 import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
 import JSZip from "jszip";
+import { arg, PROJECT_ROOT, run } from "./lib";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PROJECT_ROOT = path.resolve(__dirname, "..");
 const MANIFEST_PATH = path.join(PROJECT_ROOT, "lib", "catalogue", "icon-manifest.json");
 const ICON_DIR = path.join(PROJECT_ROOT, "public", "azure-icons");
 const ICONS_PAGE = "https://learn.microsoft.com/en-us/azure/architecture/icons/";
@@ -31,11 +29,6 @@ type Manifest = {
   pack: { version: number; url: string; page: string };
   icons: Record<string, { file: string; sha256: string }>;
 };
-
-function arg(name: string): string | undefined {
-  const index = process.argv.indexOf(`--${name}`);
-  return index >= 0 ? process.argv[index + 1] : undefined;
-}
 
 const sha256 = (data: Uint8Array) => createHash("sha256").update(data).digest("hex");
 const nameKey = (file: string) => path.basename(file).replace(/^\d+-/, "").toLowerCase();
@@ -130,7 +123,4 @@ async function main(): Promise<void> {
   process.exit(problems.length > 0 ? 1 : 0);
 }
 
-main().catch((err) => {
-  console.error("[icons] crashed:", err);
-  process.exit(1);
-});
+run("icons", main);

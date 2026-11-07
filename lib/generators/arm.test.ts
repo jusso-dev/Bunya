@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { generateArm } from "./arm";
-import { firstCutGraph } from "./__fixtures__/firstCut";
-import { fullStackGraph } from "./__fixtures__/fullStack";
+import { firstCutGraph } from "@/lib/graph/__fixtures__/firstCut";
+import { fullStackGraph } from "@/lib/graph/__fixtures__/fullStack";
 
 describe("generateArm", () => {
   it("emits both azuredeploy.json and parameters file", () => {

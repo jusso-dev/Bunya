@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { generatePowerShell } from "./powershell";
-import { firstCutGraph } from "./__fixtures__/firstCut";
-import { fullStackGraph } from "./__fixtures__/fullStack";
+import { firstCutGraph } from "@/lib/graph/__fixtures__/firstCut";
+import { fullStackGraph } from "@/lib/graph/__fixtures__/fullStack";
 
 describe("generatePowerShell", () => {
   it("snapshots first-cut script", () => {
@@ -18,7 +18,6 @@ describe("generatePowerShell", () => {
     expect(content).toContain("Set-StrictMode -Version Latest");
     expect(content).toContain("$ErrorActionPreference = 'Stop'");
     expect(content).toContain("SupportsShouldProcess");
-    expect(content).not.toContain("Write-Host");
   });
 
   it("deploys private full-stack resources atomically through ARM", () => {

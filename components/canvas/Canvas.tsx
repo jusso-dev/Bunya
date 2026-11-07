@@ -1,7 +1,7 @@
 "use client";
 
 import { toast } from "sonner";
-import { announceImport } from "@/components/ImportNotes";
+import { importDiagram } from "@/components/ImportNotes";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactFlow, {
   Background,
@@ -13,33 +13,28 @@ import ReactFlow, {
   MiniMap,
   Node,
   NodeChange,
-  NodePositionChange,
   Position,
   ReactFlowProvider,
-  applyEdgeChanges,
-  applyNodeChanges,
   useReactFlow,
-  type ReactFlowInstance,
 } from "reactflow";
 import "reactflow/dist/style.css";
-import { useGraphStore } from "@/lib/graph/store";
-import { getServiceDefinition, inferDefaultEdgeKind } from "@/lib/catalogue/services";
+import { useGraphStore } from "@/lib/session/store";
 import { canConnect } from "@/lib/catalogue/connections";
 import {
-  DEFAULT_CONTAINER_SIZE,
   EDGE_KINDS,
   EdgeKind,
-  GraphDocument,
-  GraphNode,
   ServiceType,
   SERVICE_TYPES,
   isContainerType,
+  nodeSize,
 } from "@/lib/graph/schema";
-import { acceptsChild, freeSubnetPrefix, subnetVirtualNetwork } from "@/lib/graph/topology";
-import { ServiceNode, ServiceNodeData } from "./ServiceNode";
+import { ServiceNode, type CanvasNodeData } from "./ServiceNode";
 import { ContainerNode } from "./ContainerNode";
-import { isPortableFile, parseImportText, readFileAsText } from "@/lib/graph/portable";
-import { downloadDataUrl, imageFilename, renderDiagramImage, type ImageFormat } from "@/lib/graph/image-export";
+import { isPortableFile } from "@/lib/graph/portable";
+import { downloadDataUrl, imageFilename, renderDiagramImage, type ImageFormat } from "@/components/canvas/image-export";
+import { absolutePosition, placeAt } from "@/lib/session/geometry";
+import { newNode } from "@/lib/session/new-node";
+import { useSessionUi } from "@/lib/session/ui";
 
 const NODE_TYPES = {
   service: ServiceNode,
@@ -53,68 +48,6 @@ const EDGE_COLOUR: Record<EdgeKind, string> = {
   depends_on: "#475569",
   diagnostic: "#7c3aed",
 };
-
-function defaultResourceName(type: ServiceType, index: number): string {
-  const slug = type
-    .replace(/([A-Z])/g, "-$1")
-    .toLowerCase()
-    .replace(/^-/, "");
-  return `${slug}-${index}`;
-}
-
-function nodeSize(node: GraphNode): { width: number; height: number } {
-  if (node.size) return node.size;
-  if (isContainerType(node.type)) return DEFAULT_CONTAINER_SIZE[node.type];
-  return { width: 220, height: 50 };
-}
-
-function absolutePosition(document: GraphDocument, node: GraphNode): { x: number; y: number } {
-  let { x, y } = node.position;
-  let cursor = node.parentId
-    ? document.nodes.find((n) => n.id === node.parentId)
-    : undefined;
-  const visited = new Set<string>([node.id]);
-  while (cursor) {
-    if (visited.has(cursor.id)) break;
-    visited.add(cursor.id);
-    x += cursor.position.x;
-    y += cursor.position.y;
-    cursor = cursor.parentId
-      ? document.nodes.find((n) => n.id === cursor!.parentId)
-      : undefined;
-  }
-  return { x, y };
-}
-
-function findContainerAt(
-  document: GraphDocument,
-  excludeId: string | null,
-  point: { x: number; y: number },
-  candidateType: ServiceType,
-): GraphNode | null {
-  const candidates = document.nodes
-    .filter((n) => n.id !== excludeId && isContainerType(n.type))
-    .filter((n) => acceptsChild(n.type, candidateType));
-  let chosen: GraphNode | null = null;
-  let chosenArea = Number.POSITIVE_INFINITY;
-  for (const c of candidates) {
-    const abs = absolutePosition(document, c);
-    const { width, height } = nodeSize(c);
-    if (
-      point.x >= abs.x &&
-      point.x <= abs.x + width &&
-      point.y >= abs.y &&
-      point.y <= abs.y + height
-    ) {
-      const area = width * height;
-      if (area < chosenArea) {
-        chosen = c;
-        chosenArea = area;
-      }
-    }
-  }
-  return chosen;
-}
 
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
@@ -146,14 +79,12 @@ function CanvasInner() {
   const selectNode = useGraphStore((s) => s.selectNode);
   const selectEdge = useGraphStore((s) => s.selectEdge);
   const reparentNode = useGraphStore((s) => s.reparentNode);
-  const replaceDocument = useGraphStore((s) => s.replaceDocument);
+  const fitRequest = useSessionUi((s) => s.fitRequest);
 
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
-  const [rfInstance, setRfInstance] = useState<ReactFlowInstance | null>(null);
   const { screenToFlowPosition, fitView, getNodes } = useReactFlow();
   const [exportingImage, setExportingImage] = useState(false);
 
-  // Renders every node, not just the visible area, in the current theme colour.
   const exportImage = useCallback(async (format: ImageFormat) => {
     const wrapper = reactFlowWrapper.current;
     if (!wrapper) return;
@@ -170,62 +101,40 @@ function CanvasInner() {
       setExportingImage(false);
     }
   }, [document.metadata.name, getNodes]);
-  const previousNodeCount = useRef(0);
 
+  // fitView skips nodes React Flow has not measured yet, so wait until every
+  // node on the canvas has a size.
   useEffect(() => {
-    const count = document.nodes.length;
-    if (count > previousNodeCount.current && count > 0) {
-      const id = window.requestAnimationFrame(() => {
-        fitView({ padding: 0.3, duration: 250, maxZoom: 1.0, minZoom: 0.3 });
-      });
-      previousNodeCount.current = count;
-      return () => window.cancelAnimationFrame(id);
-    }
-    previousNodeCount.current = count;
-  }, [document.nodes.length, fitView]);
+    if (fitRequest === 0) return;
+    let frame = 0;
+    let attempts = 0;
+    const fitWhenMeasured = () => {
+      const measured = getNodes();
+      const ready = measured.length === useGraphStore.getState().document.nodes.length && measured.every((n) => n.width && n.height);
+      if (ready || ++attempts > 60) fitView({ padding: 0.3, duration: 250, maxZoom: 1.0, minZoom: 0.3 });
+      else frame = window.requestAnimationFrame(fitWhenMeasured);
+    };
+    frame = window.requestAnimationFrame(fitWhenMeasured);
+    return () => window.cancelAnimationFrame(frame);
+  }, [fitRequest, fitView, getNodes]);
 
-  const nodes = useMemo<Node<ServiceNodeData>[]>(() => {
-    const sorted = [...document.nodes].sort((a, b) => {
-      if (isContainerType(a.type) && !isContainerType(b.type)) return -1;
-      if (!isContainerType(a.type) && isContainerType(b.type)) return 1;
-      return 0;
-    });
+  // Containers render first so their children draw on top of them.
+  const nodes = useMemo<Node<CanvasNodeData>[]>(() => {
+    const sorted = [...document.nodes].sort((a, b) => Number(isContainerType(b.type)) - Number(isContainerType(a.type)));
     return sorted.map((n) => {
+      const container = isContainerType(n.type);
       const size = nodeSize(n);
-      if (isContainerType(n.type)) {
-        return {
-          id: n.id,
-          type: "container",
-          position: n.position,
-          parentNode: n.parentId ?? undefined,
-          extent: n.parentId ? ("parent" as const) : undefined,
-          selected: selectedNodeId === n.id,
-          style: { width: size.width, height: size.height, zIndex: -1 },
-          sourcePosition: Position.Right,
-          targetPosition: Position.Left,
-          data: {
-            serviceType: n.type,
-            name: n.name,
-            resourceName: n.resourceName,
-            selected: selectedNodeId === n.id,
-          },
-        };
-      }
       return {
         id: n.id,
-        type: "service",
+        type: container ? "container" : "service",
         position: n.position,
         parentNode: n.parentId ?? undefined,
         extent: n.parentId ? ("parent" as const) : undefined,
+        selected: selectedNodeId === n.id,
+        style: container ? { width: size.width, height: size.height, zIndex: -1 } : undefined,
         sourcePosition: Position.Right,
         targetPosition: Position.Left,
-        selected: selectedNodeId === n.id,
-        data: {
-          serviceType: n.type,
-          name: n.name,
-          resourceName: n.resourceName,
-          selected: selectedNodeId === n.id,
-        },
+        data: { serviceType: n.type, name: n.name, resourceName: n.resourceName },
       };
     });
   }, [document.nodes, selectedNodeId]);
@@ -253,65 +162,38 @@ function CanvasInner() {
     }));
   }, [document.edges, selectedEdgeId]);
 
+  // React Flow's changes go straight to the store, which is the only copy
+  // of the diagram.
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
-      const next = applyNodeChanges(changes, nodes);
       for (const change of changes) {
         if (change.type === "remove") removeNode(change.id);
         if (change.type === "select" && change.selected) selectNode(change.id);
-      }
-      const positionChanges = changes.filter(
-        (c): c is NodePositionChange => c.type === "position" && c.dragging !== true,
-      );
-      for (const change of positionChanges) {
-        const moved = next.find((n) => n.id === change.id);
-        if (!moved) continue;
-        const original = document.nodes.find((n) => n.id === change.id);
-        if (!original) continue;
-        if (isContainerType(original.type)) {
-          moveNode(change.id, moved.position);
+        if (change.type !== "position") continue;
+        const current = useGraphStore.getState().document;
+        const node = current.nodes.find((n) => n.id === change.id);
+        if (!node) continue;
+        const position = change.position ?? node.position;
+        if (change.dragging || isContainerType(node.type)) {
+          moveNode(node.id, position);
           continue;
         }
-        const absPoint = (() => {
-          if (!moved.parentNode) return moved.position;
-          const parent = document.nodes.find((n) => n.id === moved.parentNode);
-          if (!parent) return moved.position;
-          const parentAbs = absolutePosition(document, parent);
-          return { x: parentAbs.x + moved.position.x, y: parentAbs.y + moved.position.y };
-        })();
-        const newParent = findContainerAt(document, change.id, absPoint, original.type);
-        const newParentId = newParent?.id ?? null;
-        if ((newParentId ?? null) === (original.parentId ?? null)) {
-          moveNode(change.id, moved.position);
-        } else {
-          const newPos = newParent
-            ? {
-                x: absPoint.x - absolutePosition(document, newParent).x,
-                y: absPoint.y - absolutePosition(document, newParent).y,
-              }
-            : absPoint;
-          reparentNode(change.id, newParentId, newPos);
-        }
-      }
-      const liveDrags = changes.filter(
-        (c): c is NodePositionChange => c.type === "position" && c.dragging === true,
-      );
-      for (const change of liveDrags) {
-        const moved = next.find((n) => n.id === change.id);
-        if (moved) moveNode(change.id, moved.position);
+        const point = absolutePosition(current, { ...node, position });
+        const target = placeAt(current, point, node.type, node.id);
+        if (target.parentId === (node.parentId ?? null)) moveNode(node.id, position);
+        else reparentNode(node.id, target.parentId, target.position);
       }
     },
-    [document, moveNode, nodes, removeNode, reparentNode, selectNode],
+    [moveNode, removeNode, reparentNode, selectNode],
   );
 
   const onEdgesChange = useCallback(
     (changes: EdgeChange[]) => {
-      applyEdgeChanges(changes, edges);
       for (const change of changes) {
         if (change.type === "remove") removeEdge(change.id);
       }
     },
-    [edges, removeEdge],
+    [removeEdge],
   );
 
   const isValidConnection = useCallback(
@@ -335,11 +217,7 @@ function CanvasInner() {
         setConnectionError(result.reason);
         return;
       }
-      const source = document.nodes.find((n) => n.id === connection.source);
-      const target = document.nodes.find((n) => n.id === connection.target);
-      if (!source || !target) return;
-      const kind = inferDefaultEdgeKind(source.type, target.type);
-      addEdge({ source: connection.source, target: connection.target, kind });
+      addEdge({ source: connection.source, target: connection.target, kind: result.kind });
       setConnectionError(null);
     },
     [addEdge, document],
@@ -350,68 +228,20 @@ function CanvasInner() {
     event.dataTransfer.dropEffect = "copy";
   }, []);
 
-  const counterRef = useRef(1);
-
   const onDrop = useCallback(
     (event: React.DragEvent<HTMLDivElement>) => {
       event.preventDefault();
-      const files = event.dataTransfer?.files;
-      if (files && files.length > 0) {
-        const file = Array.from(files).find(isPortableFile);
-        if (file) {
-          void (async () => {
-            let text: string;
-            try { text = await readFileAsText(file); }
-            catch (error) { setConnectionError(error instanceof Error ? error.message : "Could not read file."); return; }
-            const result = parseImportText(text);
-            if (result.ok) {
-              replaceDocument(result.document);
-              if (typeof window !== "undefined") window.history.replaceState(null, "", "#");
-              toast.dismiss("connection-error");
-              announceImport(file.name, result.document.nodes.length, result.warning);
-            } else {
-              setConnectionError(`Import failed: ${result.reason}`);
-            }
-          })();
-          return;
-        }
+      const files = Array.from(event.dataTransfer.files);
+      if (files.length > 0) {
+        void importDiagram(files.find(isPortableFile) ?? files[0]).then((loaded) => { if (loaded) setConnectionError(null); });
+        return;
       }
       const type = event.dataTransfer.getData("application/bunya-service") as ServiceType | "";
       if (!type || !SERVICE_TYPES.includes(type)) return;
-      if (!rfInstance) return;
-      const absPosition = screenToFlowPosition({
-        x: event.clientX,
-        y: event.clientY,
-      });
-      const parent = findContainerAt(document, null, absPosition, type);
-      const def = getServiceDefinition(type);
-      const index = counterRef.current++;
-      const position = parent
-        ? {
-            x: absPosition.x - absolutePosition(document, parent).x,
-            y: absPosition.y - absolutePosition(document, parent).y,
-          }
-        : absPosition;
-      const properties: Record<string, unknown> = { ...def.defaultProperties };
-      if (type === "subnet" && parent?.type === "virtualNetwork") {
-        // Keep sibling subnets from colliding on the default prefix.
-        const siblings = document.nodes
-          .filter((n) => n.type === "subnet" && subnetVirtualNetwork(document, n)?.id === parent.id)
-          .map((n) => n.properties.addressPrefix);
-        const prefix = freeSubnetPrefix(parent.properties.addressSpace, siblings);
-        if (prefix) properties.addressPrefix = prefix;
-      }
-      addNode({
-        type,
-        position,
-        parentId: parent?.id ?? null,
-        name: `${def.label} ${index}`,
-        resourceName: defaultResourceName(type, index),
-        properties,
-        size: isContainerType(type) ? DEFAULT_CONTAINER_SIZE[type] : undefined,
-      });
+      const point = screenToFlowPosition({ x: event.clientX, y: event.clientY });
+      addNode(newNode(document, { type, ...placeAt(document, point, type) }));
     },
-    [addNode, document, replaceDocument, rfInstance, screenToFlowPosition],
+    [addNode, document, screenToFlowPosition],
   );
 
   const handleKeyDown = useCallback(
@@ -453,7 +283,6 @@ function CanvasInner() {
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         isValidConnection={isValidConnection}
-        onInit={setRfInstance}
         onNodeClick={(_, node) => selectNode(node.id)}
         onEdgeClick={(_, edge) => selectEdge(edge.id)}
         onPaneClick={() => {
@@ -461,7 +290,6 @@ function CanvasInner() {
           selectEdge(null);
           setConnectionError(null);
         }}
-        fitView
         snapToGrid
         snapGrid={[16, 16]}
         deleteKeyCode={null}

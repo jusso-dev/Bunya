@@ -8,7 +8,7 @@ and Cloud Adoption Framework.
 
 - Source: <https://github.com/Azure/PSRule.Rules.Azure>
 - Docs:   <https://azure.github.io/PSRule.Rules.Azure/>
-- Pinned commit / tag: see `pinned.json`
+- Pin: see this bundle's entry in `lib/rules/registry.ts`
 - Licence: **MIT** (compatible with redistribution; attribution preserved in
   `RuleSource.url` on every rule)
 

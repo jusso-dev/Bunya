@@ -1,10 +1,11 @@
+import { runRules } from "@/lib/rules/runtime";
 import { describe, expect, it } from "vitest";
 import { getServiceDefinition } from "@/lib/catalogue/services";
 import type { GraphDocument, GraphEdge, GraphNode, ServiceType } from "@/lib/graph/schema";
 import {
   buildOrganisationRulesEnvelope,
   parseOrganisationRulesText,
-  runOrganisationRules,
+  organisationRuleEntries,
   translateAzurePolicy,
   type OrganisationRule,
 } from "./organisation";
@@ -148,3 +149,7 @@ describe("organisation rule engine", () => {
     expect(runOrganisationRules(graphFixture([testNode("public-app", "appService", { publicNetworkAccess: true })]), [rule!])).toHaveLength(1);
   });
 });
+
+function runOrganisationRules(graph: Parameters<typeof runRules>[0], rules: Parameters<typeof organisationRuleEntries>[0]) {
+  return runRules(graph, organisationRuleEntries(rules));
+}

@@ -1,13 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_CONTAINER_SIZE, type GraphNode, isContainerType } from "./schema";
+import { nodeSize as sizeOf } from "./schema";
 import { parseArmTemplate } from "./arm-import";
 import { generateTerraform } from "@/lib/generators/terraform";
-
-function sizeOf(node: GraphNode): { width: number; height: number } {
-  if (node.size) return node.size;
-  if (isContainerType(node.type)) return DEFAULT_CONTAINER_SIZE[node.type];
-  return { width: 220, height: 50 };
-}
 
 describe("parseArmTemplate", () => {
   it("imports AKS and VMSS resources with inferred subnet and workspace edges", () => {
@@ -804,7 +798,7 @@ describe("parseArmTemplate", () => {
   });
 
   it("round-trips VNet custom DNS servers through export and import", async () => {
-    const { hostingGraph } = await import("@/lib/generators/__fixtures__/hosting");
+    const { hostingGraph } = await import("@/lib/graph/__fixtures__/hosting");
     const { generateArm } = await import("@/lib/generators/arm");
     const custom = {
       ...hostingGraph,
@@ -818,7 +812,7 @@ describe("parseArmTemplate", () => {
   });
 
   it("keeps globally unique names when re-importing an export", async () => {
-    const { hostingGraph } = await import("@/lib/generators/__fixtures__/hosting");
+    const { hostingGraph } = await import("@/lib/graph/__fixtures__/hosting");
     const { generateArm } = await import("@/lib/generators/arm");
     const names = (template: string) =>
       (JSON.parse(template).resources as { type: string; name: string }[])

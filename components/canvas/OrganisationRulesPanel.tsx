@@ -1,53 +1,26 @@
 "use client";
 
 import { toast } from "sonner";
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useMemo, useRef, useState, type ChangeEvent } from "react";
 import { Dialog } from "@/components/Dialog";
 import { getServiceDefinition } from "@/lib/catalogue/services";
 import { EDGE_KINDS, SERVICE_TYPES, type EdgeKind, type ServiceType } from "@/lib/graph/schema";
-import { useGraphStore } from "@/lib/graph/store";
+import { useGraphStore } from "@/lib/session/store";
 import { readFileAsText } from "@/lib/graph/portable";
 import {
   ORGANISATION_RULES_EXTENSION,
-  makeRuleId,
+  PROPERTY_OPERATORS,
   organisationRulesToBlob,
   parseOrganisationRulesText,
   type EdgeRequirement,
   type OrganisationRule,
   type PropertyOperator, RULE_KEY_MAX, RULE_NAME_MAX, RULE_TEXT_MAX } from "@/lib/rules/organisation";
-import type { Severity } from "@/lib/rules/schema";
-
-const ORG_RULES_STORAGE_KEY = "bunya.organisationRules";
-
-const PROPERTY_OPERATORS: PropertyOperator[] = [
-  "equals",
-  "not_equals",
-  "present",
-  "missing",
-  "truthy",
-  "falsy",
-  "includes",
-];
+import { SeveritySchema, type Severity } from "@/lib/rules/schema";
+import { downloadBlob } from "@/lib/session/download";
+import { ORGANISATION_PRESETS, customRule, mergeRules, operatorNeedsValue } from "@/lib/session/organisation-presets";
 
 const EDGE_MODES: EdgeRequirement["mode"][] = ["must_exist", "must_not_exist"];
 const EDGE_DIRECTIONS: EdgeRequirement["direction"][] = ["outgoing", "incoming", "either"];
-
-const PUBLIC_NETWORK_SERVICES: ServiceType[] = [
-  "appService",
-  "functionApp",
-  "keyVault",
-  "containerRegistry",
-];
-
-const DATA_SERVICES: ServiceType[] = [
-  "storageAccount",
-  "sqlDatabase",
-  "cosmosDb",
-  "keyVault",
-  "containerRegistry",
-];
-
-const COMPUTE_SERVICES: ServiceType[] = ["appService", "functionApp", "aksCluster", "virtualMachineScaleSet"];
 
 type RuleMode = "property" | "edge";
 
@@ -94,30 +67,6 @@ export function OrganisationRulesPanel() {
   const [importText, setImportText] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const skippedInitialSave = useRef(false);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    let stored: string | null;
-    try { stored = window.localStorage.getItem(ORG_RULES_STORAGE_KEY); }
-    catch { return; }
-    if (!stored) return;
-    const result = parseOrganisationRulesText(stored);
-    if (result.ok) replaceOrganisationRules(result.rules);
-  }, [replaceOrganisationRules]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (!skippedInitialSave.current) {
-      skippedInitialSave.current = true;
-      return;
-    }
-    const timer = window.setTimeout(() => { try { window.localStorage.setItem(
-      ORG_RULES_STORAGE_KEY,
-      JSON.stringify({ format: "bunya-organisation-rules", version: 1, rules: organisationRules }),
-    ); } catch { toast.error("Rules could not be saved. Export them to keep your changes."); } }, 250);
-    return () => window.clearTimeout(timer);
-  }, [organisationRules]);
 
   const enabledCount = useMemo(
     () => organisationRules.filter((rule) => rule.enabled).length,
@@ -129,67 +78,44 @@ export function OrganisationRulesPanel() {
     setMessage(null);
   };
 
-  const mergeRules = useCallback(
-    (incoming: OrganisationRule[], source: string) => {
-      if (incoming.length === 0) {
-        setMessage(`${source} did not contain any usable organisation rules.`);
-        return;
-      }
-      const merged = new Map<string, OrganisationRule>();
-      for (const rule of organisationRules) merged.set(rule.id, rule);
-      for (const rule of incoming) merged.set(rule.id, rule);
-      replaceOrganisationRules([...merged.values()]);
-      setMessage(null);
-      toast.success(`Imported ${incoming.length} rule${incoming.length === 1 ? "" : "s"} from ${source}.`);
-    },
-    [organisationRules, replaceOrganisationRules],
-  );
+  const addRules = (incoming: OrganisationRule[], source: string) => {
+    if (incoming.length === 0) {
+      setMessage(`${source} did not contain any usable organisation rules.`);
+      return;
+    }
+    replaceOrganisationRules(mergeRules(organisationRules, incoming));
+    setMessage(null);
+    toast.success(`Imported ${incoming.length} rule${incoming.length === 1 ? "" : "s"} from ${source}.`, { id: "rules-import" });
+  };
+
+  const importRules = (text: string, source: string) => {
+    const result = parseOrganisationRulesText(text);
+    if (!result.ok) {
+      setMessage(`Import failed: ${result.reason}`);
+      return false;
+    }
+    addRules(result.rules, source);
+    return true;
+  };
 
   const addCustomRule = () => {
-    const name = form.name.trim();
-    if (!name) {
-      setMessage("Name the organisation rule first.");
-      return;
-    }
-    if (form.mode === "property" && !form.propertyKey.trim()) {
-      setMessage("Property rules need a property key.");
-      return;
-    }
-    const baseId = makeRuleId(name);
-    const rule: OrganisationRule = {
-      id: uniqueRuleId(baseId, new Map(organisationRules.map((existing) => [existing.id, existing]))),
-      name,
-      description: form.description.trim() || "Organisation-defined deployment rule.",
+    const result = customRule({
+      name: form.name,
+      description: form.description,
       severity: form.severity,
-      enabled: true,
       serviceTypes: form.serviceTypes,
-      message:
-        form.description.trim() ||
-        (form.mode === "property"
-          ? `${name}: ${form.propertyKey} ${form.propertyOperator.replace("_", " ")}`
-          : `${name}: required relationship is missing or forbidden`),
-      property:
-        form.mode === "property"
-          ? {
-              key: form.propertyKey.trim(),
-              operator: form.propertyOperator,
-              value: operatorNeedsValue(form.propertyOperator) ? parseRuleValue(form.propertyValue) : undefined,
-            }
-          : undefined,
-      edge:
-        form.mode === "edge"
-          ? {
-              direction: form.edgeDirection,
-              mode: form.edgeMode,
-              kind: form.edgeKind || undefined,
-              targetType: form.edgeTargetType || undefined,
-            }
-          : undefined,
-    };
-    addOrganisationRule(rule);
+      check: form.mode === "property"
+        ? { mode: "property", key: form.propertyKey, operator: form.propertyOperator, value: form.propertyValue }
+        : { mode: "edge", direction: form.edgeDirection, edgeMode: form.edgeMode, kind: form.edgeKind, targetType: form.edgeTargetType },
+    }, organisationRules);
+    if (!result.ok) {
+      setMessage(result.reason);
+      return;
+    }
+    addOrganisationRule(result.rule);
     setForm((current) => ({ ...current, name: "", description: "" }));
     setMessage(null);
-    toast.success(`Added ${rule.name}.`);
+    toast.success(`Added ${result.rule.name}.`, { id: "rules-add" });
   };
 
   const importRulesText = () => {
@@ -198,102 +124,23 @@ export function OrganisationRulesPanel() {
       setMessage("Paste Azure Policy JSON or a Bunya rules file first.");
       return;
     }
-    const result = parseOrganisationRulesText(text);
-    if (!result.ok) {
-      setMessage(`Import failed: ${result.reason}`);
-      return;
-    }
-    mergeRules(result.rules, "pasted JSON");
-    setImportText("");
+    if (importRules(text, "pasted JSON")) setImportText("");
   };
 
-  const importRulesFile = useCallback(
-    async (file: File) => {
-      let text: string;
-      try { text = await readFileAsText(file); }
-      catch (error) { setMessage(error instanceof Error ? error.message : "Could not read rules file."); return; }
-      const result = parseOrganisationRulesText(text);
-      if (!result.ok) {
-        setMessage(`Import failed: ${result.reason}`);
-        return;
-      }
-      mergeRules(result.rules, file.name);
-    },
-    [mergeRules],
-  );
-
-  const onFileChange = useCallback(
-    async (event: ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0];
-      if (file) await importRulesFile(file);
-      event.target.value = "";
-    },
-    [importRulesFile],
-  );
+  const onFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    let text: string;
+    try { text = await readFileAsText(file); }
+    catch (error) { setMessage(error instanceof Error ? error.message : "Could not read rules file."); return; }
+    importRules(text, file.name);
+  };
 
   const exportRules = () => {
-    const blob = organisationRulesToBlob(organisationRules);
-    const url = URL.createObjectURL(blob);
-    const a = window.document.createElement("a");
-    a.href = url;
-    a.download = `organisation-rules${ORGANISATION_RULES_EXTENSION}`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.success(`Exported ${a.download}.`, { id: "rules-export" });
-  };
-
-  const addPublicIngressPreset = () => {
-    const baseRules: OrganisationRule[] = [
-      ...PUBLIC_NETWORK_SERVICES.map((serviceType) => presetPropertyRule({
-        idSeed: `no-public-ingress-${serviceType}`,
-        name: `No public ingress: ${getServiceDefinition(serviceType).label}`,
-        serviceType,
-        key: "publicNetworkAccess",
-        operator: "equals",
-        value: true,
-        message: "Public network access must be disabled for organisation-managed workloads.",
-      })),
-      presetPropertyRule({
-        idSeed: "no-storage-blob-public-access",
-        name: "No anonymous blob public access",
-        serviceType: "storageAccount",
-        key: "allowPublicAccess",
-        operator: "equals",
-        value: true,
-        message: "Storage accounts must not allow anonymous blob public access.",
-      }),
-    ];
-    mergeRules(baseRules, "No public ingress preset");
-  };
-
-  const addPrivateEndpointPreset = () => {
-    mergeRules(
-      DATA_SERVICES.map((serviceType) => presetEdgeRule({
-        idSeed: `private-endpoint-required-${serviceType}`,
-        name: `Private endpoint required: ${getServiceDefinition(serviceType).label}`,
-        serviceType,
-        direction: "incoming",
-        kind: "network",
-        targetType: "privateEndpoint",
-        message: "Private access must be modelled with a Private Endpoint network path.",
-      })),
-      "Private endpoint preset",
-    );
-  };
-
-  const addDiagnosticsPreset = () => {
-    mergeRules(
-      COMPUTE_SERVICES.map((serviceType) => presetEdgeRule({
-        idSeed: `diagnostics-required-${serviceType}`,
-        name: `Diagnostics required: ${getServiceDefinition(serviceType).label}`,
-        serviceType,
-        direction: "outgoing",
-        kind: "diagnostic",
-        targetType: "logAnalytics",
-        message: "Production workloads must send diagnostics to Log Analytics.",
-      })),
-      "Diagnostics preset",
-    );
+    const filename = `organisation-rules${ORGANISATION_RULES_EXTENSION}`;
+    downloadBlob(organisationRulesToBlob(organisationRules), filename);
+    toast.success(`Exported ${filename}.`, { id: "rules-export" });
   };
 
   return (
@@ -317,15 +164,11 @@ export function OrganisationRulesPanel() {
               </div>
             </div>
             <div className="grid grid-cols-3 gap-1">
-              <button type="button" onClick={addPublicIngressPreset} className="rounded-md border border-zinc-200 px-2 py-1 font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800">
-                No Public
-              </button>
-              <button type="button" onClick={addPrivateEndpointPreset} className="rounded-md border border-zinc-200 px-2 py-1 font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800">
-                Private Path
-              </button>
-              <button type="button" onClick={addDiagnosticsPreset} className="rounded-md border border-zinc-200 px-2 py-1 font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800">
-                Diagnostics
-              </button>
+              {ORGANISATION_PRESETS.map((preset) => (
+                <button key={preset.id} type="button" onClick={() => addRules(preset.rules(), preset.source)} className="rounded-md border border-zinc-200 px-2 py-1 font-medium hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800">
+                  {preset.label}
+                </button>
+              ))}
             </div>
             <label className="space-y-1">
               <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">Name</span>
@@ -355,9 +198,9 @@ export function OrganisationRulesPanel() {
                   onChange={(event) => setField("severity", event.target.value as Severity)}
                   className="w-full rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs dark:border-zinc-800 dark:bg-zinc-950"
                 >
-                  <option value="error">error</option>
-                  <option value="warning">warning</option>
-                  <option value="info">info</option>
+                  {SeveritySchema.options.map((severity) => (
+                    <option key={severity} value={severity}>{severity}</option>
+                  ))}
                 </select>
               </label>
               <label className="space-y-1">
@@ -517,7 +360,7 @@ export function OrganisationRulesPanel() {
               ref={fileInputRef}
               type="file"
               accept=".json,.bunya-rules.json,application/json"
-              onChange={onFileChange}
+              onChange={(event) => void onFileChange(event)}
               className="hidden"
               aria-label="Import organisation rules"
             />
@@ -560,84 +403,10 @@ function RuleSelect({
   );
 }
 
-function operatorNeedsValue(operator: PropertyOperator): boolean {
-  return operator === "equals" || operator === "not_equals" || operator === "includes";
-}
-
 function selectedServiceTypes(event: ChangeEvent<HTMLSelectElement>): ServiceType[] {
   return Array.from(event.target.selectedOptions)
     .map((option) => option.value)
     .filter((value): value is ServiceType => (SERVICE_TYPES as readonly string[]).includes(value));
-}
-
-function parseRuleValue(value: string): unknown {
-  const trimmed = value.trim();
-  if (trimmed === "") return "";
-  if (trimmed === "true") return true;
-  if (trimmed === "false") return false;
-  const numeric = Number(trimmed);
-  if (Number.isFinite(numeric) && String(numeric) === trimmed) return numeric;
-  return trimmed;
-}
-
-function uniqueRuleId(id: string, existing: Map<string, OrganisationRule>): string {
-  if (!existing.has(id)) return id;
-  let suffix = 2;
-  let next = `${id}.${suffix}`;
-  while (existing.has(next)) {
-    suffix += 1;
-    next = `${id}.${suffix}`;
-  }
-  return next;
-}
-
-function presetPropertyRule(input: {
-  idSeed: string;
-  name: string;
-  serviceType: ServiceType;
-  key: string;
-  operator: PropertyOperator;
-  value: unknown;
-  message: string;
-}): OrganisationRule {
-  return {
-    id: makeRuleId(input.idSeed),
-    name: input.name,
-    description: input.message,
-    severity: "error",
-    enabled: true,
-    serviceTypes: [input.serviceType],
-    property: { key: input.key, operator: input.operator, value: input.value },
-    message: input.message,
-    source: { name: "Bunya organisation preset" },
-  };
-}
-
-function presetEdgeRule(input: {
-  idSeed: string;
-  name: string;
-  serviceType: ServiceType;
-  direction: EdgeRequirement["direction"];
-  kind: EdgeKind;
-  targetType: ServiceType;
-  message: string;
-}): OrganisationRule {
-  return {
-    id: makeRuleId(input.idSeed),
-    name: input.name,
-    description: input.message,
-    severity: "warning",
-    enabled: true,
-    serviceTypes: [input.serviceType],
-    edge: {
-      direction: input.direction,
-      kind: input.kind,
-      targetType: input.targetType,
-      mode: "must_exist",
-    },
-    message: input.message,
-    source: { name: "Bunya organisation preset" },
-  };
 }
 
 function serviceLabelMap(): Record<string, string> {

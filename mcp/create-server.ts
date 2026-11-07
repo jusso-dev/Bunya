@@ -2,21 +2,33 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
   CreateDiagramInputSchema,
+  EXPORT_TARGET_DESCRIPTION,
   ExportTargetSchema,
   createDiagram,
   describeServices,
   diagramViewUrl,
   exportDiagram,
+  parseDocument,
   validationSummary,
 } from "./bunya";
-import { GraphDocumentSchema } from "../lib/graph/schema";
+import packageJson from "../package.json";
 
 function jsonContent(value: unknown) {
   return [{ type: "text" as const, text: JSON.stringify(value, null, 2) }];
 }
 
+// Tool failures are reported to the client as results, not protocol errors,
+// so the model can read the reason and correct its call.
+async function toolResult(run: () => unknown | Promise<unknown>) {
+  try {
+    return { content: jsonContent(await run()) };
+  } catch (error) {
+    return { content: jsonContent({ error: error instanceof Error ? error.message : String(error) }), isError: true };
+  }
+}
+
 export function createBunyaMcpServer() {
-  const server = new McpServer({ name: "bunya", version: "0.1.0" });
+  const server = new McpServer({ name: "bunya", version: packageJson.version });
 
   server.registerResource(
     "architecture-authoring-guide",
@@ -39,7 +51,7 @@ When a user describes an Azure architecture, translate it into a small, explicit
 - Choose a connection \`kind\` only when it is clear. Otherwise omit it and Bunya infers the valid kind.
 - Include the main topology, data flows, identity access, networking, and observability. Bunya adds a Resource Group unless one is planned explicitly.
 - Call \`bunya_validate_diagram\` after creation. Explain warnings and errors before exporting production IaC.
-- Call \`bunya_export_iac\` with \`terraform\`, \`bicep\`, or \`arm\` to return deployable source files. The create result includes a Bunya URL that displays the diagram.
+- Call \`bunya_export_iac\` with a format such as \`terraform\`, \`bicep\` or \`arm\` to return deployable source files. The create result includes a Bunya URL that displays the diagram.
 `,
       }],
     }),
@@ -62,28 +74,15 @@ When a user describes an Azure architecture, translate it into a small, explicit
       description: "Creates a validated Bunya diagram from the explicit service plan inferred from a user's architecture description. Returns the portable graph, Mermaid source, validation findings, and a URL that opens the diagram in Bunya.",
       inputSchema: CreateDiagramInputSchema.shape,
     },
-    async (input) => {
-      try {
-        const document = createDiagram(input);
-        const [viewUrl, mermaid] = await Promise.all([
-          diagramViewUrl(document),
-          Promise.resolve(exportDiagram(document, "mermaid")[0].files[0]?.content ?? ""),
-        ]);
-        return {
-          content: jsonContent({
-            document,
-            viewUrl,
-            mermaid,
-            findings: validationSummary(document),
-          }),
-        };
-      } catch (error) {
-        return {
-          content: jsonContent({ error: error instanceof Error ? error.message : String(error) }),
-          isError: true,
-        };
-      }
-    },
+    (input) => toolResult(async () => {
+      const document = createDiagram(input);
+      return {
+        document,
+        viewUrl: await diagramViewUrl(document),
+        mermaid: exportDiagram(document, "mermaid")[0].files[0]?.content ?? "",
+        findings: validationSummary(document),
+      };
+    }),
   );
 
   server.registerTool(
@@ -94,41 +93,23 @@ When a user describes an Azure architecture, translate it into a small, explicit
       inputSchema: { document: z.unknown() },
       annotations: { readOnlyHint: true },
     },
-    async ({ document }) => {
-      const parsed = GraphDocumentSchema.safeParse(document);
-      if (!parsed.success) return { content: jsonContent({ error: parsed.error.message }), isError: true };
-      const findings = validationSummary(parsed.data);
-      return {
-        content: jsonContent({
-          valid: !findings.some((finding) => finding.severity === "error"),
-          findings,
-        }),
-      };
-    },
+    ({ document }) => toolResult(() => {
+      const findings = validationSummary(parseDocument(document));
+      return { valid: !findings.some((finding) => finding.severity === "error"), findings };
+    }),
   );
 
   server.registerTool(
     "bunya_export_iac",
     {
       title: "Export Bunya infrastructure as code",
-      description: "Exports a Bunya graph to Terraform, Bicep, ARM JSON, az CLI, PowerShell, an audit-only Azure Policy initiative, Mermaid, README, or all formats. The returned files are ready for the MCP client to save.",
+      description: EXPORT_TARGET_DESCRIPTION,
       inputSchema: { document: z.unknown(), target: ExportTargetSchema },
     },
-    async ({ document, target }) => {
-      const parsed = GraphDocumentSchema.safeParse(document);
-      if (!parsed.success) return { content: jsonContent({ error: parsed.error.message }), isError: true };
-      try {
-        const exports = exportDiagram(parsed.data, target);
-        return {
-          content: jsonContent({ target, findings: validationSummary(parsed.data), exports }),
-        };
-      } catch (error) {
-        return {
-          content: jsonContent({ error: error instanceof Error ? error.message : String(error) }),
-          isError: true,
-        };
-      }
-    },
+    ({ document, target }) => toolResult(() => {
+      const parsed = parseDocument(document);
+      return { target, findings: validationSummary(parsed), exports: exportDiagram(parsed, target) };
+    }),
   );
 
   return server;

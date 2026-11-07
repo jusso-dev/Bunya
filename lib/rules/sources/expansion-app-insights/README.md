@@ -13,8 +13,7 @@ authorities:
   ruleset that ships canonical Application Insights checks
   (`Azure.AppInsights.Name`, `Azure.AppInsights.Workspace`).
 
-Pinned snapshot details live in `pinned.json`. The generator metadata is in
-`generated.meta.json`. Each `RuleEntry` carries the upstream `ruleId` and the
+The rules live in `rules.ts` and are curated by hand. Each `RuleEntry` carries the upstream `ruleId` and the
 canonical doc URL on `source`, so attribution is preserved at runtime.
 
 Advisory entries — where Bunya's property model cannot evaluate the upstream

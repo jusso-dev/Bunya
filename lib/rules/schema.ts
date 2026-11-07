@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { GraphDocument, GraphNode, ServiceType } from "@/lib/graph/schema";
+import { ServiceTypeSchema, type GraphDocument, type GraphNode, type ServiceType } from "@/lib/graph/schema";
 
 export const SeveritySchema = z.enum(["error", "warning", "info"]);
 export type Severity = z.infer<typeof SeveritySchema>;
@@ -31,7 +31,7 @@ export const RuleSchema = z.object({
   source: RuleSourceSchema,
   category: RuleCategorySchema,
   severity: SeveritySchema,
-  appliesTo: z.array(z.string()).min(1),
+  appliesTo: z.array(z.union([z.literal("graph"), ServiceTypeSchema])).min(1),
   message: z.string().min(1),
   longExplanation: z.string().min(1),
   tags: z.array(z.string()).min(1),
@@ -61,6 +61,21 @@ export type RuleEntry = {
   autofixes?: Record<string, Autofix>;
 };
 
+// The upstream publication a bundle was curated against, and how
+// `pnpm upstream:check` watches it for newer versions.
+export type RulePin = {
+  version: string;
+  reviewedAt: string;
+  watch?: { kind: "github-release"; repo: string } | { kind: "manual-review" };
+};
+
+export type RuleBundle = {
+  slug: string;
+  label: string;
+  pin?: RulePin;
+  rules: RuleEntry[];
+};
+
 export type Finding = {
   ruleId: string;
   rule: Rule;
@@ -73,14 +88,8 @@ export type Finding = {
   autofixId?: string;
 };
 
-export type AppliesTo = "graph" | string;
-
-export const GRAPH_SCOPE: AppliesTo = "graph";
-
-export type NodePredicate = (node: GraphNode, graph: GraphDocument) => boolean;
-
 export function isGraphScope(rule: Rule): boolean {
-  return rule.appliesTo.includes(GRAPH_SCOPE);
+  return rule.appliesTo.includes("graph");
 }
 
 export type { GraphDocument, GraphNode, ServiceType };

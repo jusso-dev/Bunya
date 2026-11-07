@@ -1,7 +1,7 @@
 import type { GraphDocument } from "@/lib/graph/schema";
 import { Finding, RuleEntry, isGraphScope } from "./schema";
-import { armTypeOf } from "./mapping";
 import { REGISTRY } from "./registry";
+import { organisationRuleEntries, type OrganisationRule } from "./organisation";
 
 function completeFinding(
   partial: ReturnType<RuleEntry["check"]>[number],
@@ -20,6 +20,11 @@ function completeFinding(
   };
 }
 
+// Built-in rules plus the organisation's own.
+export function validate(graph: GraphDocument, organisationRules: OrganisationRule[] = []): Finding[] {
+  return runRules(graph, [...REGISTRY, ...organisationRuleEntries(organisationRules)]);
+}
+
 export function runRules(
   graph: GraphDocument,
   entries: RuleEntry[] = REGISTRY,
@@ -32,8 +37,7 @@ export function runRules(
       continue;
     }
     for (const node of graph.nodes) {
-      const armType = armTypeOf(node.type);
-      if (!entry.rule.appliesTo.includes(armType)) continue;
+      if (!entry.rule.appliesTo.includes(node.type)) continue;
       const partials = entry.check({ graph, node });
       for (const p of partials) findings.push(completeFinding(p, entry));
     }
@@ -53,6 +57,3 @@ export function applyAutofix(
   return fix(graph, finding);
 }
 
-export function getRuleById(id: string, entries: RuleEntry[] = REGISTRY): Finding["rule"] | undefined {
-  return entries.find((e) => e.rule.id === id)?.rule;
-}

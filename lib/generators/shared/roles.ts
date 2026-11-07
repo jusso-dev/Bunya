@@ -1,52 +1,64 @@
-// Role assignments implied by identity edges, shared by the Terraform, Bicep
-// and ARM exporters so they grant the same roles.
+// Role assignments implied by the diagram, shared by the Terraform, Bicep and
+// ARM exporters so they grant the same roles.
 import type { GraphNode, ServiceType } from "@/lib/graph/schema";
-import { GeneratorContext } from "./context";
+import { GRANT_PRINCIPALS, GRANT_SCOPES, ROLE_DEFINITION_IDS, edgeRoleFor, type RoleName } from "@/lib/catalogue/azure";
+import { GeneratorContext, sources, targets } from "./context";
 
-export const ROLE_DEFINITION_IDS: Record<string, string> = {
-  AcrPull: "7f951dda-4ed3-4680-a7ca-43fe172d538d",
-  "Key Vault Secrets User": "4633458b-17de-408a-b874-0445c86b69e6",
-  "Storage Blob Data Contributor": "ba92f5b4-2d11-453d-a403-e96b0029c9fe",
-  "Storage Queue Data Contributor": "974c5e8b-45b9-4653-ba55-5f855dd0fb88",
-  "Monitoring Metrics Publisher": "3913510d-42f4-4e42-8a64-420c390055eb",
-  Reader: "acdd72a7-3385-48ef-bd42-f606fba81ae7",
-  Contributor: "b24988ac-6180-42a0-ab88-20f7382dd24c",
+// Services exporters give a managed identity that can hold a role.
+const IDENTITY_PRINCIPALS: ReadonlySet<ServiceType> = new Set([...GRANT_PRINCIPALS, "aksCluster", "virtualMachineScaleSet"]);
+
+export type RoleGrant = {
+  principal: GraphNode;
+  scope: GraphNode;
+  role: RoleName;
+  roleId: string;
+  // Drawn as a Role Assignment node rather than an identity edge.
+  drawn: boolean;
 };
 
-export function defaultRoleNameFor(target: GraphNode): string {
-  switch (target.type) {
-    case "containerRegistry":
-      return "AcrPull";
-    case "keyVault":
-      return "Key Vault Secrets User";
-    case "storageAccount":
-      return "Storage Blob Data Contributor";
-    case "logAnalytics":
-      return "Monitoring Metrics Publisher";
-    default:
-      return "Reader";
-  }
-}
-
-// Principals whose identity the exporters can reference.
-const PRINCIPALS: ReadonlySet<ServiceType> = new Set(["appService", "functionApp", "userAssignedIdentity"]);
-// Scopes the Terraform and Bicep exporters grant roles on directly. Key Vault
-// stays in its own emitter for backwards-compatible resource names.
-const SCOPES: ReadonlySet<ServiceType> = new Set(["containerRegistry", "storageAccount"]);
-
-export type RoleGrant = { principal: GraphNode; scope: GraphNode; role: string; roleId: string };
-
-// Identity edges from a site or user-assigned identity to a registry or storage
-// account. Key Vault grants are emitted beside the vault.
-export function roleAssignmentsFor(ctx: GeneratorContext): RoleGrant[] {
+// Every grant: one per identity edge from a principal to a scope, with the
+// role the catalogue gives that scope, then one per drawn Role Assignment
+// node. A drawn node can repeat an edge grant; Azure rejects duplicate
+// assignments, so the first is kept.
+export function roleGrants(ctx: GeneratorContext): RoleGrant[] {
   const grants: RoleGrant[] = [];
+  const grant = (principal: GraphNode, scope: GraphNode, role: RoleName, drawn: boolean) => {
+    if (!IDENTITY_PRINCIPALS.has(principal.type)) return;
+    const key = (g: RoleGrant) => `${g.scope.type}|${ctx.name(g.scope.id)}|${ctx.name(g.principal.id)}|${g.role}`;
+    const next = { principal, scope, role, roleId: ROLE_DEFINITION_IDS[role], drawn };
+    if (!grants.some((existing) => key(existing) === key(next))) grants.push(next);
+  };
   for (const edge of ctx.edges) {
     if (edge.kind !== "identity") continue;
-    const principal = ctx.nodesById.get(edge.source);
-    const scope = ctx.nodesById.get(edge.target);
-    if (!principal || !scope || !PRINCIPALS.has(principal.type) || !SCOPES.has(scope.type)) continue;
-    const role = defaultRoleNameFor(scope);
-    grants.push({ principal, scope, role, roleId: ROLE_DEFINITION_IDS[role] });
+    const principal = ctx.nodesById.get(edge.source)!;
+    const scope = ctx.nodesById.get(edge.target)!;
+    // A principal -> user-assigned identity edge attaches the identity; it grants nothing.
+    if (principal.type === "roleAssignment" || scope.type === "roleAssignment" || scope.type === "userAssignedIdentity") continue;
+    grant(principal, scope, edgeRoleFor(scope.type), false);
+  }
+  for (const node of ctx.document.nodes.filter((candidate) => candidate.type === "roleAssignment")) {
+    const [principal] = sources(ctx, node.id, "identity");
+    const [scope] = targets(ctx, node.id, "identity");
+    if (principal && scope) grant(principal, scope, node.properties.roleDefinitionName as RoleName, true);
   }
   return grants;
+}
+
+// The grants Terraform and Bicep write: identity edges between GRANT_PRINCIPALS
+// and GRANT_SCOPES, the set the ARM importer folds back into edges. ARM also
+// writes drawn Role Assignments and grants to AKS and scale set identities.
+export function portableGrants(ctx: GeneratorContext): RoleGrant[] {
+  return roleGrants(ctx).filter((grant) => !grant.drawn && GRANT_PRINCIPALS.has(grant.principal.type) && GRANT_SCOPES.has(grant.scope.type));
+}
+
+// Name suffix of a grant's resource. Key Vault grants were first written beside
+// the vault as "_secrets"; keeping that name keeps existing Terraform state and
+// Bicep deployments matching.
+export function grantSuffix({ scope, role }: Pick<RoleGrant, "scope" | "role">): string {
+  return scope.type === "keyVault" ? "secrets" : role.toLowerCase().replace(/[^a-z0-9]+/g, "_");
+}
+
+// Key Vault grants are written beside the vault, every other grant after all resources.
+export function writtenWithScope(grant: Pick<RoleGrant, "scope">): boolean {
+  return grant.scope.type === "keyVault";
 }

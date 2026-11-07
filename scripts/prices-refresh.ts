@@ -15,6 +15,7 @@
  */
 import { promises as fs } from "node:fs";
 import { PRICE_BOOK } from "../lib/pricing/data";
+import { arg, run } from "./lib";
 
 const REGION = "australiaeast";
 const API = "https://prices.azure.com/api/retail/prices";
@@ -29,11 +30,6 @@ type RetailItem = {
   type?: string;
   tierMinimumUnits?: number;
 };
-
-function arg(name: string): string | undefined {
-  const index = process.argv.indexOf(`--${name}`);
-  return index >= 0 ? process.argv[index + 1] : undefined;
-}
 
 async function fetchAll(filter: string): Promise<RetailItem[]> {
   const items: RetailItem[] = [];
@@ -126,4 +122,4 @@ async function main() {
   process.exit(failed ? 1 : 0);
 }
 
-void main();
+run("prices", main);

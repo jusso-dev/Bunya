@@ -2,26 +2,18 @@
 
 import { memo } from "react";
 import { Handle, NodeProps, Position } from "reactflow";
-import { CATEGORY_THEME, ServiceIcon } from "@/lib/catalogue/icons";
+import { CATEGORY_THEME, ServiceIcon } from "@/components/catalogue/icons";
 import { getServiceDefinition } from "@/lib/catalogue/services";
-import { ServiceType } from "@/lib/graph/schema";
+import type { CanvasNodeData } from "./ServiceNode";
 
-export type ContainerNodeData = {
-  serviceType: ServiceType;
-  name: string;
-  resourceName: string;
-  selected: boolean;
-};
-
-function ContainerNodeInner({ data, selected }: NodeProps<ContainerNodeData>) {
+function ContainerNodeInner({ data, selected }: NodeProps<CanvasNodeData>) {
   const def = getServiceDefinition(data.serviceType);
   const theme = CATEGORY_THEME[def.category];
-  const active = selected || data.selected;
 
   return (
     <div
       className={`group relative h-full w-full rounded-2xl border-2 border-dashed bg-white/30 backdrop-blur-[1px] transition-all dark:bg-zinc-900/30 ${
-        active ? theme.cardRingActive : theme.cardRing
+        selected ? theme.cardRingActive : theme.cardRing
       }`}
     >
       <Handle type="target" position={Position.Left} className="!bg-zinc-400" />

@@ -99,16 +99,13 @@ export const PRICE_BOOK: PriceBook = {
     note: "General Purpose Provisioned, 2 vCores, always-on",
   },
 
-  // Cosmos DB
   "cosmosDb.Free": { monthlyUsd: 0, note: "Free tier: 1000 RU/s and 25GB free" },
   "cosmosDb.Provisioned400": { monthlyUsd: 24.0, note: "Provisioned 400 RU/s" },
   "cosmosDb.Serverless": { monthlyUsd: 7.0, note: "Serverless baseline: ~1M reads + writes/month" },
 
-  // Key Vault
   "keyVault.standard": { monthlyUsd: 1.0, note: "Baseline operations (~10k/month)" },
   "keyVault.premium": { monthlyUsd: 5.0, note: "Premium HSM-backed keys" },
 
-  // Application Insights / Log Analytics
   "applicationInsights.workspace": {
     monthlyUsd: 0,
     note: "Workspace-based: billed via the Log Analytics workspace",
@@ -116,12 +113,10 @@ export const PRICE_BOOK: PriceBook = {
   "logAnalytics.PerGB2018": { monthlyUsd: 11.5, note: "Pay-as-you-go, ~5GB ingested per month" },
   "logAnalytics.Free": { monthlyUsd: 0, note: "Free tier (legacy)" },
 
-  // Container Registry
   "containerRegistry.Basic": { monthlyUsd: 5.0, note: "Basic SKU" },
   "containerRegistry.Standard": { monthlyUsd: 20.0, note: "Standard SKU" },
   "containerRegistry.Premium": { monthlyUsd: 50.0, note: "Premium SKU" },
 
-  // Front Door
   "frontDoor.Standard_AzureFrontDoor": {
     monthlyUsd: 35.0,
     note: "Standard baseline + 10GB egress; traffic billed separately",
@@ -131,7 +126,6 @@ export const PRICE_BOOK: PriceBook = {
     note: "Premium baseline + 10GB egress; traffic billed separately",
   },
 
-  // Application Gateway
   "applicationGateway.Standard_v2": {
     monthlyUsd: 150.0,
     note: "Standard_v2, 2 capacity units, fixed price + capacity",
@@ -141,18 +135,15 @@ export const PRICE_BOOK: PriceBook = {
     note: "WAF_v2, 2 capacity units, fixed price + capacity",
   },
 
-  // API Management
   "apiManagement.Consumption": { monthlyUsd: 3.0, note: "Consumption beyond 1M free calls" },
   "apiManagement.Developer": { monthlyUsd: 48.0, note: "Developer (non-prod)" },
   "apiManagement.Basic": { monthlyUsd: 147.0, note: "Basic 1 unit" },
 
-  // User-Assigned Managed Identity, Resource Group, VNet, NSG, Subnet
   "userAssignedIdentity.base": { monthlyUsd: 0, note: "No direct cost" },
   "resourceGroup.base": { monthlyUsd: 0, note: "No direct cost" },
   "virtualNetwork.base": { monthlyUsd: 0, note: "No direct cost for VNet itself" },
   "subnet.base": { monthlyUsd: 0, note: "No direct cost for the subnet" },
   "networkSecurityGroup.base": { monthlyUsd: 0, note: "No direct cost" },
 
-  // Private Endpoint
   "privateEndpoint.base": { monthlyUsd: 7.3, note: "Per-endpoint fixed cost + data processing" },
 };

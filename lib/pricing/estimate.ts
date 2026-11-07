@@ -1,5 +1,6 @@
 import type { GraphDocument, GraphNode, ServiceType } from "@/lib/graph/schema";
-import { planFamily } from "@/lib/catalogue/app-service-plans";
+import { isServerlessPlan, planFamily } from "@/lib/catalogue/app-service-plans";
+import { getServiceDefinition } from "@/lib/catalogue/services";
 import { sitePlan } from "@/lib/graph/topology";
 import {
   APP_SERVICE_PRICE_SNAPSHOT_DATE,
@@ -39,110 +40,62 @@ export type EstimateOptions = {
   audPerUsd?: number;
 };
 
-const SERVICE_LABELS: Record<ServiceType, string> = {
-  resourceGroup: "Resource Group",
-  virtualNetwork: "Virtual Network",
-  subnet: "Subnet",
-  networkSecurityGroup: "Network Security Group",
-  privateEndpoint: "Private Endpoint",
-  privateDnsZone: "Private DNS Zone",
-  appServicePlan: "App Service Plan",
+// Cost tables use shorter names than the catalogue for these services.
+const COST_LABELS: Partial<Record<ServiceType, string>> = {
   appService: "App Service",
-  functionApp: "Function App",
-  staticWebApp: "Static Web App",
-  aksCluster: "Azure Kubernetes Service",
-  virtualMachineScaleSet: "Virtual Machine Scale Set",
-  storageAccount: "Storage Account",
-  sqlDatabase: "Azure SQL Database",
-  cosmosDb: "Cosmos DB",
-  keyVault: "Key Vault",
-  applicationInsights: "Application Insights",
-  logAnalytics: "Log Analytics Workspace",
-  monitorAlert: "Monitor Alert Rule",
-  actionGroup: "Action Group",
   frontDoor: "Front Door",
-  applicationGateway: "Application Gateway",
-  apiManagement: "API Management",
-  containerRegistry: "Container Registry",
   userAssignedIdentity: "User-Assigned Identity",
-  roleAssignment: "Role Assignment",
 };
 
-function priceKeyFor(node: GraphNode, document: GraphDocument): { key: string; sku: string } {
-  const props = node.properties as Record<string, unknown>;
+// Services billed per instance, and the property holding the instance count.
+const QUANTITY_PROPERTY: Partial<Record<ServiceType, string>> = {
+  appServicePlan: "capacity",
+  aksCluster: "nodeCount",
+  virtualMachineScaleSet: "capacity",
+};
+
+function bySku(type: ServiceType, sku: unknown): { key: string; sku: string } {
+  return { key: `${type}.${String(sku)}`, sku: String(sku) };
+}
+
+function priceKeyFor(node: GraphNode, props: Record<string, unknown>, document: GraphDocument): { key: string; sku: string } {
   switch (node.type) {
-    case "appServicePlan": {
-      const sku = String(props.sku ?? "B1");
-      return { key: `appServicePlan.${sku}`, sku };
-    }
+    case "appServicePlan":
+    case "staticWebApp":
+    case "virtualMachineScaleSet":
+    case "storageAccount":
+    case "sqlDatabase":
+    case "keyVault":
+    case "logAnalytics":
+    case "containerRegistry":
+    case "frontDoor":
+    case "applicationGateway":
+    case "apiManagement":
+      return bySku(node.type, props.sku);
+    case "aksCluster":
+      return bySku(node.type, props.nodeVmSize);
     case "appService":
       return { key: "appService.base", sku: "(plan)" };
     case "functionApp": {
       // The plan decides billing; the flag only matters when no plan is drawn.
       const plan = sitePlan(document, node);
-      const family = plan ? planFamily(plan.properties.sku) : props.consumptionPlan === false ? "dedicated" : "consumption";
-      if (family === "consumption" || family === "flex") {
-        return { key: "functionApp.consumption", sku: family === "flex" ? "Flex Consumption" : "Consumption" };
+      if (plan ? isServerlessPlan(plan.properties.sku) : props.consumptionPlan !== false) {
+        return { key: "functionApp.consumption", sku: planFamily(plan?.properties.sku) === "flex" ? "Flex Consumption" : "Consumption" };
       }
       return { key: "functionApp.premium", sku: "(plan)" };
     }
-    case "staticWebApp": {
-      const sku = String(props.sku ?? "Standard");
-      return { key: `staticWebApp.${sku}`, sku };
-    }
-    case "aksCluster": {
-      const sku = String(props.nodeVmSize ?? "Standard_D2s_v5");
-      return { key: `aksCluster.${sku}`, sku };
-    }
-    case "virtualMachineScaleSet": {
-      const sku = String(props.sku ?? "Standard_B2s");
-      return { key: `virtualMachineScaleSet.${sku}`, sku };
-    }
-    case "storageAccount": {
-      const sku = String(props.sku ?? "Standard_LRS");
-      return { key: `storageAccount.${sku}`, sku };
-    }
-    case "sqlDatabase": {
-      const sku = String(props.sku ?? "S0");
-      return { key: `sqlDatabase.${sku}`, sku };
-    }
-    case "cosmosDb": {
-      if (props.freeTier === true) return { key: "cosmosDb.Free", sku: "Free tier" };
-      const sku = "Provisioned400";
-      return { key: `cosmosDb.${sku}`, sku: "Provisioned 400 RU/s" };
-    }
-    case "keyVault": {
-      const sku = String(props.sku ?? "standard");
-      return { key: `keyVault.${sku}`, sku };
-    }
+    case "cosmosDb":
+      return props.freeTier === true
+        ? { key: "cosmosDb.Free", sku: "Free tier" }
+        : { key: "cosmosDb.Provisioned400", sku: "Provisioned 400 RU/s" };
     case "applicationInsights":
       return { key: "applicationInsights.workspace", sku: "workspace-based" };
-    case "logAnalytics": {
-      const sku = String(props.sku ?? "PerGB2018");
-      return { key: `logAnalytics.${sku}`, sku };
-    }
-    case "containerRegistry": {
-      const sku = String(props.sku ?? "Basic");
-      return { key: `containerRegistry.${sku}`, sku };
-    }
-    case "frontDoor": {
-      const sku = String(props.sku ?? "Standard_AzureFrontDoor");
-      return { key: `frontDoor.${sku}`, sku };
-    }
-    case "applicationGateway": {
-      const sku = String(props.sku ?? "WAF_v2");
-      return { key: `applicationGateway.${sku}`, sku };
-    }
-    case "apiManagement": {
-      const sku = String(props.sku ?? "Consumption");
-      return { key: `apiManagement.${sku}`, sku };
-    }
     case "privateEndpoint":
       return { key: "privateEndpoint.base", sku: "per-endpoint" };
     case "privateDnsZone":
       return { key: "privateDnsZone.base", sku: "zone" };
     case "monitorAlert":
-      return { key: "monitorAlert.base", sku: String(props.severity ?? "Sev2") };
+      return { key: "monitorAlert.base", sku: String(props.severity) };
     case "actionGroup":
       return { key: "actionGroup.base", sku: "notification routing" };
     case "resourceGroup":
@@ -156,7 +109,7 @@ function priceKeyFor(node: GraphNode, document: GraphDocument): { key: string; s
     case "userAssignedIdentity":
       return { key: "userAssignedIdentity.base", sku: "identity" };
     case "roleAssignment":
-      return { key: "roleAssignment.base", sku: String(props.roleDefinitionName ?? "Reader") };
+      return { key: "roleAssignment.base", sku: String(props.roleDefinitionName) };
   }
 }
 
@@ -173,69 +126,23 @@ export function estimateCost(
   let total = 0;
 
   for (const node of document.nodes) {
-    const { key, sku } = priceKeyFor(node, document);
+    const definition = getServiceDefinition(node.type);
+    const props = { ...definition.defaultProperties, ...node.properties };
+    const { key, sku } = priceKeyFor(node, props, document);
     const entry = PRICE_BOOK[key];
-    const unmodelled = entry === undefined;
-    const monthlyBase = entry?.monthlyUsd ?? 0;
-    const monthly = monthlyBase * fx;
-    if (node.type === "appServicePlan") {
-      const capacity = Number((node.properties as Record<string, unknown>).capacity ?? 1);
-      const scaled = monthly * Math.max(1, capacity);
-      total += scaled;
-      lineItems.push({
-        nodeId: node.id,
-        serviceType: node.type,
-        serviceLabel: SERVICE_LABELS[node.type],
-        resourceName: node.resourceName,
-        sku: `${sku} x ${capacity}`,
-        monthly: scaled,
-        note: entry?.note,
-        unmodelled,
-      });
-      continue;
-    }
-    if (node.type === "aksCluster") {
-      const count = Number((node.properties as Record<string, unknown>).nodeCount ?? 1);
-      const scaled = monthly * Math.max(1, count);
-      total += scaled;
-      lineItems.push({
-        nodeId: node.id,
-        serviceType: node.type,
-        serviceLabel: SERVICE_LABELS[node.type],
-        resourceName: node.resourceName,
-        sku: `${sku} x ${count}`,
-        monthly: scaled,
-        note: entry?.note,
-        unmodelled,
-      });
-      continue;
-    }
-    if (node.type === "virtualMachineScaleSet") {
-      const capacity = Number((node.properties as Record<string, unknown>).capacity ?? 1);
-      const scaled = monthly * Math.max(1, capacity);
-      total += scaled;
-      lineItems.push({
-        nodeId: node.id,
-        serviceType: node.type,
-        serviceLabel: SERVICE_LABELS[node.type],
-        resourceName: node.resourceName,
-        sku: `${sku} x ${capacity}`,
-        monthly: scaled,
-        note: entry?.note,
-        unmodelled,
-      });
-      continue;
-    }
+    const quantityProperty = QUANTITY_PROPERTY[node.type];
+    const quantity = quantityProperty ? Number(props[quantityProperty]) : undefined;
+    const monthly = (entry?.monthlyUsd ?? 0) * fx * Math.max(1, quantity ?? 1);
     total += monthly;
     lineItems.push({
       nodeId: node.id,
       serviceType: node.type,
-      serviceLabel: SERVICE_LABELS[node.type],
+      serviceLabel: COST_LABELS[node.type] ?? definition.label,
       resourceName: node.resourceName,
-      sku,
+      sku: quantity === undefined ? sku : `${sku} x ${quantity}`,
       monthly,
       note: entry?.note,
-      unmodelled,
+      unmodelled: entry === undefined,
     });
   }
 

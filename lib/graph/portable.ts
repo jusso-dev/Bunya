@@ -1,5 +1,5 @@
 import { fileStem } from "./filename";
-import { MAX_IMPORT_BYTES, checkImportText, checkObjectDepth } from "./limits";
+import { MAX_IMPORT_BYTES, checkImportText, parseJsonInput } from "./limits";
 import { GraphDocument } from "./schema";
 import { migrate } from "./migrate";
 import { parseArmTemplate } from "./arm-import";
@@ -52,16 +52,26 @@ function normaliseImportText(text: string): string {
   return trimmed;
 }
 
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function migrated(raw: unknown, failure: string): { ok: true; document: GraphDocument } | { ok: false; reason: string } {
+  try {
+    return { ok: true, document: migrate(raw) };
+  } catch (err) {
+    return { ok: false, reason: `${failure}: ${errorText(err)}.` };
+  }
+}
+
 export function parsePortable(text: string): ImportResult {
   let parsed: unknown;
   try {
-    checkImportText(text);
-    parsed = JSON.parse(text);
-    checkObjectDepth(parsed);
+    parsed = parseJsonInput(text);
   } catch (err) {
     return {
       ok: false,
-      reason: `File is not valid JSON: ${err instanceof Error ? err.message : String(err)}.`,
+      reason: `File is not valid JSON: ${errorText(err)}.`,
     };
   }
   if (typeof parsed !== "object" || parsed === null) {
@@ -74,19 +84,8 @@ export function parsePortable(text: string): ImportResult {
       Array.isArray(candidate.nodes) &&
       Array.isArray(candidate.edges)
     ) {
-      try {
-        const doc = migrate(candidate);
-        return {
-          ok: true,
-          document: doc,
-          envelope: buildEnvelope(doc, "legacy-raw-document"),
-        };
-      } catch (err) {
-        return {
-          ok: false,
-          reason: `Bare graph document failed migration: ${err instanceof Error ? err.message : String(err)}.`,
-        };
-      }
+      const bare = migrated(candidate, "Bare graph document failed migration");
+      return bare.ok ? { ...bare, envelope: buildEnvelope(bare.document, "legacy-raw-document") } : bare;
     }
     return { ok: false, reason: `Not a Bunya export (missing format: "bunya").` };
   }
@@ -99,29 +98,22 @@ export function parsePortable(text: string): ImportResult {
   if (typeof candidate.document !== "object" || candidate.document === null) {
     return { ok: false, reason: "Envelope is missing a document." };
   }
-  try {
-    const doc = migrate(candidate.document);
-    return {
-      ok: true,
-      document: doc,
-      envelope: {
-        format: PORTABLE_FORMAT,
-        version: PORTABLE_VERSION,
-        exportedAt: typeof candidate.exportedAt === "string" ? candidate.exportedAt : new Date().toISOString(),
-        generator: typeof candidate.generator === "string" ? candidate.generator : "unknown",
-        document: doc,
-      },
-    };
-  } catch (err) {
-    return {
-      ok: false,
-      reason: `Document failed migration: ${err instanceof Error ? err.message : String(err)}.`,
-    };
-  }
+  const result = migrated(candidate.document, "Document failed migration");
+  if (!result.ok) return result;
+  return {
+    ...result,
+    envelope: {
+      format: PORTABLE_FORMAT,
+      version: PORTABLE_VERSION,
+      exportedAt: typeof candidate.exportedAt === "string" ? candidate.exportedAt : new Date().toISOString(),
+      generator: typeof candidate.generator === "string" ? candidate.generator : "unknown",
+      document: result.document,
+    },
+  };
 }
 
 export function parseImportText(text: string): ImportResult {
-  try { checkImportText(text); } catch (error) { return { ok: false, reason: (error as Error).message }; }
+  try { checkImportText(text); } catch (error) { return { ok: false, reason: errorText(error) }; }
   const normalised = normaliseImportText(text);
   const portable = parsePortable(normalised);
   if (portable.ok) return portable;
@@ -139,6 +131,10 @@ export function parseImportText(text: string): ImportResult {
         ),
       };
     }
+    // A file that is not JSON fails both readers for the same reason; say it once.
+    if (portable.reason.startsWith("File is not valid JSON") && arm.reason.startsWith("ARM template is not valid JSON")) {
+      return { ok: false, reason: arm.reason };
+    }
     return {
       ok: false,
       reason: `${portable.reason} Also failed ARM import: ${arm.reason}`,
@@ -146,7 +142,7 @@ export function parseImportText(text: string): ImportResult {
   } catch (err) {
     return {
       ok: false,
-      reason: `Unexpected ARM import error: ${err instanceof Error ? err.message : String(err)}.`,
+      reason: `Unexpected ARM import error: ${errorText(err)}.`,
     };
   }
 }

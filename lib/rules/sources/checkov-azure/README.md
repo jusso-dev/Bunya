@@ -8,7 +8,7 @@ Azure resources.
 
 - Source: <https://github.com/bridgecrewio/checkov>
 - Docs:   <https://docs.bridgecrew.io/docs>
-- Pinned tag / commit: see `pinned.json`
+- Pin: see this bundle's entry in `lib/rules/registry.ts`
 - Licence: **Apache-2.0** (compatible with redistribution; attribution preserved
   in `RuleSource.url` on every rule)
 

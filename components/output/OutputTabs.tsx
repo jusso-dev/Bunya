@@ -4,87 +4,47 @@ import { toast } from "sonner";
 import { fileStem } from "@/lib/graph/filename";
 import { useMemo, useState } from "react";
 import JSZip from "jszip";
-import { useGraphStore } from "@/lib/graph/store";
-import { generateTerraform } from "@/lib/generators/terraform";
-import { generateBicep } from "@/lib/generators/bicep";
-import { generateArm } from "@/lib/generators/arm";
-import { generateAzCli } from "@/lib/generators/azcli";
-import { generatePowerShell } from "@/lib/generators/powershell";
-import { generateMermaid } from "@/lib/generators/mermaid";
-import { generateReadme } from "@/lib/generators/readme";
-import { generateCostEstimate } from "@/lib/generators/cost";
-import { generateAzurePolicy } from "@/lib/generators/azure-policy";
+import { useGraphStore } from "@/lib/session/store";
+import { OUTPUTS, bundlePath, type Output, type OutputId } from "@/lib/generators/registry";
 import { GeneratedFile, GeneratorResult } from "@/lib/generators/types";
+import type { GraphDocument } from "@/lib/graph/schema";
+import { downloadBlob } from "@/lib/session/download";
 import { CostPanel } from "./CostPanel";
 
-type TabId = "terraform" | "bicep" | "arm" | "azcli" | "powershell" | "policy" | "mermaid" | "readme" | "cost";
+type OutputResult = { output: Output; result: GeneratorResult };
 
-type Tab = {
-  id: TabId;
-  label: string;
-  folder: string;
-  run: typeof generateTerraform;
+// Outputs with an interactive view instead of a list of generated files.
+const OUTPUT_VIEWS: Partial<Record<OutputId, (props: { document: GraphDocument }) => React.ReactNode>> = {
+  cost: CostPanel,
 };
 
-const TABS: Tab[] = [
-  { id: "terraform", label: "Terraform", folder: "terraform", run: generateTerraform },
-  { id: "bicep", label: "Bicep", folder: "bicep", run: generateBicep },
-  { id: "arm", label: "ARM", folder: "arm", run: generateArm },
-  { id: "azcli", label: "az CLI", folder: "azcli", run: generateAzCli },
-  { id: "powershell", label: "PowerShell", folder: "powershell", run: generatePowerShell },
-  { id: "policy", label: "Azure Policy", folder: "azure-policy", run: generateAzurePolicy },
-  { id: "mermaid", label: "Mermaid", folder: "mermaid", run: generateMermaid },
-  { id: "readme", label: "README", folder: ".", run: generateReadme },
-  { id: "cost", label: "Cost", folder: "cost", run: generateCostEstimate },
-];
-
-function downloadFile(file: GeneratedFile) {
-  const blob = new Blob([file.content], { type: "text/plain;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = window.document.createElement("a");
-  a.href = url;
-  a.download = file.path.split("/").pop() ?? "file.txt";
-  a.click();
-  URL.revokeObjectURL(url);
+async function downloadZip(results: OutputResult[], baseName: string) {
+  const zip = new JSZip();
+  for (const { output, result } of results) {
+    if (!result.ok) continue;
+    for (const file of result.files) zip.file(bundlePath(output, file), file.content);
+  }
+  downloadBlob(await zip.generateAsync({ type: "blob" }), `${fileStem(baseName, "bunya")}.zip`);
 }
 
-async function downloadZip(results: { tab: Tab; result: GeneratorResult }[], baseName: string) {
-  const zip = new JSZip();
-  for (const { tab, result } of results) {
-    if (!result.ok) continue;
-    for (const file of result.files) {
-      const path = tab.folder === "." ? file.path : `${tab.folder}/${file.path}`;
-      zip.file(path, file.content);
-    }
-  }
-  const blob = await zip.generateAsync({ type: "blob" });
-  const url = URL.createObjectURL(blob);
-  const a = window.document.createElement("a");
-  a.href = url;
-  a.download = `${fileStem(baseName, "bunya")}.zip`;
-  a.click();
-  URL.revokeObjectURL(url);
+function downloadFile(file: GeneratedFile) {
+  downloadBlob(new Blob([file.content], { type: "text/plain;charset=utf-8" }), file.path.split("/").pop() ?? "file.txt");
 }
 
 export function OutputTabs() {
   const document = useGraphStore((s) => s.document);
-  const [activeId, setActiveId] = useState<TabId>("terraform");
+  const [activeId, setActiveId] = useState<OutputId>(OUTPUTS[0].id);
 
   const fxAudPerUsd = useGraphStore((s) => s.fxAudPerUsd);
-  const results = useMemo(
-    () =>
-      TABS.map((tab) => ({
-        tab,
-        result:
-          tab.id === "cost"
-            ? generateCostEstimate(document, { audPerUsd: fxAudPerUsd })
-            : tab.run(document),
-      })),
+  const results = useMemo<OutputResult[]>(
+    () => OUTPUTS.map((output) => ({ output, result: output.generate(document, { audPerUsd: fxAudPerUsd }) })),
     [document, fxAudPerUsd],
   );
 
   const failed = results.some(({ result }) => !result.ok);
-  const active = results.find((r) => r.tab.id === activeId);
+  const working = results.filter(({ result }) => result.ok).map(({ output }) => output.label);
+  const active = results.find((r) => r.output.id === activeId);
+  const View = OUTPUT_VIEWS[activeId];
 
   const togglePanel = useGraphStore.getState().togglePanel;
 
@@ -100,7 +60,7 @@ export function OutputTabs() {
         >
           ›
         </button>
-        {TABS.map((t) => (
+        {OUTPUTS.map((t) => (
           <button
             key={t.id}
             type="button"
@@ -127,10 +87,10 @@ export function OutputTabs() {
       </div>
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-3 py-2">
         {failed && <p className="mb-2 text-xs text-zinc-600 dark:text-zinc-300">Some outputs cannot be generated yet, so the complete ZIP is unavailable; see the affected tabs.</p>}
-        {activeId === "cost" ? (
-          <CostPanel document={document} />
+        {View ? (
+          <View document={document} />
         ) : active ? (
-          <ActivePanel tab={active.tab} result={active.result} />
+          <ActivePanel output={active.output} result={active.result} working={working} />
         ) : null}
       </div>
     </section>
@@ -139,8 +99,7 @@ export function OutputTabs() {
 
 // Reasons are line-based: a summary, optional "Heading:" lines and "- item"
 // lines. Shown as a scrollable list so long reasons never fill the panel.
-function GenerationError({ label, reason, cycle }: { label: string; reason: string; cycle?: string[] }) {
-  // Single-line reasons get a short heading so the detail is not all bold.
+function GenerationError({ label, reason, cycle, working }: { label: string; reason: string; cycle?: string[]; working: string[] }) {
   const lines = reason.split("\n");
   const [summary, ...rest] = lines.length > 1 ? lines : ["cannot be generated yet.", lines[0]];
   return (
@@ -160,15 +119,15 @@ function GenerationError({ label, reason, cycle }: { label: string; reason: stri
         </div>
       ) : null}
       {cycle ? <p className="mt-2">Cycle: {cycle.join(" -> ")}</p> : null}
-      <p className="mt-2 text-amber-800 dark:text-amber-200">The diagram, Mermaid, README, cost estimate and JSON export still work. Select an item on the canvas to fix it.</p>
+      <p className="mt-2 text-amber-800 dark:text-amber-200">The diagram, JSON export{working.length > 0 ? ` and ${working.join(", ")}` : ""} still work. Select an item on the canvas to fix it.</p>
     </div>
   );
 }
 
-function ActivePanel({ tab, result }: { tab: Tab; result: GeneratorResult }) {
+function ActivePanel({ output, result, working }: OutputResult & { working: string[] }) {
   if (!result.ok) {
     return (
-      <GenerationError label={tab.label} reason={result.reason} cycle={result.cycle} />
+      <GenerationError label={output.label} reason={result.reason} cycle={result.cycle} working={working} />
     );
   }
   return (

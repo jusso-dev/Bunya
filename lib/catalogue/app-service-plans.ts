@@ -1,6 +1,3 @@
-// App Service Plan SKU families and container image parsing, shared by the
-// catalogue, importer, topology checks, exporters and pricing.
-
 export const APP_SERVICE_PLAN_SKUS = [
   "B1", "B2", "B3",
   "S1", "S2", "S3",
@@ -26,8 +23,10 @@ export function planFamily(sku: unknown): PlanFamily {
   return "dedicated";
 }
 
-export function isFunctionsOnlyPlan(sku: unknown): boolean {
-  return planFamily(sku) !== "dedicated";
+// Consumption and Flex Consumption: no fixed workers, billed per execution.
+export function isServerlessPlan(sku: unknown): boolean {
+  const family = planFamily(sku);
+  return family === "consumption" || family === "flex";
 }
 
 // ARM `sku.tier` for each family; Basic/Standard/Premium tiers come from the name.
@@ -50,9 +49,8 @@ export function planSkuTier(sku: string): string {
 
 // ARM `kind` for a Linux plan of this family.
 export function planKind(sku: string, os: string): string {
-  const family = planFamily(sku);
-  if (family === "elastic") return "elastic";
-  if (family === "consumption" || family === "flex") return "functionapp";
+  if (planFamily(sku) === "elastic") return "elastic";
+  if (isServerlessPlan(sku)) return "functionapp";
   return os === "Linux" ? "linux" : "app";
 }
 

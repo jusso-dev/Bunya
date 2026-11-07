@@ -1,32 +1,19 @@
-import { generatePrivateDeployment } from "./shared/private-deployment";
-import { validateGeneration } from "./shared/validate";
 import { GraphDocument, GraphNode, ServiceType } from "@/lib/graph/schema";
-import {
-  GeneratorContext,
-  buildGeneratorContext,
-  effectiveResourceGroup,
-  outgoingOf,
-  resolveAppServicePlan,
-  resolveVirtualNetwork,
-} from "./shared/context";
+import { GeneratorContext, dnsZoneName, prepareGeneration, resourceGroupOf, sqlServerName, subnetOf, subnetVnet, targetOfType } from "./shared/context";
 import { GeneratorResult } from "./types";
-import { needsTemplateDeployment } from "./shared/hosting";
+import { templateDeployment } from "./shell-template";
 import { quote } from "./shared/quote";
-import { privateEndpointTarget } from "@/lib/graph/topology";
+import { ARM_TYPES, tlsVersionToArm } from "@/lib/catalogue/azure";
+import { privateEndpointTarget, sitePlan } from "@/lib/graph/topology";
 import { storagePublicNetwork } from "@/lib/catalogue/services";
 
-function rgName(ctx: GeneratorContext, node?: GraphNode): string {
-  if (node) {
-    const owner = effectiveResourceGroup(ctx, node);
-    if (owner) return ctx.resourceNames.get(owner.id) ?? owner.resourceName;
-  }
-  return ctx.rgNode ? ctx.resourceNames.get(ctx.rgNode.id)! : ctx.document.metadata.resourceGroupName;
-}
+// `az functionapp create` cannot turn public network access off.
+const NO_PRIVATE_CREATE: ReadonlySet<ServiceType> = new Set(["functionApp"]);
 
 function emit(node: GraphNode, ctx: GeneratorContext): string[] {
-  const rg = rgName(ctx, node);
+  const rg = ctx.name(resourceGroupOf(ctx, node).id);
   const region = ctx.document.metadata.region;
-  const name = ctx.resourceNames.get(node.id)!;
+  const name = ctx.name(node.id);
   const COMMON = `--only-show-errors --resource-group "${rg}"`;
 
   switch (node.type) {
@@ -38,14 +25,13 @@ function emit(node: GraphNode, ctx: GeneratorContext): string[] {
     case "virtualNetwork":
       return [
         `# Virtual Network ${name}`,
-        `az network vnet create ${COMMON} --name "${name}" --address-prefixes ${[(node.properties.addressSpace as string) ?? "10.0.0.0/16", ...((node.properties.additionalAddressSpaces as string[] | undefined) ?? [])].map((space) => `"${space}"`).join(" ")} --location "${region}" >/dev/null`,
+        `az network vnet create ${COMMON} --name "${name}" --address-prefixes ${[String(node.properties.addressSpace), ...((node.properties.additionalAddressSpaces as string[]))].map((space) => `"${space}"`).join(" ")} --location "${region}" >/dev/null`,
       ];
     case "subnet": {
-      const vnet = resolveVirtualNetwork(ctx, node);
-      const vnetName = vnet ? ctx.resourceNames.get(vnet.id)! : "main-vnet";
+      const vnetName = ctx.name(subnetVnet(ctx, node).id);
       return [
         `# Subnet ${name}`,
-        `az network vnet subnet create ${COMMON} --vnet-name "${vnetName}" --name "${name}" --address-prefixes "${(node.properties.addressPrefix as string) ?? "10.0.1.0/24"}" --private-endpoint-network-policies ${(node.properties.privateEndpointNetworkPolicies as string) ?? "Disabled"} >/dev/null`,
+        `az network vnet subnet create ${COMMON} --vnet-name "${vnetName}" --name "${name}" --address-prefixes "${String(node.properties.addressPrefix)}" --private-endpoint-network-policies ${String(node.properties.privateEndpointNetworkPolicies)} >/dev/null`,
       ];
     }
     case "networkSecurityGroup":
@@ -54,59 +40,43 @@ function emit(node: GraphNode, ctx: GeneratorContext): string[] {
         `az network nsg create ${COMMON} --name "${name}" --location "${region}" >/dev/null`,
       ];
     case "privateEndpoint": {
-      const subnetEdge = outgoingOf(ctx, node.id, "network").find(
-        (e) => ctx.nodesById.get(e.target)?.type === "subnet",
-      );
-      const subnetName = subnetEdge ? ctx.resourceNames.get(subnetEdge.target)! : "main-subnet";
-      const subnet = subnetEdge ? ctx.nodesById.get(subnetEdge.target) : undefined;
-      const vnet = subnet ? resolveVirtualNetwork(ctx, subnet) : null;
-      const vnetName = vnet ? ctx.resourceNames.get(vnet.id)! : "main-vnet";
+      const subnet = subnetOf(ctx, node)!;
+      const subnetName = ctx.name(subnet.id);
+      const vnetName = ctx.name(subnetVnet(ctx, subnet).id);
+      // A SQL endpoint connects to the logical server, not the database.
       const target = privateEndpointTarget(ctx.document, node);
-      const targetName = target ? ctx.resourceNames.get(target.id)! : "target";
-      const targetType = target ? target.type : "storageAccount";
-      const map: Partial<Record<ServiceType, string>> = {
-        storageAccount: "Microsoft.Storage/storageAccounts",
-        keyVault: "Microsoft.KeyVault/vaults",
-        sqlDatabase: "Microsoft.Sql/servers",
-        cosmosDb: "Microsoft.DocumentDB/databaseAccounts",
-        containerRegistry: "Microsoft.ContainerRegistry/registries",
-      };
-      const providerType = map[targetType] ?? "Microsoft.Storage/storageAccounts";
+      const targetName = !target ? "target" : target.type === "sqlDatabase" ? sqlServerName(ctx, target) : ctx.name(target.id);
+      const providerType = !target ? ARM_TYPES.storageAccount : target.type === "sqlDatabase" ? "Microsoft.Sql/servers" : ARM_TYPES[target.type];
       return [
         `# Private Endpoint ${name}`,
         `target_id=$(az resource show ${COMMON} --name "${targetName}" --resource-type "${providerType}" --query id -o tsv)`,
-        `az network private-endpoint create ${COMMON} --name "${name}" --vnet-name "${vnetName}" --subnet "${subnetName}" --private-connection-resource-id "$target_id" --group-id "${(node.properties.groupId as string) ?? "blob"}" --connection-name "${name}-psc" --location "${region}" >/dev/null`,
+        `az network private-endpoint create ${COMMON} --name "${name}" --vnet-name "${vnetName}" --subnet "${subnetName}" --private-connection-resource-id "$target_id" --group-id "${String(node.properties.groupId)}" --connection-name "${name}-psc" --location "${region}" >/dev/null`,
       ];
     }
     case "privateDnsZone":
       return [
         `# Private DNS Zone ${name}`,
-        `az network private-dns zone create ${COMMON} --name "${(node.properties.zoneName as string) ?? name}" >/dev/null`,
+        `az network private-dns zone create ${COMMON} --name "${dnsZoneName(node)}" >/dev/null`,
       ];
     case "appServicePlan":
       return [
         `# App Service Plan ${name}`,
-        `az appservice plan create ${COMMON} --name "${name}" --location "${region}" --sku "${(node.properties.sku as string) ?? "B1"}" --number-of-workers ${(node.properties.capacity as number) ?? 1}${(node.properties.os as string) === "Linux" ? " --is-linux" : ""} >/dev/null`,
+        `az appservice plan create ${COMMON} --name "${name}" --location "${region}" --sku "${String(node.properties.sku)}" --number-of-workers ${Number(node.properties.capacity)}${(node.properties.os as string) === "Linux" ? " --is-linux" : ""} >/dev/null`,
       ];
     case "appService": {
-      const plan = resolveAppServicePlan(ctx, node);
-      const planName = plan ? ctx.resourceNames.get(plan.id)! : "main-plan";
-      const runtime = (node.properties.runtime as string) ?? "node";
-      const version = (node.properties.runtimeVersion as string) ?? "22-lts";
+      const planName = ctx.name(sitePlan(ctx.document, node)!.id);
+      const runtime = String(node.properties.runtime);
+      const version = String(node.properties.runtimeVersion);
       return [
         `# App Service ${name}`,
         `az webapp create ${COMMON} --name "${name}" --plan "${planName}" --runtime "${runtime.toUpperCase()}|${version}" --https-only ${(node.properties.httpsOnly !== false).toString()} --public-network-access ${node.properties.publicNetworkAccess === false ? "Disabled" : "Enabled"} --assign-identity '[system]' >/dev/null`,
       ];
     }
     case "functionApp": {
-      const stEdge = outgoingOf(ctx, node.id, "data").find(
-        (e) => ctx.nodesById.get(e.target)?.type === "storageAccount",
-      );
-      const plan = resolveAppServicePlan(ctx, node);
-      const planName = plan ? ctx.resourceNames.get(plan.id)! : "main-plan";
-      const stName = stEdge ? ctx.resourceNames.get(stEdge.target)! : "mainstorage";
-      const runtime = (node.properties.runtime as string) ?? "node";
-      const version = (node.properties.runtimeVersion as string) ?? "22";
+      const planName = ctx.name(sitePlan(ctx.document, node)!.id);
+      const stName = ctx.name(targetOfType(ctx, node.id, "data", "storageAccount")!.id);
+      const runtime = String(node.properties.runtime);
+      const version = String(node.properties.runtimeVersion);
       return [
         `# Function App ${name}`,
         `az functionapp create ${COMMON} --name "${name}" --plan "${planName}" --storage-account "${stName}" --runtime "${runtime}" --runtime-version "${version}" --functions-version 4 --assign-identity '[system]' >/dev/null`,
@@ -115,62 +85,52 @@ function emit(node: GraphNode, ctx: GeneratorContext): string[] {
     case "staticWebApp":
       return [
         `# Static Web App ${name}`,
-        `az staticwebapp create ${COMMON} --name "${name}" --location "${region}" --sku "${(node.properties.sku as string) ?? "Standard"}" >/dev/null`,
+        `az staticwebapp create ${COMMON} --name "${name}" --location "${region}" --sku "${String(node.properties.sku)}" >/dev/null`,
       ];
     case "aksCluster": {
-      const subnetEdge = outgoingOf(ctx, node.id, "network").find(
-        (e) => ctx.nodesById.get(e.target)?.type === "subnet",
-      );
-      const subnet = subnetEdge ? ctx.nodesById.get(subnetEdge.target) : undefined;
-      const subnetVnet = subnet ? resolveVirtualNetwork(ctx, subnet) : null;
+      const subnet = subnetOf(ctx, node);
       const subnetArg = subnet
-        ? ` --vnet-subnet-id "$(az network vnet subnet show ${COMMON} --name "${ctx.resourceNames.get(subnet.id)!}" --vnet-name "${subnetVnet ? ctx.resourceNames.get(subnetVnet.id)! : "main-vnet"}" --query id -o tsv)"`
+        ? ` --vnet-subnet-id "$(az network vnet subnet show ${COMMON} --name "${ctx.name(subnet.id)}" --vnet-name "${ctx.name(subnetVnet(ctx, subnet).id)}" --query id -o tsv)"`
         : "";
       const privateArg = node.properties.privateCluster === true ? " --enable-private-cluster" : "";
-      const policy = (node.properties.networkPolicy as string) ?? "azure";
+      const policy = String(node.properties.networkPolicy);
       const policyArg = policy === "none" ? "" : ` --network-policy "${policy}"`;
       return [
         `# AKS ${name}`,
-        `az aks create ${COMMON} --name "${name}" --location "${region}" --node-count ${(node.properties.nodeCount as number) ?? 3} --node-vm-size "${(node.properties.nodeVmSize as string) ?? "Standard_D2s_v5"}" --network-plugin "${(node.properties.networkPlugin as string) ?? "azure"}"${policyArg} --enable-managed-identity${(node.properties.authorizedIpRanges as string[]).length ? ` --api-server-authorized-ip-ranges "${(node.properties.authorizedIpRanges as string[]).join(",")}"` : ""}${privateArg}${subnetArg} >/dev/null`,
+        `az aks create ${COMMON} --name "${name}" --location "${region}" --node-count ${Number(node.properties.nodeCount)} --node-vm-size "${String(node.properties.nodeVmSize)}" --network-plugin "${String(node.properties.networkPlugin)}"${policyArg} --enable-managed-identity${(node.properties.authorizedIpRanges as string[]).length ? ` --api-server-authorized-ip-ranges "${(node.properties.authorizedIpRanges as string[]).join(",")}"` : ""}${privateArg}${subnetArg} >/dev/null`,
       ];
     }
     case "virtualMachineScaleSet": {
-      const subnetEdge = outgoingOf(ctx, node.id, "network").find(
-        (e) => ctx.nodesById.get(e.target)?.type === "subnet",
-      );
-      const subnetName = subnetEdge ? ctx.resourceNames.get(subnetEdge.target)! : "main-subnet";
+      const subnetName = ctx.name(subnetOf(ctx, node)!.id);
       return [
         `# Virtual Machine Scale Set ${name}`,
         `: "\${VMSS_SSH_PUBLIC_KEY:?Set VMSS_SSH_PUBLIC_KEY before creating VM scale sets}"`,
-        `az vmss create ${COMMON} --name "${name}" --location "${region}" --image "${(node.properties.imagePublisher as string) ?? "Canonical"}:${(node.properties.imageOffer as string) ?? "0001-com-ubuntu-server-jammy"}:${(node.properties.imageSku as string) ?? "22_04-lts-gen2"}:latest" --vm-sku "${(node.properties.sku as string) ?? "Standard_B2s"}" --instance-count ${(node.properties.capacity as number) ?? 2} --admin-username "${(node.properties.adminUsername as string) ?? "azureuser"}" --ssh-key-value "$VMSS_SSH_PUBLIC_KEY" --upgrade-policy-mode "${(node.properties.upgradeMode as string) ?? "Automatic"}" --subnet "${subnetName}" >/dev/null`,
+        `az vmss create ${COMMON} --name "${name}" --location "${region}" --image "${String(node.properties.imagePublisher)}:${String(node.properties.imageOffer)}:${String(node.properties.imageSku)}:latest" --vm-sku "${String(node.properties.sku)}" --instance-count ${Number(node.properties.capacity)} --admin-username "${String(node.properties.adminUsername)}" --ssh-key-value "$VMSS_SSH_PUBLIC_KEY" --upgrade-policy-mode "${String(node.properties.upgradeMode)}" --subnet "${subnetName}" >/dev/null`,
       ];
     }
     case "storageAccount":
       return [
         `# Storage Account ${name}`,
-        `az storage account create ${COMMON} --name "${name}" --location "${region}" --sku "${(node.properties.sku as string) ?? "Standard_LRS"}" --kind "${(node.properties.kind as string) ?? "StorageV2"}" --min-tls-version TLS1_${((node.properties.minTlsVersion as string) ?? "1.2").split(".")[1]} --allow-blob-public-access ${(node.properties.allowPublicAccess === true).toString()} --public-network-access ${storagePublicNetwork(node.properties) ? "Enabled" : "Disabled"} >/dev/null`,
+        `az storage account create ${COMMON} --name "${name}" --location "${region}" --sku "${String(node.properties.sku)}" --kind "${String(node.properties.kind)}" --min-tls-version ${tlsVersionToArm(String(node.properties.minTlsVersion))} --allow-blob-public-access ${(node.properties.allowPublicAccess === true).toString()} --public-network-access ${storagePublicNetwork(node.properties) ? "Enabled" : "Disabled"} >/dev/null`,
       ];
     case "sqlDatabase":
       return [
         `# SQL Database ${name}`,
-        `az sql server create ${COMMON} --name "${name}-srv" --location "${region}" --admin-user "${(node.properties.adminLogin as string) ?? "bunyaadmin"}" --admin-password "$SQL_ADMIN_PASSWORD" --minimal-tls-version 1.2 --enable-public-network false >/dev/null`,
-        `az sql db create ${COMMON} --server "${name}-srv" --name "${name}" --service-objective "${(node.properties.sku as string) ?? "S0"}" >/dev/null`,
+        `az sql server create ${COMMON} --name "${sqlServerName(ctx, node)}" --location "${region}" --admin-user "${String(node.properties.adminLogin)}" --admin-password "$SQL_ADMIN_PASSWORD" --minimal-tls-version 1.2 --enable-public-network false >/dev/null`,
+        `az sql db create ${COMMON} --server "${sqlServerName(ctx, node)}" --name "${name}" --service-objective "${String(node.properties.sku)}" >/dev/null`,
       ];
     case "cosmosDb":
       return [
         `# Cosmos DB ${name}`,
-        `az cosmosdb create ${COMMON} --name "${name}" --locations regionName="${region}" failoverPriority=0 isZoneRedundant=false --default-consistency-level "${(node.properties.consistency as string) ?? "Session"}" --enable-free-tier ${(node.properties.freeTier === true).toString()} >/dev/null`,
+        `az cosmosdb create ${COMMON} --name "${name}" --locations regionName="${region}" failoverPriority=0 isZoneRedundant=false --default-consistency-level "${String(node.properties.consistency)}" --enable-free-tier ${(node.properties.freeTier === true).toString()} >/dev/null`,
       ];
     case "keyVault":
       return [
         `# Key Vault ${name}`,
-        `az keyvault create ${COMMON} --name "${name}" --location "${region}" --sku "${(node.properties.sku as string) ?? "standard"}" --enable-rbac-authorization ${(node.properties.rbacAuthorization !== false).toString()} --enable-purge-protection ${(node.properties.purgeProtection !== false).toString()} --retention-days ${(node.properties.softDeleteRetentionDays as number) ?? 7} --public-network-access ${node.properties.publicNetworkAccess === true ? "Enabled" : "Disabled"} >/dev/null`,
+        `az keyvault create ${COMMON} --name "${name}" --location "${region}" --sku "${String(node.properties.sku)}" --enable-rbac-authorization ${(node.properties.rbacAuthorization !== false).toString()} --enable-purge-protection ${(node.properties.purgeProtection !== false).toString()} --retention-days ${Number(node.properties.softDeleteRetentionDays)} --public-network-access ${node.properties.publicNetworkAccess === true ? "Enabled" : "Disabled"} >/dev/null`,
       ];
     case "applicationInsights": {
-      const wsEdge = outgoingOf(ctx, node.id, "depends_on").find(
-        (e) => ctx.nodesById.get(e.target)?.type === "logAnalytics",
-      );
-      const wsName = wsEdge ? ctx.resourceNames.get(wsEdge.target)! : "main-workspace";
+      const wsName = ctx.name(targetOfType(ctx, node.id, "depends_on", "logAnalytics")!.id);
       return [
         `# Application Insights ${name}`,
         `az monitor app-insights component create ${COMMON} --app "${name}" --location "${region}" --kind web --workspace "${wsName}" >/dev/null`,
@@ -179,7 +139,7 @@ function emit(node: GraphNode, ctx: GeneratorContext): string[] {
     case "logAnalytics":
       return [
         `# Log Analytics Workspace ${name}`,
-        `az monitor log-analytics workspace create ${COMMON} --workspace-name "${name}" --location "${region}" --sku "${(node.properties.sku as string) ?? "PerGB2018"}" --retention-time ${(node.properties.retentionDays as number) ?? 30} >/dev/null`,
+        `az monitor log-analytics workspace create ${COMMON} --workspace-name "${name}" --location "${region}" --sku "${String(node.properties.sku)}" --retention-time ${Number(node.properties.retentionDays)} >/dev/null`,
       ];
     case "monitorAlert":
       return [
@@ -190,28 +150,28 @@ function emit(node: GraphNode, ctx: GeneratorContext): string[] {
     case "actionGroup":
       return [
         `# Action Group ${name}`,
-        `az monitor action-group create ${COMMON} --name "${name}" --short-name "${(node.properties.shortName as string) ?? "ops"}" --action email ops ${quote.bash((node.properties.email as string) ?? "ops@example.com")} >/dev/null`,
+        `az monitor action-group create ${COMMON} --name "${name}" --short-name "${String(node.properties.shortName)}" --action email ops ${quote.bash(String(node.properties.email))} >/dev/null`,
       ];
     case "frontDoor":
       return [
         `# Front Door (Standard) ${name}`,
-        `az afd profile create ${COMMON} --profile-name "${name}" --sku "${(node.properties.sku as string) ?? "Standard_AzureFrontDoor"}" >/dev/null`,
+        `az afd profile create ${COMMON} --profile-name "${name}" --sku "${String(node.properties.sku)}" >/dev/null`,
       ];
     case "applicationGateway":
       return [
         `# Application Gateway ${name}`,
-        `# Requires existing subnet + public IP. Configure backends manually after create.`,
-        `az network application-gateway create ${COMMON} --name "${name}" --location "${region}" --sku "${(node.properties.sku as string) ?? "WAF_v2"}" --capacity ${(node.properties.capacity as number) ?? 2} --priority 100 --vnet-name "main-vnet" --subnet "agw-subnet" >/dev/null || true`,
+        `# A gateway needs a dedicated subnet, a public IP, listeners and backend pools, which Bunya does not model.`,
+        `echo "Skipping Application Gateway ${name}: create it with its frontend and backend configuration." >&2`,
       ];
     case "apiManagement":
       return [
         `# API Management ${name}`,
-        `az apim create ${COMMON} --name "${name}" --location "${region}" --publisher-name "${(node.properties.publisherName as string) ?? "Bunya"}" --publisher-email ${quote.bash((node.properties.publisherEmail as string) ?? "ops@example.com")} --sku-name "${(node.properties.sku as string) ?? "Consumption"}" >/dev/null`,
+        `az apim create ${COMMON} --name "${name}" --location "${region}" --publisher-name "${String(node.properties.publisherName)}" --publisher-email ${quote.bash(String(node.properties.publisherEmail))} --sku-name "${String(node.properties.sku)}" >/dev/null`,
       ];
     case "containerRegistry":
       return [
         `# Container Registry ${name}`,
-        `az acr create ${COMMON} --name "${name}" --location "${region}" --sku "${(node.properties.sku as string) ?? "Basic"}" --admin-enabled ${(node.properties.adminUserEnabled === true).toString()} --public-network-enabled ${node.properties.publicNetworkAccess !== false} >/dev/null`,
+        `az acr create ${COMMON} --name "${name}" --location "${region}" --sku "${String(node.properties.sku)}" --admin-enabled ${(node.properties.adminUserEnabled === true).toString()} --public-network-enabled ${node.properties.publicNetworkAccess !== false} >/dev/null`,
       ];
     case "userAssignedIdentity":
       return [
@@ -228,17 +188,12 @@ function emit(node: GraphNode, ctx: GeneratorContext): string[] {
 }
 
 export function generateAzCli(document: GraphDocument): GeneratorResult {
-  const validated = validateGeneration(document);
-  if (!validated.ok) return validated;
-  document = validated.document;
-  if (document.nodes.some((node) => (node.type === "functionApp") && node.properties.publicNetworkAccess === false)) return generatePrivateDeployment(document, "bash");
-  const ctx = buildGeneratorContext(document);
-  if (!ctx.topo.ok) {
-    return { ok: false, reason: "cycle detected", cycle: ctx.topo.cycle };
-  }
-  const templateReason = needsTemplateDeployment(ctx);
-  if (templateReason) return generatePrivateDeployment(document, "bash", `${templateReason}, so this script deploys the included ARM template in one step.`);
-  const hasSql = ctx.document.nodes.some((n) => n.type === "sqlDatabase");
+  const prepared = prepareGeneration(document);
+  if (!prepared.ok) return prepared;
+  const { ctx } = prepared;
+  document = ctx.source;
+  const template = templateDeployment(ctx, "bash", NO_PRIVATE_CREATE);
+  if (template) return template;
   const lines: string[] = [
     `#!/usr/bin/env bash`,
     `# Generated by Bunya. Do not edit by hand.`,
@@ -246,7 +201,7 @@ export function generateAzCli(document: GraphDocument): GeneratorResult {
     `set -euo pipefail`,
     ``,
   ];
-  if (hasSql) {
+  if (ctx.hasSql) {
     lines.push(
       `: "\${SQL_ADMIN_PASSWORD:?Set SQL_ADMIN_PASSWORD before running this script}"`,
       ``,
@@ -260,12 +215,7 @@ export function generateAzCli(document: GraphDocument): GeneratorResult {
     `}`,
     ``,
   );
-
-  for (const node of ctx.topo.order) {
-    const block = emit(node, ctx);
-    lines.push(...block, "");
-  }
-
+  for (const node of ctx.order) lines.push(...emit(node, ctx), "");
   return {
     ok: true,
     files: [{ path: "deploy.sh", language: "bash", content: lines.join("\n") }],

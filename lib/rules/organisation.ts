@@ -1,8 +1,7 @@
 import { checkImportText, checkObjectDepth } from "../graph/limits";
-import type { GraphDocument, GraphEdge, GraphNode, ServiceType } from "@/lib/graph/schema";
-import { SERVICE_TYPES } from "@/lib/graph/schema";
-import type { Finding, Severity } from "@/lib/rules/schema";
-
+import { EdgeKindSchema, SERVICE_TYPES, type GraphDocument, type GraphEdge, type GraphNode, type ServiceType } from "@/lib/graph/schema";
+import { serviceTypeOfArm, tlsVersionFromArm } from "@/lib/catalogue/azure";
+import { SeveritySchema, type Finding, type RuleEntry, type Severity } from "@/lib/rules/schema";
 
 // Imported and typed rule text is capped so one rule cannot swamp the panel,
 // findings or toasts.
@@ -14,14 +13,8 @@ export const ORGANISATION_RULES_FORMAT = "bunya-organisation-rules" as const;
 export const ORGANISATION_RULES_VERSION = 1 as const;
 export const ORGANISATION_RULES_EXTENSION = ".bunya-rules.json";
 
-export type PropertyOperator =
-  | "equals"
-  | "not_equals"
-  | "present"
-  | "missing"
-  | "truthy"
-  | "falsy"
-  | "includes";
+export const PROPERTY_OPERATORS = ["equals", "not_equals", "present", "missing", "truthy", "falsy", "includes"] as const;
+export type PropertyOperator = (typeof PROPERTY_OPERATORS)[number];
 
 export type EdgeRequirement = {
   direction: "outgoing" | "incoming" | "either";
@@ -66,30 +59,18 @@ type AzurePolicy = {
   };
 };
 
-const ARM_TO_SERVICE: Record<string, ServiceType> = {
-  "microsoft.web/sites": "appService",
-  "microsoft.web/serverfarms": "appServicePlan",
-  "microsoft.storage/storageaccounts": "storageAccount",
-  "microsoft.keyvault/vaults": "keyVault",
-  "microsoft.sql/servers": "sqlDatabase",
-  "microsoft.documentdb/databaseaccounts": "cosmosDb",
-  "microsoft.containerregistry/registries": "containerRegistry",
-  "microsoft.containerservice/managedclusters": "aksCluster",
-  "microsoft.compute/virtualmachinescalesets": "virtualMachineScaleSet",
-  "microsoft.network/privateendpoints": "privateEndpoint",
-  "microsoft.network/applicationgateways": "applicationGateway",
-  "microsoft.cdn/profiles": "frontDoor",
-  "microsoft.apimanagement/service": "apiManagement",
-};
+// Azure Policy targets SQL settings at the server; Bunya models the server on its database node.
+function policyServiceType(armType: string): ServiceType | null {
+  return armType.toLowerCase() === "microsoft.sql/servers" ? "sqlDatabase" : serviceTypeOfArm(armType);
+}
 
-const FIELD_TO_PROPERTY: Record<string, string> = {
-  "microsoft.web/sites/publicnetworkaccess": "publicNetworkAccess",
-  "microsoft.storage/storageaccounts/publicnetworkaccess": "publicNetworkAccess",
-  "microsoft.keyvault/vaults/publicnetworkaccess": "publicNetworkAccess",
-  "microsoft.containerregistry/registries/publicnetworkaccess": "publicNetworkAccess",
-  "microsoft.storage/storageaccounts/allowblobpublicaccess": "allowPublicAccess",
-  "microsoft.storage/storageaccounts/minimumtlsversion": "minTlsVersion",
-  "microsoft.keyvault/vaults/enablepurgeprotection": "purgeProtection",
+// Azure Policy alias leaf (lower case) -> Bunya property. Each leaf names the
+// same setting on every resource type Bunya models.
+const POLICY_LEAF_TO_PROPERTY: Record<string, string> = {
+  publicnetworkaccess: "publicNetworkAccess",
+  allowblobpublicaccess: "allowPublicAccess",
+  minimumtlsversion: "minTlsVersion",
+  enablepurgeprotection: "purgeProtection",
 };
 
 export function buildOrganisationRulesEnvelope(rules: OrganisationRule[]): OrganisationRulesEnvelope {
@@ -115,9 +96,7 @@ export function normaliseOrganisationRule(input: unknown, index = 0): Organisati
         typeof v === "string" && (SERVICE_TYPES as readonly string[]).includes(v),
       )
     : [];
-  const severity = raw.severity === "error" || raw.severity === "warning" || raw.severity === "info"
-    ? raw.severity
-    : "warning";
+  const severity = SeveritySchema.catch("warning").parse(raw.severity);
   const id = typeof raw.id === "string" && raw.id.trim() ? raw.id.trim().slice(0, 64) : `ORG.CUSTOM.${index + 1}`;
   const propertyRaw = typeof raw.property === "object" && raw.property !== null
     ? (raw.property as Record<string, unknown>)
@@ -211,40 +190,23 @@ export function parseOrganisationRulesText(text: string): { ok: true; rules: Org
   return { ok: false, reason: "JSON did not contain valid Bunya rules or a supported Azure Policy. Only one known resource type AND one scalar violation with audit/deny effect is supported; compound, set and conditional policies are rejected." };
 }
 
-export function runOrganisationRules(graph: GraphDocument, rules: OrganisationRule[]): Finding[] {
-  const findings: Finding[] = [];
-  for (const rule of rules) {
-    if (!rule.enabled) continue;
-    for (const node of graph.nodes) {
-      if (rule.serviceTypes.length > 0 && !rule.serviceTypes.includes(node.type)) continue;
-      if (!ruleMatchesNode(graph, node, rule)) continue;
-      findings.push({
-        ruleId: rule.id,
-        rule: {
-          id: rule.id,
-          source: {
-            name: rule.source?.name ?? "Organisation rule engine",
-            url: "https://github.com/jusso-dev/Bunya",
-          },
-          category: categoryForRule(rule),
-          severity: rule.severity,
-          appliesTo: rule.serviceTypes.length > 0 ? rule.serviceTypes : ["graph"],
-          message: rule.message,
-          longExplanation: rule.description,
-          tags: ["organisation", "custom"],
-        },
-        severity: rule.severity,
-        source: {
-          name: rule.source?.name ?? "Organisation rule engine",
-          url: "https://github.com/jusso-dev/Bunya",
-        },
-        message: rule.message,
-        explanation: rule.description,
-        nodeIds: [node.id],
-      });
-    }
-  }
-  return findings;
+const ORGANISATION_SOURCE_URL = "https://github.com/jusso-dev/Bunya";
+
+// Each enabled rule as a registry entry, so it runs through runRules with the built-ins.
+export function organisationRuleEntries(rules: OrganisationRule[]): RuleEntry[] {
+  return rules.filter((rule) => rule.enabled).map((rule) => ({
+    rule: {
+      id: rule.id,
+      source: { name: rule.source?.name ?? "Organisation rule engine", url: ORGANISATION_SOURCE_URL },
+      category: categoryForRule(rule),
+      severity: rule.severity,
+      appliesTo: rule.serviceTypes.length > 0 ? rule.serviceTypes : [...SERVICE_TYPES],
+      message: rule.message,
+      longExplanation: rule.description,
+      tags: ["organisation", "custom"],
+    },
+    check: ({ graph, node }) => (node && ruleMatchesNode(graph, node, rule) ? [{ nodeIds: [node.id] }] : []),
+  }));
 }
 
 export function translateAzurePolicy(policy: unknown): OrganisationRule[] {
@@ -266,7 +228,7 @@ export function translateAzurePolicy(policy: unknown): OrganisationRule[] {
   if (atoms.length !== leaves.length || atoms.filter((atom) => atom.field !== "type").length !== 1) return [];
   const typeAtoms = atoms.filter((atom) => atom.field === "type" && atom.operator === "equals");
   const serviceTypes = typeAtoms
-    .map((atom) => (typeof atom.value === "string" ? ARM_TO_SERVICE[atom.value.toLowerCase()] : undefined))
+    .map((atom) => (typeof atom.value === "string" ? policyServiceType(atom.value) : undefined))
     .filter((v): v is ServiceType => !!v);
   if (typeAtoms.length !== 1 || serviceTypes.length !== 1) return [];
   const candidates = atoms
@@ -336,7 +298,7 @@ function atomToRule(
   policy: AzurePolicy,
   index: number,
 ): OrganisationRule | null {
-  const key = FIELD_TO_PROPERTY[atom.field.toLowerCase()] ?? policyFieldFallback(atom.field);
+  const key = POLICY_LEAF_TO_PROPERTY[atom.field.split("/").at(-1)?.toLowerCase() ?? ""];
   if (!key) return null;
   const operator = policyOperatorToRuleOperator(atom.operator, atom.value);
   if (!operator) return null;
@@ -391,19 +353,11 @@ function policyOperatorToRuleOperator(operator: string, value: unknown): Propert
   }
 }
 
-function policyFieldFallback(field: string): string | null {
-  const leaf = field.split("/").filter(Boolean).at(-1);
-  if (!leaf) return null;
-  if (leaf.toLowerCase() === "publicnetworkaccess") return "publicNetworkAccess";
-  if (leaf.toLowerCase() === "allowblobpublicaccess") return "allowPublicAccess";
-  return null;
-}
-
 function normalisePolicyValue(value: unknown): unknown {
   if (Array.isArray(value)) return value[0];
   if (value === "true") return true;
   if (value === "false") return false;
-  if (value === "TLS1_2") return "1.2";
+  if (typeof value === "string" && /^TLS1_\d$/.test(value)) return tlsVersionFromArm(value);
   return value;
 }
 
@@ -438,15 +392,7 @@ function categoryForRule(rule: OrganisationRule): Finding["rule"]["category"] {
 }
 
 function isPropertyOperator(value: unknown): value is PropertyOperator {
-  return (
-    value === "equals" ||
-    value === "not_equals" ||
-    value === "present" ||
-    value === "missing" ||
-    value === "truthy" ||
-    value === "falsy" ||
-    value === "includes"
-  );
+  return (PROPERTY_OPERATORS as readonly unknown[]).includes(value);
 }
 
 function isEdgeDirection(value: unknown): value is EdgeRequirement["direction"] {
@@ -458,5 +404,5 @@ function isEdgeMode(value: unknown): value is EdgeRequirement["mode"] {
 }
 
 function isEdgeKind(value: unknown): value is GraphEdge["kind"] {
-  return value === "network" || value === "identity" || value === "data" || value === "depends_on" || value === "diagnostic";
+  return EdgeKindSchema.safeParse(value).success;
 }

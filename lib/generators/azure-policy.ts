@@ -1,7 +1,9 @@
-import { validateGeneration } from "./shared/validate";
 import { buildGeneratorContext } from "./shared/context";
+import { validateGeneration } from "./shared/validate";
+import { quote } from "./shared/quote";
 import { GeneratedFile, GeneratorResult } from "./types";
 import type { GraphDocument, ServiceType } from "@/lib/graph/schema";
+import { AUSTRALIAN_REGIONS } from "@/lib/catalogue/azure";
 import {
   COMPLIANCE_FRAMEWORKS,
   POLICY_DEFINITION_PREFIX,
@@ -17,9 +19,6 @@ import {
 // Deny is a deliberate, reviewed change.
 const AUDIT_EFFECTS = ["Audit", "AuditIfNotExists"];
 
-// The regions BUNYA.SOV.001 and PSRULE.RESOURCE.ALLOWEDREGIONS accept, so the
-// exported "Allowed locations" guardrail checks the same thing.
-const AUSTRALIAN_REGIONS = ["australiacentral", "australiacentral2", "australiaeast", "australiasoutheast"];
 
 type PolicyReference = {
   policyDefinitionReferenceId: string;
@@ -90,10 +89,6 @@ function buildReference(
   };
 }
 
-function bicepString(value: string): string {
-  return `'${value.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
-}
-
 function slug(value: string, max: number): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, max).replace(/-+$/, "");
 }
@@ -107,10 +102,10 @@ function controlsCell(resolved: ResolvedPolicy): string {
 }
 
 export function generateAzurePolicy(document: GraphDocument): GeneratorResult {
+  // Policies do not depend on deployment order, so a cycle is no reason to fail.
   const validated = validateGeneration(document, false);
   if (!validated.ok) return validated;
-  document = validated.document;
-  const ctx = buildGeneratorContext(document);
+  const ctx = buildGeneratorContext(validated.document);
 
   const present = new Set<ServiceType>(["resourceGroup", ...ctx.document.nodes.map((node) => node.type)]);
   const used = new Set<string>();
@@ -130,10 +125,9 @@ export function generateAzurePolicy(document: GraphDocument): GeneratorResult {
   // Bicep, ARM, az CLI and PowerShell deploy into the first resource group
   // only; Terraform creates every resource-group node. Assign to the group
   // every exporter creates, and let the operator opt in to the others.
-  const rgName = (node: (typeof ctx.document.nodes)[number]) => ctx.resourceNames.get(node.id) ?? node.resourceName;
-  const primaryGroup = ctx.rgNode ? rgName(ctx.rgNode) : ctx.document.metadata.resourceGroupName;
+  const primaryGroup = ctx.name(ctx.rgNode.id);
   const otherGroups = [
-    ...new Set(ctx.document.nodes.filter((node) => node.type === "resourceGroup").map(rgName)),
+    ...new Set(ctx.document.nodes.filter((node) => node.type === "resourceGroup").map((node) => ctx.name(node.id))),
   ].filter((name) => name !== primaryGroup);
 
   const docName = ctx.document.metadata.name;
@@ -159,25 +153,25 @@ export function generateAzurePolicy(document: GraphDocument): GeneratorResult {
       "",
       "@description('Resource groups the initiative is assigned to. Each must already exist.')",
       `param resourceGroupNames array = [`,
-      `  ${bicepString(primaryGroup)}`,
+      `  ${quote.bicep(primaryGroup)}`,
       ...(otherGroups.length > 0
         ? [
             "  // Only Terraform creates these resource groups. Uncomment them if you deployed with Terraform.",
-            ...otherGroups.map((name) => `  // ${bicepString(name)}`),
+            ...otherGroups.map((name) => `  // ${quote.bicep(name)}`),
           ]
         : []),
       `]`,
       "",
       "@description('Name of the policy initiative (policy set definition).')",
       "@maxLength(64)",
-      `param initiativeName string = ${bicepString(initiativeName)}`,
+      `param initiativeName string = ${quote.bicep(initiativeName)}`,
       "",
       "resource initiative 'Microsoft.Authorization/policySetDefinitions@2023-04-01' = {",
       "  name: initiativeName",
       "  properties: {",
       "    policyType: 'Custom'",
-      `    displayName: ${bicepString(displayName)}`,
-      `    description: ${bicepString(description)}`,
+      `    displayName: ${quote.bicep(displayName)}`,
+      `    description: ${quote.bicep(description)}`,
       "    metadata: {",
       "      category: 'Bunya'",
       "      generatedBy: 'Bunya'",
@@ -191,7 +185,7 @@ export function generateAzurePolicy(document: GraphDocument): GeneratorResult {
       "  scope: resourceGroup(rg)",
       "  params: {",
       "    assignmentName: initiativeName",
-      `    displayName: ${bicepString(displayName)}`,
+      `    displayName: ${quote.bicep(displayName)}`,
       "    initiativeId: initiative.id",
       "  }",
       "}]",

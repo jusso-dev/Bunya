@@ -1,27 +1,19 @@
 import { expect, test } from "@playwright/test";
 
-test("dropping a service onto a Resource Group reparents it inside the container", async ({ page }) => {
+type SavedNode = { id: string; type: string; parentId?: string | null };
+
+test("a service added over a Resource Group is placed inside it", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "Properties" }).first().click();
-  await page.getByRole("button", { name: "Output" }).first().click();
+  await page.getByRole("button", { name: "Add Resource Group", exact: true }).click();
+  await page.getByRole("button", { name: "Add Storage Account", exact: true }).click();
 
-  // 1. Drop a Resource Group (becomes a container)
-  await page.locator('[data-service-type="resourceGroup"]').first().click({
-    position: { x: 10, y: 10 },
-  });
+  await expect(page.locator(".react-flow__node-container")).toHaveCount(1);
+  await expect(page.locator(".react-flow__node-service")).toHaveCount(1);
 
-  // 2. Drop a Storage Account afterwards — it should land inside the RG
-  await page.locator('[data-service-type="storageAccount"]').first().click({
-    position: { x: 10, y: 10 },
-  });
-
-  await page.waitForTimeout(400);
-
-  const containerNodes = page.locator(".react-flow__node-container");
-  await expect(containerNodes).toHaveCount(1);
-
-  const serviceNodes = page.locator(".react-flow__node-service");
-  await expect(serviceNodes).toHaveCount(1);
-
-  await page.screenshot({ path: "test-results/canvas-container.png", fullPage: false });
+  const saved = () => page.evaluate(() => JSON.parse(localStorage.getItem("bunya.document.v1") ?? "{\"nodes\":[]}").nodes as SavedNode[]);
+  await expect.poll(async () => (await saved()).length).toBe(2);
+  const nodes = await saved();
+  const group = nodes.find((node) => node.type === "resourceGroup")!;
+  const storage = nodes.find((node) => node.type === "storageAccount")!;
+  expect(storage.parentId).toBe(group.id);
 });

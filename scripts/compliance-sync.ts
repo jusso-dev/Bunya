@@ -22,13 +22,11 @@
 import { execFileSync } from "node:child_process";
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
 import { POLICY_ALIGNMENTS } from "@/lib/rules/compliance/policy-alignments";
 import type { ComplianceFramework, PolicyMetadata, PolicyParameterMetadata } from "@/lib/rules/compliance/types";
 import { REGISTRY } from "@/lib/rules/registry";
+import { arg, PROJECT_ROOT, run } from "./lib";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PROJECT_ROOT = path.resolve(__dirname, "..");
 const OUTPUT_PATH = path.join(PROJECT_ROOT, "lib", "rules", "compliance", "policy-metadata.generated.ts");
 
 type FrameworkConfig = {
@@ -58,11 +56,6 @@ const FRAMEWORKS: FrameworkConfig[] = [
 ];
 
 type Json = Record<string, unknown>;
-
-function arg(name: string): string | undefined {
-  const index = process.argv.indexOf(`--${name}`);
-  return index >= 0 ? process.argv[index + 1] : undefined;
-}
 
 async function readJson(file: string): Promise<Json> {
   const text = await fs.readFile(file, "utf8");
@@ -98,17 +91,21 @@ type IndexedPolicy = { name: string; properties: Json };
 async function indexDefinitions(repo: string): Promise<Map<string, IndexedPolicy>> {
   const index = new Map<string, IndexedPolicy>();
   const root = path.join(repo, "built-in-policies", "policyDefinitions");
+  const unreadable: string[] = [];
   for (const file of await walk(root)) {
     let json: Json;
     try {
       json = await readJson(file);
     } catch {
+      unreadable.push(path.relative(repo, file));
       continue;
     }
     const name = typeof json.name === "string" ? json.name.toLowerCase() : null;
     const properties = (json.properties ?? json) as Json;
     if (name && typeof properties.displayName === "string") index.set(name, { name, properties });
   }
+  // A policy Bunya maps could be among these, so say which were left out.
+  if (unreadable.length > 0) console.warn(`Skipped ${unreadable.length} unreadable policy definition file(s): ${unreadable.slice(0, 5).join(", ")}${unreadable.length > 5 ? ", ..." : ""}`);
   return index;
 }
 
@@ -303,7 +300,4 @@ async function main(): Promise<void> {
   process.exit(report.problems.length > 0 ? 1 : 0);
 }
 
-main().catch((err) => {
-  console.error("[compliance] crashed:", err);
-  process.exit(1);
-});
+run("compliance", main);

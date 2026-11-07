@@ -199,34 +199,33 @@ exactly.
 
 ## Rules engine
 
-Bunya checks every graph against 293 rules from curated source bundles. Every
-rule cites a real URL. The running app never makes HTTP calls; rules ship
-as committed TypeScript and are refreshed at build time with `pnpm rules:import`.
+Bunya checks every graph against about 300 hand-curated rules. Every rule
+cites a real URL. The running app never makes HTTP calls; rules ship as
+committed TypeScript under `lib/rules/`. `lib/rules/registry.ts` lists every
+rule bundle and the upstream version it was curated against, and the nightly
+`pnpm upstream:check` reports when an upstream moves past that pin.
 
-Sources currently ingested:
+Bundles (rule counts per bundle are in
+[`project-docs/rules/COVERAGE.md`](project-docs/rules/COVERAGE.md)):
 
-- **PSRule for Azure** - 55 rules covering Storage, App Service, SQL, Cosmos,
-  Key Vault, ACR, VNet/NSG, App Gateway, Front Door, APIM, Functions, App
-  Insights, Log Analytics.
-- **Checkov** - 31 CKV_AZURE_* checks.
-- **Azure Policy built-ins** - 20 policies translated from `Azure/azure-policy`.
-- **Azure Naming Tool** - 22 length/charset rules.
-- **Bicep types** - 21 enum/range rules derived from the AzureRM provider schema.
-- **Australian Government ISM** - 17 controls including ISM-0974, ISM-1552,
+- **PSRule for Azure** - Storage, App Service, SQL, Cosmos, Key Vault, ACR,
+  VNet/NSG, App Gateway, Front Door, APIM, Functions, App Insights, Log
+  Analytics.
+- **Checkov** - CKV_AZURE_* checks.
+- **Azure Policy built-ins** - policies translated from `Azure/azure-policy`.
+- **Azure Naming Tool** - length/charset rules.
+- **Bicep types** - enum/range rules derived from the resource type schemas.
+- **Australian Government ISM** - controls including ISM-0974, ISM-1552,
   ISM-1525, ISM-1480, ISM-0405.
-- **Essential Eight Maturity Model** - 8 strategy mappings to cloud configuration.
-- **Azure Private Link FAQ** - 9 hand-encoded rules for Private Endpoint
-  topology, the single richest source for edge rules.
-- **Microsoft Learn well-known patterns** - 10 reference-architecture rules.
-- **Application Insights expansion** - 6 workspace, sampling and retention
-  rules.
-- **App Service Plan expansion** - 6 hosting-plan reliability, cost and
-  capacity rules.
-- **NSG expansion** - 6 attachment and rule-shape checks.
-- **User-Assigned Identity expansion** - 5 lifecycle and attachment checks.
-- **Bunya hand-written graph-rules** - 77 rules under `lib/rules/graph-rules/`
-  covering implicit dependencies, identity flow, observability, sovereignty,
-  naming, cost, and compliance.
+- **Essential Eight Maturity Model** - strategy mappings to cloud configuration.
+- **Azure Private Link FAQ** - Private Endpoint topology, the single richest
+  source for edge rules.
+- **Microsoft Learn well-known patterns** - reference-architecture rules.
+- **Application Insights, App Service Plan, NSG and User-Assigned Identity
+  expansions** - per-service bundles under `lib/rules/sources/expansion-*`.
+- **Bunya graph rules** - `lib/rules/graph-rules/`, covering implicit
+  dependencies, identity flow, observability, sovereignty, naming, cost, and
+  compliance.
 
 Recent graph-level coverage includes:
 
@@ -244,7 +243,8 @@ Recent graph-level coverage includes:
 
 Findings link to their source (`source.url`). Many carry an `autofixId` you can
 apply with one button. The compliance tables in
-[`project-docs/rules/COVERAGE.md`](project-docs/rules/COVERAGE.md) regenerate every build.
+[`project-docs/rules/COVERAGE.md`](project-docs/rules/COVERAGE.md) are regenerated with
+`pnpm rules:coverage`.
 [`project-docs/rules/GAPS.md`](project-docs/rules/GAPS.md) is honest about what is not
 checked: CIS Benchmarks, PCI DSS, HITRUST CSF, runtime policy, cost prediction,
 multi-region failover correctness.
@@ -474,9 +474,8 @@ pnpm test            # vitest run (unit tests, snapshot coverage of every genera
 pnpm e2e             # playwright tests against the dev server
 pnpm build           # next build (Turbopack)
 pnpm build:pages     # static export to out/ with the /Bunya base path (CI deploys it on every push to main)
-pnpm rules:import    # rebuild rule registry + COVERAGE.md + GAPS.md
-pnpm rules:verify    # assert every rule has source.url, no duplicates, >=100 total
-pnpm rules:coverage  # regenerate coverage docs without re-ingesting
+pnpm rules:verify    # every rule matches RuleSchema, no duplicate ids, >=100 total
+pnpm rules:coverage  # regenerate project-docs/rules/COVERAGE.md + GAPS.md
 pnpm prices:refresh  # fetch Azure Retail Prices API and stage a snapshot diff
 pnpm compliance:sync --repo <azure-policy checkout>  # refresh policy metadata + CIS control IDs
 pnpm icons:sync      # refresh official Azure icons from the current Microsoft pack
@@ -522,20 +521,25 @@ components/
   properties/PropertiesPanel.tsx    # auto-generated form from Zod schema
 lib/
   graph/schema.ts                   # Zod schemas for GraphDocument/Node/Edge
-  graph/store.ts                    # Zustand store, undo/redo, reparent
+  graph/arm-import.ts               # ARM template import (arm-expressions.ts evaluates template expressions)
+  graph/topology.ts                 # graph queries shared by rules and exporters
   graph/serialise.ts                # gzip + base64url share URL, localStorage
+  session/store.ts                  # Zustand store, undo/redo, reparent
+  session/                          # import flow, node factory, canvas geometry, presets
+  catalogue/azure.ts                # Azure facts: ARM types, private link zones, roles, regions
   catalogue/services.ts             # 26-service catalogue, allowed targets
   catalogue/icons.tsx               # Azure icon assets + category theme
   catalogue/templates.ts            # three starter templates
   catalogue/connections.ts          # canConnect() drag-time validator
-  generators/                       # six generators + Mermaid + README
+  generators/                       # exporters; registry.ts lists every output for the UI and MCP
   rules/                            # rules engine: schema, runtime, sources
+    runtime.ts                      # validate(): built-in + organisation rules
     organisation.ts                 # session custom rules + Azure Policy translation
-    sources/<publisher>/            # one folder per upstream source
-    graph-rules/                    # Bunya's hand-written BUNYA.* rules
-  validation/runner.ts              # built-in + organisation rule validation
+    registry.ts                     # every rule bundle + its upstream pin
+    sources/<publisher>/rules.ts    # one hand-curated bundle per upstream source
+    graph-rules/                    # Bunya's own BUNYA.* rules
 scripts/
-  import-rules/                     # build-time ingestion pipeline
+  rules-verify.ts                   # pnpm rules:verify (CI)
   generate-coverage.ts              # COVERAGE.md + GAPS.md generator
 mcp/
   server.ts                          # stdio MCP entry point

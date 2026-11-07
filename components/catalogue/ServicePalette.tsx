@@ -3,8 +3,11 @@
 import { useMemo, useState } from "react";
 import { listServices, ServiceDefinition } from "@/lib/catalogue/services";
 import { ServiceType } from "@/lib/graph/schema";
-import { useGraphStore } from "@/lib/graph/store";
-import { CATEGORY_THEME, ServiceIcon } from "@/lib/catalogue/icons";
+import { COMPACT_LAYOUT_QUERY, useGraphStore } from "@/lib/session/store";
+import { CATEGORY_THEME, ServiceIcon } from "@/components/catalogue/icons";
+import { gridPosition, newNode } from "@/lib/session/new-node";
+import { placeAt } from "@/lib/session/geometry";
+import { useSessionUi } from "@/lib/session/ui";
 
 const CATEGORY_ORDER: ServiceDefinition["category"][] = [
   "scaffold",
@@ -45,20 +48,14 @@ export function ServicePalette() {
     return byCategory;
   }, [filter]);
 
-  const nodeCount = useGraphStore((s) => s.document.nodes.length);
-
   const handleQuickAdd = (def: ServiceDefinition) => {
-    const column = nodeCount % 3;
-    const row = Math.floor(nodeCount / 3);
-    const id = addNode({
-      type: def.type,
-      name: def.label,
-      resourceName: defaultResourceNameFor(def.type, nodeCount + 1),
-      position: { x: 80 + column * 260, y: 60 + row * 120 },
-      properties: { ...def.defaultProperties },
-    });
-    useGraphStore.getState().selectNode(id);
-    if (window.matchMedia("(max-width: 1023px)").matches) useGraphStore.getState().setPanelCollapsed("palette", true);
+    const graph = useGraphStore.getState();
+    const { document } = graph;
+    const point = gridPosition(document.nodes.length);
+    const id = addNode(newNode(document, { type: def.type, ...placeAt(document, point, def.type) }));
+    graph.selectNode(id);
+    useSessionUi.getState().requestFit();
+    if (window.matchMedia(COMPACT_LAYOUT_QUERY).matches) graph.setPanelCollapsed("palette", true);
   };
 
   return (
@@ -150,15 +147,4 @@ function ServiceCard({
     </button>
     </li>
   );
-}
-
-function defaultResourceNameFor(type: ServiceType, index: number): string {
-  const slug = type.replace(/([A-Z])/g, "-$1").toLowerCase().replace(/^-/, "");
-  switch (type) {
-    case "storageAccount":
-    case "containerRegistry":
-      return `${slug.replace(/-/g, "")}${index}`;
-    default:
-      return `${slug}-${index}`;
-  }
 }

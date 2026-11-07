@@ -35,7 +35,7 @@ describe("expandImplicits", () => {
     expect(types).toContain("resourceGroup");
     expect(types).toContain("appServicePlan");
     expect(types).toContain("storageAccount");
-    expect(result.additions.length).toBeGreaterThan(0);
+    expect(result.autoNodeIds.size).toBe(3);
   });
 
   it("inserts a Subnet + VNet when a Private Endpoint is alone", () => {
@@ -52,11 +52,6 @@ describe("expandImplicits", () => {
     const types = result.document.nodes.map((n) => n.type);
     expect(types).toContain("subnet");
     expect(types).toContain("virtualNetwork");
-  });
-
-  it("flags new nodes as auto-generated", () => {
-    const result = expandImplicits(tinyGraph());
-    expect(result.autoNodeIds.size).toBeGreaterThan(0);
   });
 
   it("treats App Service Plan containment as a hosting relationship", () => {

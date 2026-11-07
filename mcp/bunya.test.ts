@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createDiagram, diagramViewUrl, exportDiagram } from "./bunya";
+import { createDiagram, diagramViewUrl, exportDiagram, parseDocument } from "./bunya";
 
 describe("Bunya MCP diagram core", () => {
   const input = {
@@ -57,5 +57,21 @@ describe("Bunya MCP diagram core", () => {
   it("makes a Bunya view URL carrying the graph fragment", async () => {
     const url = await diagramViewUrl(createDiagram(input), "https://bunya.example/");
     expect(url).toMatch(/^https:\/\/bunya\.example\/#bunya1:/);
+  });
+});
+
+describe("Bunya MCP document input", () => {
+  it("migrates older documents before exporting, as validation does", () => {
+    // Older imported storage accounts have no publicNetworkAccess; migration
+    // keeps Azure's default (open), while the schema default would close it.
+    const document = createDiagram({ name: "legacy", nodes: [{ id: "arm-node-st", type: "storageAccount" }] });
+    const older = structuredClone(document);
+    for (const node of older.nodes) delete node.properties.publicNetworkAccess;
+    const main = exportDiagram(parseDocument(older), "bicep")[0].files.find((file) => file.path === "main.bicep")!;
+    expect(main.content).toMatch(/publicNetworkAccess: 'Enabled'/);
+  });
+
+  it("rejects input that is not a Bunya document", () => {
+    expect(() => parseDocument({ nodes: [] })).toThrow();
   });
 });

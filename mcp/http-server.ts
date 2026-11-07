@@ -1,7 +1,9 @@
 import { createServer, type IncomingMessage } from "node:http";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { MAX_IMPORT_BYTES, checkObjectDepth } from "../lib/graph/limits";
+import { MAX_IMPORT_BYTES, parseJsonInput } from "../lib/graph/limits";
 import { createBunyaMcpServer } from "./create-server";
+
+const MAX_IMPORT_MIB = MAX_IMPORT_BYTES / (1024 * 1024);
 
 async function readBody(request: IncomingMessage): Promise<unknown> {
   let size = 0;
@@ -11,9 +13,7 @@ async function readBody(request: IncomingMessage): Promise<unknown> {
     if (size > MAX_IMPORT_BYTES) throw new Error("body-too-large");
     chunks.push(Buffer.from(chunk));
   }
-  const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-  checkObjectDepth(parsed);
-  return parsed;
+  return parseJsonInput(Buffer.concat(chunks).toString("utf8"));
 }
 
 export function createBunyaHttpServer(options: { allowedHosts?: string[]; allowedOrigins?: string[] } = {}) {
@@ -39,7 +39,7 @@ export function createBunyaHttpServer(options: { allowedHosts?: string[]; allowe
       }
       if (request.method !== "POST" || url.pathname !== "/mcp") { reply(404, "Use POST /mcp or GET /health."); return; }
       if (!request.headers["content-type"]?.startsWith("application/json")) { reply(415, "Use application/json."); return; }
-      if (Number(request.headers["content-length"]) > MAX_IMPORT_BYTES) { reply(413, "Request exceeds 1 MiB."); return; }
+      if (Number(request.headers["content-length"]) > MAX_IMPORT_BYTES) { reply(413, `Request exceeds ${MAX_IMPORT_MIB} MiB.`); return; }
       let body: unknown;
       try { body = await readBody(request); }
       catch (error) { reply(error instanceof Error && error.message === "body-too-large" ? 413 : 400, "Invalid or oversized JSON body."); return; }
@@ -47,7 +47,8 @@ export function createBunyaHttpServer(options: { allowedHosts?: string[]; allowe
       transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
       await server.connect(transport);
       await transport.handleRequest(request, response, body);
-    } catch {
+    } catch (error) {
+      console.error("Bunya MCP request failed:", error);
       reply(500, "Internal server error.");
     } finally {
       await Promise.allSettled([transport?.close(), server?.close()]);

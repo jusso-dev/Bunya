@@ -1,12 +1,8 @@
+import { AUSTRALIAN_REGIONS } from "@/lib/catalogue/azure";
 import { graphRule } from "../builders";
 import type { RuleEntry } from "../schema";
 
-const AUSTRALIA_REGIONS = new Set([
-  "australiaeast",
-  "australiasoutheast",
-  "australiacentral",
-  "australiacentral2",
-]);
+const AUSTRALIA_REGIONS = new Set(AUSTRALIAN_REGIONS);
 
 export const sovereigntyRules: RuleEntry[] = [
   graphRule({

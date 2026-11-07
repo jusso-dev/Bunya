@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hostingGraph } from "./__fixtures__/hosting";
+import { hostingGraph } from "@/lib/graph/__fixtures__/hosting";
 import { generateArm } from "./arm";
 import { generateAzCli } from "./azcli";
 import { generateBicep } from "./bicep";
@@ -25,6 +25,34 @@ type Arm = { type: string; name: string; kind?: string; sku?: Record<string, unk
 function armResources(): Arm[] {
   return JSON.parse(file(generateArm(hostingGraph), "azuredeploy.json")).resources as Arm[];
 }
+
+function braced(text: string, start: number): string {
+  let depth = 0;
+  for (let i = text.indexOf("{", start); i < text.length; i++) {
+    if (text[i] === "{") depth++;
+    else if (text[i] === "}" && --depth === 0) return text.slice(start, i + 1);
+  }
+  throw new Error("unbalanced block");
+}
+
+function tfBlock(main: string, type: string, name: string): string {
+  const start = main.search(new RegExp(`resource\\s+"${type}"\\s+"${name}"\\s*\\{`));
+  if (start < 0) throw new Error(`missing ${type}.${name}`);
+  return braced(main, start);
+}
+
+// Values of `key = value` lines, whatever the alignment.
+const tfValues = (block: string, key: string) => [...block.matchAll(new RegExp(`^\\s*${key}\\s*=\\s*(.+?)\\s*$`, "gm"))].map((m) => m[1]);
+const tfValue = (block: string, key: string) => tfValues(block, key)[0];
+
+function bicepBlock(bicep: string, symbol: RegExp): string {
+  const start = bicep.search(new RegExp(`resource ${symbol.source} '`));
+  if (start < 0) throw new Error(`missing ${symbol.source}`);
+  return braced(bicep, start);
+}
+
+const bicepDependsOn = (block: string) => (block.match(/dependsOn:\s*\[([^\]]*)\]/)?.[1] ?? "").split(/\s+/).filter(Boolean);
+const compact = (text: string) => text.replace(/\s+/g, " ");
 
 const site = (name: string) => armResources().find((r) => r.type === "Microsoft.Web/sites" && r.name === name)!;
 const settings = (resource: Arm) => (resource.properties?.siteConfig?.appSettings ?? []).map((s: { name: string }) => s.name) as string[];
@@ -106,40 +134,51 @@ describe("App Service hosting exports", () => {
     it("uses the Flex resource with a deployment container", () => {
       expect(main()).toContain('resource "azurerm_function_app_flex_consumption" "fn_flex"');
       expect(main()).toContain('resource "azurerm_storage_container" "fn_flex_deployment"');
-      expect(main()).toMatch(/runtime_name\s+= "python"/);
-      expect(main()).toMatch(/instance_memory_in_mb\s+= 4096/);
-      expect(main()).toMatch(/maximum_instance_count\s+= 40/);
-      expect(main()).toContain("virtual_network_subnet_id     = azurerm_subnet.snet_flex.id");
+      const flex = tfBlock(main(), "azurerm_function_app_flex_consumption", "fn_flex");
+      expect(tfValue(flex, "runtime_name")).toBe('"python"');
+      expect(tfValue(flex, "instance_memory_in_mb")).toBe("4096");
+      expect(tfValue(flex, "maximum_instance_count")).toBe("40");
+      expect(tfValue(flex, "virtual_network_subnet_id")).toBe("azurerm_subnet.snet_flex.id");
     });
 
     it("runs containers on web and function apps", () => {
-      expect(main()).toContain('docker_image_name   = "api:1.4"');
-      expect(main()).toContain('docker_registry_url = "https://acrhosting.azurecr.io"');
-      expect(main()).toContain('image_name   = "worker"');
-      expect(main()).toContain("container_registry_managed_identity_client_id = azurerm_user_assigned_identity.id_pull.client_id");
+      const web = tfBlock(main(), "azurerm_linux_web_app", "app_hosting");
+      expect(tfValue(web, "docker_image_name")).toBe('"api:1.4"');
+      expect(tfValue(web, "docker_registry_url")).toBe('"https://acrhosting.azurecr.io"');
+      const worker = tfBlock(main(), "azurerm_linux_function_app", "fn_ep");
+      expect(tfValue(worker, "image_name")).toBe('"worker"');
+      expect(tfValue(worker, "container_registry_managed_identity_client_id")).toBe("azurerm_user_assigned_identity.id_pull.client_id");
     });
 
     it("grants AcrPull and delegates subnets", () => {
-      expect(main()).toContain('role_definition_name = "AcrPull"');
-      expect(main()).toContain("principal_id         = azurerm_user_assigned_identity.id_pull.principal_id");
-      expect(main()).toContain("principal_id         = azurerm_linux_web_app.app_hosting.identity[0].principal_id");
-      expect(main()).toContain('name    = "Microsoft.App/environments"');
-      expect(main()).toContain('name    = "Microsoft.Web/serverFarms"');
+      const userPull = tfBlock(main(), "azurerm_role_assignment", "id_pull_acrhosting_acrpull");
+      expect(tfValue(userPull, "role_definition_name")).toBe('"AcrPull"');
+      expect(tfValue(userPull, "principal_id")).toBe("azurerm_user_assigned_identity.id_pull.principal_id");
+      const systemPull = tfBlock(main(), "azurerm_role_assignment", "app_hosting_acrhosting_acrpull");
+      expect(tfValue(systemPull, "role_definition_name")).toBe('"AcrPull"');
+      expect(tfValue(systemPull, "principal_id")).toBe("azurerm_linux_web_app.app_hosting.identity[0].principal_id");
+      expect(tfValues(tfBlock(main(), "azurerm_subnet", "snet_flex"), "name")).toContain('"Microsoft.App/environments"');
+      expect(tfValues(tfBlock(main(), "azurerm_subnet", "snet_web"), "name")).toContain('"Microsoft.Web/serverFarms"');
     });
 
     it("leaves worker_count off serverless plans", () => {
-      const plan = (ident: string) => main().split(`resource "azurerm_service_plan" "${ident}"`)[1].split("\n}")[0];
-      expect(plan("plan_flex")).not.toContain("worker_count");
-      expect(plan("plan_y1")).not.toContain("worker_count");
-      expect(plan("plan_web")).toContain("worker_count        = 2");
+      const workers = (ident: string) => tfValues(tfBlock(main(), "azurerm_service_plan", ident), "worker_count");
+      expect(workers("plan_flex")).toEqual([]);
+      expect(workers("plan_y1")).toEqual([]);
+      expect(workers("plan_web")).toEqual(["2"]);
     });
   });
 
   it("shell exports deploy the ARM template in one step", () => {
-    for (const result of [generateAzCli(hostingGraph), generatePowerShell(hostingGraph)]) {
+    const shells = [
+      { result: generateAzCli(hostingGraph), command: /^az( \S+)+? create\b/, expected: ["az group create", "az deployment group create"] },
+      { result: generatePowerShell(hostingGraph), command: /^New-Az\w+/, expected: ["New-AzResourceGroup", "New-AzResourceGroupDeployment"] },
+    ];
+    for (const { result, command, expected } of shells) {
       if (!result.ok) throw new Error(result.reason);
       expect(result.files.map((f) => f.path)).toContain("azuredeploy.json");
-      expect(result.files[0].content).toContain("so this script deploys the included ARM template in one step");
+      const commands = result.files[0].content.split("\n").map((line) => line.match(command)?.[0]).filter(Boolean);
+      expect(commands).toEqual(expected);
     }
   });
 
@@ -165,14 +204,13 @@ describe("App Service hosting exports", () => {
       expect(name).toContain("'id-pull', 'AcrPull'");
 
       const main = file(generateTerraform(hostingGraph), "main.tf");
-      const fnEp = main.split('resource "azurerm_linux_function_app" "fn_ep"')[1].split("\n}")[0];
-      expect(fnEp).toContain("depends_on = [azurerm_role_assignment.id_pull_acrhosting_acrpull]");
+      expect(tfValue(tfBlock(main, "azurerm_linux_function_app", "fn_ep"), "depends_on")).toBe("[azurerm_role_assignment.id_pull_acrhosting_acrpull]");
       expect(main).toContain('resource "azurerm_role_assignment" "id_pull_acrhosting_acrpull"');
 
       const bicep = file(generateBicep(hostingGraph), "main.bicep");
       const ref = bicep.match(/resource (\S+_acrpull) 'Microsoft.Authorization\/roleAssignments/g) ?? [];
       expect(ref.length).toBe(2);
-      expect(bicep).toMatch(/dependsOn: \[\n\s+node_\d+_id_pull_resource_node_\d+_acrhosting_resource_acrpull\n/);
+      expect(bicepDependsOn(bicepBlock(bicep, /node_\d+_fn_ep_resource/))).toContainEqual(expect.stringMatching(/^node_\d+_id_pull_resource_node_\d+_acrhosting_resource_acrpull$/));
     });
 
     it("grants the same roles in ARM, Bicep and Terraform", () => {
@@ -197,7 +235,7 @@ describe("App Service hosting exports", () => {
       expect(arm.properties.functionAppConfig.runtime).toEqual({ name: "dotnet-isolated", version: "8.0" });
       expect(file(generateBicep(dotnet), "main.bicep")).toContain("version: '8.0'");
       const node = withProps("fn-flex", { runtime: "node", runtimeVersion: "22-lts" });
-      expect(file(generateTerraform(node), "main.tf")).toMatch(/runtime_version\s+= "22"\n/);
+      expect(tfValue(tfBlock(file(generateTerraform(node), "main.tf"), "azurerm_function_app_flex_consumption", "fn_flex"), "runtime_version")).toBe('"22"');
     });
   });
 
@@ -232,7 +270,9 @@ describe("App Service hosting exports", () => {
     it("keeps anonymous blob access off when the public endpoint is open", () => {
       const shared = armResources().find((r) => r.type === "Microsoft.Storage/storageAccounts" && r.name.startsWith("sthosting"));
       expect(shared?.properties).toMatchObject({ publicNetworkAccess: "Enabled", allowBlobPublicAccess: false });
-      expect(file(generateTerraform(hostingGraph), "main.tf")).toMatch(/allow_nested_items_to_be_public = false\n\s+public_network_access_enabled\s+= true/);
+      const sharedTf = tfBlock(file(generateTerraform(hostingGraph), "main.tf"), "azurerm_storage_account", "sthosting");
+      expect(tfValue(sharedTf, "allow_nested_items_to_be_public")).toBe("false");
+      expect(tfValue(sharedTf, "public_network_access_enabled")).toBe("true");
     });
   });
 
@@ -283,8 +323,9 @@ describe("App Service hosting exports", () => {
 
       const main = file(generateTerraform(graph), "main.tf");
       expect(main).toContain('resource "azurerm_storage_share" "fn_ep_content"');
-      expect(main).toContain('WEBSITE_CONTENTOVERVNET = "1"');
-      expect(main).toContain("WEBSITE_CONTENTSHARE    = azurerm_storage_share.fn_ep_content.name");
+      const workerTf = tfBlock(main, "azurerm_linux_function_app", "fn_ep");
+      expect(tfValue(workerTf, "WEBSITE_CONTENTOVERVNET")).toBe('"1"');
+      expect(tfValue(workerTf, "WEBSITE_CONTENTSHARE")).toBe("azurerm_storage_share.fn_ep_content.name");
     });
 
     it("leaves public storage on the default content share", () => {
@@ -325,7 +366,10 @@ describe("App Service hosting exports", () => {
       expect(bicep).toContain("'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2020-06-01'");
 
       const main = file(generateTerraform(hostingGraph), "main.tf");
-      expect(main).toMatch(/private_dns_zone_group \{\n\s+name\s+= "default"\n\s+private_dns_zone_ids = \[azurerm_private_dns_zone\./);
+      const pe = tfBlock(main, "azurerm_private_endpoint", "pe_blob");
+      const group = braced(pe, pe.search(/private_dns_zone_group\s*\{/));
+      expect(tfValue(group, "name")).toBe('"default"');
+      expect(tfValue(group, "private_dns_zone_ids")).toMatch(/^\[azurerm_private_dns_zone\./);
       expect(main).toContain('resource "azurerm_private_dns_zone_virtual_network_link"');
     });
 
@@ -336,8 +380,8 @@ describe("App Service hosting exports", () => {
       };
       const vnet = (JSON.parse(file(generateArm(custom), "azuredeploy.json")).resources as Arm[]).find((r) => r.type === "Microsoft.Network/virtualNetworks");
       expect(vnet?.properties.dhcpOptions).toEqual({ dnsServers: ["10.20.0.4"] });
-      expect(file(generateBicep(custom), "main.bicep")).toMatch(/dhcpOptions: \{\n\s+dnsServers: \[\n\s+'10\.20\.0\.4'/);
-      expect(file(generateTerraform(custom), "main.tf")).toContain('dns_servers         = ["10.20.0.4"]');
+      expect(compact(file(generateBicep(custom), "main.bicep"))).toContain("dhcpOptions: { dnsServers: [ '10.20.0.4' ] }");
+      expect(tfValue(tfBlock(file(generateTerraform(custom), "main.tf"), "azurerm_virtual_network", "vnet_hosting"), "dns_servers")).toBe('["10.20.0.4"]');
       for (const result of [generateAzCli(custom), generatePowerShell(custom)]) {
         if (!result.ok) throw new Error(result.reason);
         expect(result.files.map((f) => f.path)).toContain("azuredeploy.json");
@@ -388,7 +432,7 @@ describe("App Service hosting exports", () => {
       const pe = (JSON.parse(file(generateArm(reordered), "azuredeploy.json")).resources as Arm[]).find((r) => r.type === "Microsoft.Network/privateEndpoints")!;
       expect(pe.properties.privateLinkServiceConnections[0].properties.privateLinkServiceId).toContain("Microsoft.Storage/storageAccounts");
       expect(file(generateBicep(reordered), "main.bicep")).toMatch(/privateLinkServiceId: node_\d+_stflexpriv_resource\.id/);
-      expect(file(generateTerraform(reordered), "main.tf")).toContain("private_connection_resource_id = azurerm_storage_account.stflexpriv.id");
+      expect(tfValue(tfBlock(file(generateTerraform(reordered), "main.tf"), "azurerm_private_endpoint", "pe_blob"), "private_connection_resource_id")).toBe("azurerm_storage_account.stflexpriv.id");
     });
 
     it("survives an ARM import and re-export", () => {
@@ -398,8 +442,7 @@ describe("App Service hosting exports", () => {
       const pe = (JSON.parse(file(generateArm(imported.document), "azuredeploy.json")).resources as Arm[]).find((r) => r.type === "Microsoft.Network/privateEndpoints")!;
       expect(pe.properties.privateLinkServiceConnections[0].properties.privateLinkServiceId).toContain("Microsoft.Storage/storageAccounts");
       const main = file(generateTerraform(imported.document), "main.tf");
-      expect(main).toMatch(/private_connection_resource_id = azurerm_storage_account\.\w+\.id/);
-      expect(main).not.toContain("private_connection_resource_id = null");
+      expect(tfValues(main, "private_connection_resource_id")).toEqual([expect.stringMatching(/^azurerm_storage_account\.\w+\.id$/)]);
 
       // Every resource is unique, and the grants match the original diagram.
       for (const result of [generateArm(imported.document), generateAzCli(imported.document), generatePowerShell(imported.document)]) {
@@ -427,20 +470,19 @@ describe("App Service hosting exports", () => {
 
   it("starts Function Apps on private storage after its endpoints in Bicep and Terraform", () => {
     const bicep = file(generateBicep(hostingGraph), "main.bicep");
-    const flexBicep = bicep.split(/resource node_\d+_fn_flex_resource 'Microsoft.Web\/sites/)[1].split("\n}")[0];
-    expect(flexBicep).toMatch(/dependsOn: \[[^\]]*node_\d+_pe_blob_resource\n[^\]]*node_\d+_pe_blob_resource_dns/);
-    expect(flexBicep).toMatch(/node_\d+_privatelink_blob_core_windows_net_resource_vnet_hosting_link/);
+    const flexDeps = bicepDependsOn(bicepBlock(bicep, /node_\d+_fn_flex_resource/));
+    for (const dep of [/^node_\d+_pe_blob_resource$/, /^node_\d+_pe_blob_resource_dns$/, /^node_\d+_privatelink_blob_core_windows_net_resource_vnet_hosting_link$/]) {
+      expect(flexDeps).toContainEqual(expect.stringMatching(dep));
+    }
     expect(bicep).toMatch(/resource node_\d+_privatelink_blob_core_windows_net_resource_vnet_hosting_link 'Microsoft.Network\/privateDnsZones\/virtualNetworkLinks/);
     const main = file(generateTerraform(hostingGraph), "main.tf");
-    const flexTf = main.split('resource "azurerm_function_app_flex_consumption" "fn_flex"')[1].split("\n}")[0];
-    expect(flexTf).toContain("depends_on = [azurerm_private_endpoint.pe_blob, azurerm_private_dns_zone_virtual_network_link.privatelink_blob_core_windows_net_vnet_hosting]");
+    const flexTf = tfBlock(main, "azurerm_function_app_flex_consumption", "fn_flex");
+    expect(tfValue(flexTf, "depends_on")).toBe("[azurerm_private_endpoint.pe_blob, azurerm_private_dns_zone_virtual_network_link.privatelink_blob_core_windows_net_vnet_hosting]");
     expect(main).toContain('resource "azurerm_private_dns_zone_virtual_network_link" "privatelink_blob_core_windows_net_vnet_hosting"');
     const flexArm = site("fn-flex");
     expect(flexArm.dependsOn).toContain("[resourceId('Microsoft.Network/privateDnsZones/virtualNetworkLinks', 'privatelink.blob.core.windows.net', 'vnet-hosting-link')]");
     const link = (armResources().find((r) => r.type === "Microsoft.Network/privateDnsZones") as Arm & { resources?: Arm[] }).resources?.[0];
     expect(link?.name).toBe("vnet-hosting-link");
-    // Apps on public storage do not wait for anything extra.
-    const y1Tf = main.split('resource "azurerm_linux_function_app" "fn_y1"')[1].split("\n}")[0];
-    expect(y1Tf).not.toContain("depends_on");
+    expect(tfValues(tfBlock(main, "azurerm_linux_function_app", "fn_y1"), "depends_on")).toEqual([]);
   });
 });

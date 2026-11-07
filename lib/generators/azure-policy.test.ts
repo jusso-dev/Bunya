@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { generateAzurePolicy } from "./azure-policy";
-import { firstCutGraph } from "./__fixtures__/firstCut";
-import { fullStackGraph } from "./__fixtures__/fullStack";
+import { firstCutGraph } from "@/lib/graph/__fixtures__/firstCut";
+import { fullStackGraph } from "@/lib/graph/__fixtures__/fullStack";
 import { emptyGraph } from "@/lib/graph/schema";
 import { POLICY_ALIGNMENTS, POLICY_METADATA } from "@/lib/rules/compliance";
 
