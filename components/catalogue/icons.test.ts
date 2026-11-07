@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { SERVICE_TYPES } from "@/lib/graph/schema";
-import manifest from "./icon-manifest.json";
+import manifest from "@/lib/catalogue/icon-manifest.json";
 import { serviceIconPath } from "./icons";
 
 const PUBLIC_DIR = path.resolve(__dirname, "..", "..", "public");

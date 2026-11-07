@@ -91,17 +91,21 @@ type IndexedPolicy = { name: string; properties: Json };
 async function indexDefinitions(repo: string): Promise<Map<string, IndexedPolicy>> {
   const index = new Map<string, IndexedPolicy>();
   const root = path.join(repo, "built-in-policies", "policyDefinitions");
+  const unreadable: string[] = [];
   for (const file of await walk(root)) {
     let json: Json;
     try {
       json = await readJson(file);
     } catch {
+      unreadable.push(path.relative(repo, file));
       continue;
     }
     const name = typeof json.name === "string" ? json.name.toLowerCase() : null;
     const properties = (json.properties ?? json) as Json;
     if (name && typeof properties.displayName === "string") index.set(name, { name, properties });
   }
+  // A policy Bunya maps could be among these, so say which were left out.
+  if (unreadable.length > 0) console.warn(`Skipped ${unreadable.length} unreadable policy definition file(s): ${unreadable.slice(0, 5).join(", ")}${unreadable.length > 5 ? ", ..." : ""}`);
   return index;
 }
 

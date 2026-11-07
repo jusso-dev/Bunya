@@ -31,7 +31,7 @@ import {
 import { ServiceNode, type CanvasNodeData } from "./ServiceNode";
 import { ContainerNode } from "./ContainerNode";
 import { isPortableFile } from "@/lib/graph/portable";
-import { downloadDataUrl, imageFilename, renderDiagramImage, type ImageFormat } from "@/lib/graph/image-export";
+import { downloadDataUrl, imageFilename, renderDiagramImage, type ImageFormat } from "@/components/canvas/image-export";
 import { absolutePosition, placeAt } from "@/lib/session/geometry";
 import { newNode } from "@/lib/session/new-node";
 import { useSessionUi } from "@/lib/session/ui";

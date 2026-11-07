@@ -2,7 +2,7 @@
 // JPEG or PNG in the browser. Nothing is uploaded; the image is downloaded.
 import { toJpeg, toPng } from "html-to-image";
 import { getRectOfNodes, getTransformForBounds, type Node } from "reactflow";
-import { fileStem } from "./filename";
+import { fileStem } from "@/lib/graph/filename";
 
 export type ImageFormat = "jpeg" | "png";
 

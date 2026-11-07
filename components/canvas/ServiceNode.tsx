@@ -2,7 +2,7 @@
 
 import { memo } from "react";
 import { Handle, NodeProps, Position } from "reactflow";
-import { CATEGORY_THEME, ServiceIcon } from "@/lib/catalogue/icons";
+import { CATEGORY_THEME, ServiceIcon } from "@/components/catalogue/icons";
 import { getServiceDefinition } from "@/lib/catalogue/services";
 import { SERVICE_NODE_SIZE, ServiceType } from "@/lib/graph/schema";
 

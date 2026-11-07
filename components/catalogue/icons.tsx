@@ -1,5 +1,5 @@
 import Image, { type ImageProps } from "next/image";
-import { getServiceDefinition, type ServiceCategory } from "./services";
+import { getServiceDefinition, type ServiceCategory } from "@/lib/catalogue/services";
 import { ServiceType } from "@/lib/graph/schema";
 
 export type ServiceIconProps = Omit<ImageProps, "alt" | "height" | "src" | "width"> & {
