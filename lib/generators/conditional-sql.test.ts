@@ -8,43 +8,20 @@ import { noSqlGraph } from "@/lib/graph/__fixtures__/noSql";
 import { firstCutGraph } from "@/lib/graph/__fixtures__/firstCut";
 
 describe("conditional SQL admin password", () => {
-  it("Terraform omits sql_admin_password variable when no sqlDatabase nodes", () => {
-    const result = generateTerraform(noSqlGraph);
+  it.each([
+    { format: "Terraform", generate: generateTerraform, secret: "sql_admin_password", paths: ["variables.tf"] },
+    { format: "Bicep", generate: generateBicep, secret: "sqlAdminPassword", paths: ["main.bicep", "main.parameters.json"] },
+    { format: "ARM", generate: generateArm, secret: "sqlAdminPassword", paths: ["azuredeploy.json", "azuredeploy.parameters.json"] },
+    { format: "az CLI", generate: generateAzCli, secret: "SQL_ADMIN_PASSWORD", paths: ["deploy.sh"] },
+    { format: "PowerShell", generate: generatePowerShell, secret: "SqlAdminPassword", paths: ["Deploy-Infrastructure.ps1"] },
+  ])("$format omits $secret when no sqlDatabase", ({ generate, secret, paths }) => {
+    const result = generate(noSqlGraph);
     if (!result.ok) throw new Error("expected ok");
-    const vars = result.files.find((f) => f.path === "variables.tf")?.content ?? "";
-    expect(vars).not.toContain("sql_admin_password");
-  });
-
-  it("Bicep omits @secure() sqlAdminPassword param when no sqlDatabase", () => {
-    const result = generateBicep(noSqlGraph);
-    if (!result.ok) throw new Error("expected ok");
-    const main = result.files.find((f) => f.path === "main.bicep")?.content ?? "";
-    expect(main).not.toContain("sqlAdminPassword");
-    const params = result.files.find((f) => f.path === "main.parameters.json")?.content ?? "";
-    expect(params).not.toContain("sqlAdminPassword");
-  });
-
-  it("ARM omits sqlAdminPassword parameter when no sqlDatabase", () => {
-    const result = generateArm(noSqlGraph);
-    if (!result.ok) throw new Error("expected ok");
-    const main = result.files.find((f) => f.path === "azuredeploy.json")?.content ?? "";
-    expect(main).not.toContain("sqlAdminPassword");
-    const params = result.files.find((f) => f.path === "azuredeploy.parameters.json")?.content ?? "";
-    expect(params).not.toContain("sqlAdminPassword");
-  });
-
-  it("az CLI omits SQL_ADMIN_PASSWORD guard when no sqlDatabase", () => {
-    const result = generateAzCli(noSqlGraph);
-    if (!result.ok) throw new Error("expected ok");
-    const script = result.files[0].content;
-    expect(script).not.toContain("SQL_ADMIN_PASSWORD");
-  });
-
-  it("PowerShell omits Mandatory SqlAdminPassword param when no sqlDatabase", () => {
-    const result = generatePowerShell(noSqlGraph);
-    if (!result.ok) throw new Error("expected ok");
-    const script = result.files[0].content;
-    expect(script).not.toContain("SqlAdminPassword");
+    for (const path of paths) {
+      const file = result.files.find((f) => f.path === path);
+      expect(file, path).toBeDefined();
+      expect(file!.content).not.toContain(secret);
+    }
   });
 
   it("Terraform still emits sql_admin_password when a sqlDatabase exists", () => {
