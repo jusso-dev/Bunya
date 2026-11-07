@@ -1,133 +1,137 @@
-import {
-  EdgeKind,
-  GraphDocument,
-  GraphEdge,
-  GraphNode,
-  ServiceType,
-} from "@/lib/graph/schema";
+// What every exporter knows about a diagram once it is validated and
+// implicitly expanded. Expansion gives every node a resource group, every
+// site a plan, every Function App a storage account, every Private Endpoint
+// a subnet and every Application Insights component a workspace; validation
+// rejects subnets without a VNet and scale sets without a subnet. Exporters
+// rely on these instead of inventing placeholder names.
+import type { EdgeKind, GraphDocument, GraphEdge, GraphNode } from "@/lib/graph/schema";
+import { subnetVirtualNetwork } from "@/lib/graph/topology";
+import { topologicalSort } from "@/lib/graph/ordering";
 import { azureResourceName, terraformIdentifier } from "./naming";
-import { expandImplicits, ExpandedGraph } from "./implicits";
-import { topologicalSort, TopoResult } from "@/lib/graph/ordering";
+import { expandImplicits } from "./implicits";
+import { validateGeneration } from "./validate";
 
 export type GeneratorContext = {
-  originalDocument: GraphDocument;
-  expanded: ExpandedGraph;
+  // The validated diagram before implicit expansion.
+  source: GraphDocument;
   document: GraphDocument;
+  autoNodeIds: Set<string>;
   nodesById: Map<string, GraphNode>;
   edges: GraphEdge[];
-  rgNode: GraphNode | null;
-  resourceNames: Map<string, string>;
+  rgNode: GraphNode;
   identifiers: Map<string, string>;
-  topo: TopoResult;
+  // Nodes in deployment order; empty when the graph has a cycle.
+  order: GraphNode[];
+  cycle: string[] | null;
+  hasSql: boolean;
+  hasVmss: boolean;
+  name(id: string): string;
+  tags(node: GraphNode): Record<string, string>;
 };
 
-export function buildGeneratorContext(document: GraphDocument): GeneratorContext {
-  const expanded = expandImplicits(document);
-  const expandedDoc = expanded.document;
-  const nodesById = new Map(expandedDoc.nodes.map((n) => [n.id, n]));
-  const seed = expandedDoc.metadata.name;
-
+export function buildGeneratorContext(source: GraphDocument): GeneratorContext {
+  const expanded = expandImplicits(source);
+  const document = expanded.document;
+  const seed = document.metadata.name;
   const resourceNames = new Map<string, string>();
   const identifiers = new Map<string, string>();
   const seenIdents = new Set<string>();
-
-  for (const node of expandedDoc.nodes) {
-    const name = node.exactName ? node.resourceName : azureResourceName(node.type, node.resourceName, seed);
-    resourceNames.set(node.id, name);
+  for (const node of document.nodes) {
+    resourceNames.set(node.id, node.exactName ? node.resourceName : azureResourceName(node.type, node.resourceName, seed));
     let ident = terraformIdentifier(node.resourceName);
     let suffix = 1;
-    while (seenIdents.has(ident)) {
-      ident = `${terraformIdentifier(node.resourceName)}_${suffix++}`;
-    }
+    while (seenIdents.has(ident)) ident = `${terraformIdentifier(node.resourceName)}_${suffix++}`;
     seenIdents.add(ident);
     identifiers.set(node.id, ident);
   }
-
+  const topo = topologicalSort(document);
   return {
-    originalDocument: document,
-    expanded,
-    document: expandedDoc,
-    nodesById,
-    edges: expandedDoc.edges,
-    rgNode: expandedDoc.nodes.find((n) => n.type === "resourceGroup") ?? null,
-    resourceNames,
+    source,
+    document,
+    autoNodeIds: expanded.autoNodeIds,
+    nodesById: new Map(document.nodes.map((node) => [node.id, node])),
+    edges: document.edges,
+    rgNode: document.nodes.find((node) => node.type === "resourceGroup")!,
     identifiers,
-    topo: topologicalSort(expandedDoc),
+    order: topo.ok ? topo.order : [],
+    cycle: topo.ok ? null : topo.cycle,
+    hasSql: document.nodes.some((node) => node.type === "sqlDatabase"),
+    hasVmss: document.nodes.some((node) => node.type === "virtualMachineScaleSet"),
+    name: (id) => resourceNames.get(id)!,
+    tags: (node) => ({
+      environment: document.metadata.environment,
+      managed_by: "bunya",
+      ...((node.properties.tags as Record<string, string> | undefined) ?? {}),
+    }),
   };
 }
 
-export function outgoingOf(ctx: GeneratorContext, sourceId: string, kind?: EdgeKind): GraphEdge[] {
-  return ctx.edges.filter((e) => e.source === sourceId && (!kind || e.kind === kind));
+// `deployment` exporters also need a graph Azure and Bunya can deploy.
+export function prepareGeneration(
+  document: GraphDocument,
+  deployment = true,
+): { ok: true; ctx: GeneratorContext } | { ok: false; reason: string; cycle?: string[] } {
+  const validated = validateGeneration(document, deployment);
+  if (!validated.ok) return validated;
+  const ctx = buildGeneratorContext(validated.document);
+  if (ctx.cycle) return { ok: false, reason: "cycle detected", cycle: ctx.cycle };
+  return { ok: true, ctx };
 }
 
-export function incomingOf(ctx: GeneratorContext, targetId: string, kind?: EdgeKind): GraphEdge[] {
-  return ctx.edges.filter((e) => e.target === targetId && (!kind || e.kind === kind));
+export function targets(ctx: GeneratorContext, sourceId: string, kind: EdgeKind): GraphNode[] {
+  return ctx.edges
+    .filter((edge) => edge.source === sourceId && edge.kind === kind)
+    .map((edge) => ctx.nodesById.get(edge.target)!);
 }
 
-export function findFirstOfType(ctx: GeneratorContext, type: ServiceType): GraphNode | undefined {
-  return ctx.document.nodes.find((n) => n.type === type);
+export function sources(ctx: GeneratorContext, targetId: string, kind: EdgeKind): GraphNode[] {
+  return ctx.edges
+    .filter((edge) => edge.target === targetId && edge.kind === kind)
+    .map((edge) => ctx.nodesById.get(edge.source)!);
+}
+
+export function targetOfType(ctx: GeneratorContext, sourceId: string, kind: EdgeKind, type: GraphNode["type"]): GraphNode | undefined {
+  return targets(ctx, sourceId, kind).find((target) => target.type === type);
 }
 
 export function autoComment(ctx: GeneratorContext, id: string, prefix = "#"): string {
-  return ctx.expanded.autoNodeIds.has(id) || ctx.expanded.autoEdgeIds.has(id)
-    ? `${prefix} auto-generated by implicit expansion`
-    : "";
+  return ctx.autoNodeIds.has(id) ? `${prefix} auto-generated by implicit expansion` : "";
 }
 
-export function resolveResourceGroup(ctx: GeneratorContext, node: GraphNode): GraphNode | null {
+export function resourceGroupOf(ctx: GeneratorContext, node: GraphNode): GraphNode {
   let cursor: GraphNode | undefined = node;
-  const visited = new Set<string>();
   while (cursor) {
-    if (visited.has(cursor.id)) return null;
-    visited.add(cursor.id);
-    if (cursor.parentId) {
-      const parent = ctx.nodesById.get(cursor.parentId);
-      if (!parent) return null;
-      if (parent.type === "resourceGroup") return parent;
-      cursor = parent;
-      continue;
-    }
-    return null;
+    if (cursor.type === "resourceGroup") return cursor;
+    cursor = cursor.parentId ? ctx.nodesById.get(cursor.parentId) : undefined;
   }
-  return null;
+  return ctx.rgNode;
 }
 
-export function resolveVirtualNetwork(
-  ctx: GeneratorContext,
-  node: GraphNode,
-): GraphNode | null {
-  if (node.parentId) {
-    const parent = ctx.nodesById.get(node.parentId);
-    if (parent && parent.type === "virtualNetwork") return parent;
-  }
-  for (const edge of ctx.edges) {
-    if (edge.source !== node.id || edge.kind !== "depends_on") continue;
-    const target = ctx.nodesById.get(edge.target);
-    if (target?.type === "virtualNetwork") return target;
-  }
-  return null;
+export function subnetVnet(ctx: GeneratorContext, subnet: GraphNode): GraphNode {
+  return subnetVirtualNetwork(ctx.document, subnet)!;
 }
 
-export function resolveAppServicePlan(
-  ctx: GeneratorContext,
-  node: GraphNode,
-): GraphNode | null {
-  if (node.parentId) {
-    const parent = ctx.nodesById.get(node.parentId);
-    if (parent?.type === "appServicePlan") return parent;
-  }
-  for (const edge of ctx.edges) {
-    if (edge.source !== node.id || edge.kind !== "depends_on") continue;
-    const target = ctx.nodesById.get(edge.target);
-    if (target?.type === "appServicePlan") return target;
-  }
-  return null;
+export function subnetOf(ctx: GeneratorContext, node: GraphNode): GraphNode | undefined {
+  return targetOfType(ctx, node.id, "network", "subnet");
 }
 
-export function effectiveResourceGroup(ctx: GeneratorContext, node: GraphNode): GraphNode | null {
-  return resolveResourceGroup(ctx, node) ?? ctx.rgNode;
+// Azure SQL databases live on a logical server Bunya names after the database.
+export function sqlServerName(ctx: GeneratorContext, database: GraphNode): string {
+  return `${ctx.name(database.id)}-srv`;
 }
 
-export function graphNeedsSqlAdminPassword(ctx: GeneratorContext): boolean {
-  return ctx.document.nodes.some((n) => n.type === "sqlDatabase");
+export function dnsZoneName(zone: GraphNode): string {
+  return String(zone.properties.zoneName);
+}
+
+export function dnsLinkName(ctx: GeneratorContext, vnet: GraphNode): string {
+  return `${ctx.name(vnet.id)}-link`;
+}
+
+export function endpointZones(ctx: GeneratorContext, pe: GraphNode): GraphNode[] {
+  return targets(ctx, pe.id, "network").filter((target) => target.type === "privateDnsZone");
+}
+
+export function zoneVnets(ctx: GeneratorContext, zone: GraphNode): GraphNode[] {
+  return targets(ctx, zone.id, "network").filter((target) => target.type === "virtualNetwork");
 }

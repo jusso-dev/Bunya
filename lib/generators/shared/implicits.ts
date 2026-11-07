@@ -1,259 +1,103 @@
-import {
-  EdgeKind,
-  GraphDocument,
-  GraphEdge,
-  GraphNode,
-  ServiceType,
-} from "@/lib/graph/schema";
-import { getServiceDefinition } from "@/lib/catalogue/services";
-import { freeSubnetPrefix } from "@/lib/graph/topology";
+import type { EdgeKind, GraphDocument, GraphEdge, GraphNode, ServiceType } from "@/lib/graph/schema";
+import { getServiceDefinition, storagePublicNetwork } from "@/lib/catalogue/services";
+import { freeSubnetPrefix, isSite } from "@/lib/graph/topology";
 import { planFamily } from "@/lib/catalogue/app-service-plans";
-import { storagePublicNetwork } from "@/lib/catalogue/services";
-
-export type ImplicitAddition =
-  | { kind: "node"; node: GraphNode; reason: string }
-  | { kind: "edge"; edge: GraphEdge; reason: string };
 
 export type ExpandedGraph = {
   document: GraphDocument;
-  additions: ImplicitAddition[];
   autoNodeIds: Set<string>;
-  autoEdgeIds: Set<string>;
 };
 
-let counter = 0;
-let reservedIds = new Set<string>();
-function deterministicId(seed: string, kind: string): string {
-  let id: string;
-  do { id = `auto-${kind}-${seed}-${++counter}`; } while (reservedIds.has(id));
-  reservedIds.add(id);
-  return id;
-}
-
-function makeNode(
-  type: ServiceType,
-  baseName: string,
-  position: { x: number; y: number },
-): GraphNode {
-  const def = getServiceDefinition(type);
-  return {
-    id: deterministicId(baseName, type),
-    type,
-    name: `${def.label} (auto)`,
-    resourceName: baseName,
-    position,
-    properties: { ...def.defaultProperties },
-  };
-}
-
-function makeEdge(source: string, target: string, kind: EdgeKind): GraphEdge {
-  return {
-    id: deterministicId(`${source}-${target}`, kind),
-    source,
-    target,
-    kind,
-  };
-}
-
+// Adds the resources Azure requires but the diagram may leave out: a resource
+// group, a plan for each site, storage for each Function App, a subnet for
+// each Private Endpoint and a workspace for each Application Insights
+// component. Existing resources are reused where that keeps hosting the same.
 export function expandImplicits(document: GraphDocument): ExpandedGraph {
-  counter = 0;
-  reservedIds = new Set([...document.nodes, ...document.edges].map((item) => item.id));
   const nodes = [...document.nodes];
   const edges = [...document.edges];
-  const additions: ImplicitAddition[] = [];
   const autoNodeIds = new Set<string>();
-  const autoEdgeIds = new Set<string>();
+  const reservedIds = new Set([...document.nodes, ...document.edges].map((item) => item.id));
+  const slug = document.metadata.name.replace(/[^A-Za-z0-9_-]/g, "-");
+  let counter = 0;
 
-  const findFirstOfType = (t: ServiceType) => nodes.find((n) => n.type === t);
-  const hasOutgoing = (sourceId: string, targetType: ServiceType, kind?: EdgeKind) =>
-    edges.some(
-      (e) =>
-        e.source === sourceId &&
-        nodes.find((n) => n.id === e.target)?.type === targetType &&
-        (kind === undefined || e.kind === kind),
-    );
-  const hasParent = (node: GraphNode, parentType: ServiceType) =>
-    !!node.parentId && nodes.find((n) => n.id === node.parentId)?.type === parentType;
+  const newId = (seed: string, kind: string): string => {
+    let id: string;
+    do { id = `auto-${kind}-${seed}-${++counter}`; } while (reservedIds.has(id));
+    reservedIds.add(id);
+    return id;
+  };
+  const addNode = (type: ServiceType, resourceName: string, position: { x: number; y: number }, properties: Record<string, unknown> = {}): GraphNode => {
+    const def = getServiceDefinition(type);
+    const node: GraphNode = {
+      id: newId(resourceName, type),
+      type,
+      name: `${def.label} (auto)`,
+      resourceName,
+      position,
+      properties: { ...def.defaultProperties, ...properties },
+    };
+    nodes.push(node);
+    autoNodeIds.add(node.id);
+    return node;
+  };
+  const addEdge = (source: string, target: string, kind: EdgeKind) => {
+    const edge: GraphEdge = { id: newId(`${source}-${target}`, kind), source, target, kind };
+    edges.push(edge);
+  };
+  const typeOf = (id: string | null | undefined) => nodes.find((node) => node.id === id)?.type;
+  const hasOutgoing = (sourceId: string, targetType: ServiceType, kind: EdgeKind) =>
+    edges.some((edge) => edge.source === sourceId && edge.kind === kind && typeOf(edge.target) === targetType);
 
-  let resourceGroup = findFirstOfType("resourceGroup");
-  if (!resourceGroup) {
-    resourceGroup = makeNode("resourceGroup", `rg-${document.metadata.name.replace(/[^A-Za-z0-9_-]/g, "-")}`, { x: 0, y: 0 });
-    nodes.push(resourceGroup);
-    autoNodeIds.add(resourceGroup.id);
-    additions.push({ kind: "node", node: resourceGroup, reason: "no Resource Group present in graph" });
-  }
+  const resourceGroup = nodes.find((node) => node.type === "resourceGroup") ?? addNode("resourceGroup", `rg-${slug}`, { x: 0, y: 0 });
   for (let i = 0; i < nodes.length; i++) {
-    const n = nodes[i];
-    if (n.type === "resourceGroup") continue;
-    if (n.parentId) continue;
-    nodes[i] = { ...n, parentId: resourceGroup.id };
+    if (nodes[i].type !== "resourceGroup" && !nodes[i].parentId) nodes[i] = { ...nodes[i], parentId: resourceGroup.id };
   }
 
   // Unattached sites share a dedicated Linux plan. Reusing a Flex,
   // Consumption, Elastic Premium or Windows plan would silently change
   // how the app is hosted (and often fails to deploy).
-  let plan = nodes.find(
-    (n) => n.type === "appServicePlan" && planFamily(n.properties.sku) === "dedicated" && n.properties.os !== "Windows",
-  );
-  const computeNodes = nodes.filter(
-    (n) => n.type === "appService" || n.type === "functionApp",
-  );
-
-  for (const c of computeNodes) {
-    if (!hasOutgoing(c.id, "appServicePlan", "depends_on") && !hasParent(c, "appServicePlan")) {
-      if (!plan) {
-        plan = makeNode("appServicePlan", `plan-${document.metadata.name.replace(/[^A-Za-z0-9_-]/g, "-")}`, {
-          x: c.position.x,
-          y: c.position.y + 120,
-        });
-        nodes.push(plan);
-        autoNodeIds.add(plan.id);
-        additions.push({
-          kind: "node",
-          node: plan,
-          reason: "App Service or Function App requires an App Service Plan",
-        });
-      }
-      const edge = makeEdge(c.id, plan.id, "depends_on");
-      edges.push(edge);
-      autoEdgeIds.add(edge.id);
-      additions.push({
-        kind: "edge",
-        edge,
-        reason: `${c.type} must depend on an App Service Plan`,
-      });
-    }
+  let plan = nodes.find((node) => node.type === "appServicePlan" && planFamily(node.properties.sku) === "dedicated" && node.properties.os !== "Windows");
+  for (const site of nodes.filter(isSite)) {
+    if (hasOutgoing(site.id, "appServicePlan", "depends_on") || typeOf(site.parentId) === "appServicePlan") continue;
+    plan ??= addNode("appServicePlan", `plan-${slug}`, { x: site.position.x, y: site.position.y + 120 });
+    addEdge(site.id, plan.id, "depends_on");
   }
 
-  const fnNodes = nodes.filter((n) => n.type === "functionApp");
   // Only reuse an account the app can reach without private networking.
-  let storage = nodes.find((n) => n.type === "storageAccount" && storagePublicNetwork(n.properties));
-  for (const fn of fnNodes) {
-    if (!hasOutgoing(fn.id, "storageAccount", "data")) {
-      if (!storage) {
-        storage = makeNode("storageAccount", `${document.metadata.name.replace(/[^A-Za-z0-9_-]/g, "-")}fn`, {
-          x: fn.position.x + 200,
-          y: fn.position.y + 120,
-        });
-        // The app has no private path to an auto-added account, so it must
-        // reach the public endpoint. Anonymous blob access stays off.
-        storage.properties = { ...storage.properties, publicNetworkAccess: true };
-        nodes.push(storage);
-        autoNodeIds.add(storage.id);
-        additions.push({
-          kind: "node",
-          node: storage,
-          reason: "Function App requires a backing Storage Account",
-        });
-      }
-      const edge = makeEdge(fn.id, storage.id, "data");
-      edges.push(edge);
-      autoEdgeIds.add(edge.id);
-      additions.push({
-        kind: "edge",
-        edge,
-        reason: "Function App needs a Storage Account for state",
-      });
-    }
+  let storage = nodes.find((node) => node.type === "storageAccount" && storagePublicNetwork(node.properties));
+  for (const fn of nodes.filter((node) => node.type === "functionApp")) {
+    if (hasOutgoing(fn.id, "storageAccount", "data")) continue;
+    // The app has no private path to an auto-added account, so it must
+    // reach the public endpoint. Anonymous blob access stays off.
+    storage ??= addNode("storageAccount", `${slug}fn`, { x: fn.position.x + 200, y: fn.position.y + 120 }, { publicNetworkAccess: true });
+    addEdge(fn.id, storage.id, "data");
   }
 
-  const peNodes = nodes.filter((n) => n.type === "privateEndpoint");
-  if (peNodes.length > 0) {
-    // A Private Endpoint cannot share a subnet delegated to a service (for
-    // example App Service VNet integration), so never place one there.
-    const usableForEndpoints = (candidate: GraphNode) =>
-      !(Array.isArray(candidate.properties.delegations) && candidate.properties.delegations.length > 0) &&
-      !edges.some((edge) => edge.target === candidate.id && edge.kind === "network" &&
-        ["appService", "functionApp"].includes(nodes.find((n) => n.id === edge.source)?.type ?? ""));
-    let subnet = nodes.find((n) => n.type === "subnet" && usableForEndpoints(n));
-    let vnet = findFirstOfType("virtualNetwork");
-    for (const pe of peNodes) {
-      if (!hasOutgoing(pe.id, "subnet", "network")) {
-        if (!subnet) {
-          if (!vnet) {
-            vnet = makeNode("virtualNetwork", `vnet-${document.metadata.name.replace(/[^A-Za-z0-9_-]/g, "-")}`, {
-              x: pe.position.x - 240,
-              y: pe.position.y - 80,
-            });
-            nodes.push(vnet);
-            autoNodeIds.add(vnet.id);
-            additions.push({
-              kind: "node",
-              node: vnet,
-              reason: "Private Endpoint needs a hosting Virtual Network",
-            });
-          }
-          subnet = makeNode("subnet", `snet-pe-${document.metadata.name.replace(/[^A-Za-z0-9_-]/g, "-")}`, {
-            x: pe.position.x - 240,
-            y: pe.position.y + 40,
-          });
-          // The default prefix may fall outside an existing VNet's address space.
-          const prefix = freeSubnetPrefix(vnet.properties.addressSpace, []);
-          if (prefix) subnet.properties = { ...subnet.properties, addressPrefix: prefix };
-          nodes.push(subnet);
-          autoNodeIds.add(subnet.id);
-          additions.push({
-            kind: "node",
-            node: subnet,
-            reason: "Private Endpoint needs a delegated Subnet",
-          });
-          const snToVnet = makeEdge(subnet.id, vnet.id, "depends_on");
-          edges.push(snToVnet);
-          autoEdgeIds.add(snToVnet.id);
-          additions.push({
-            kind: "edge",
-            edge: snToVnet,
-            reason: "Subnet belongs to Virtual Network",
-          });
-        }
-        const peToSubnet = makeEdge(pe.id, subnet.id, "network");
-        edges.push(peToSubnet);
-        autoEdgeIds.add(peToSubnet.id);
-        additions.push({
-          kind: "edge",
-          edge: peToSubnet,
-          reason: "Private Endpoint must be wired to a subnet",
-        });
-      }
+  // A Private Endpoint cannot share a subnet delegated to a service (for
+  // example App Service VNet integration), so never place one there.
+  const usableForEndpoints = (candidate: GraphNode) =>
+    !(Array.isArray(candidate.properties.delegations) && candidate.properties.delegations.length > 0) &&
+    !edges.some((edge) => edge.target === candidate.id && edge.kind === "network" && isSite(nodes.find((node) => node.id === edge.source)));
+  let subnet = nodes.find((node) => node.type === "subnet" && usableForEndpoints(node));
+  let vnet = nodes.find((node) => node.type === "virtualNetwork");
+  for (const pe of nodes.filter((node) => node.type === "privateEndpoint")) {
+    if (hasOutgoing(pe.id, "subnet", "network")) continue;
+    if (!subnet) {
+      vnet ??= addNode("virtualNetwork", `vnet-${slug}`, { x: pe.position.x - 240, y: pe.position.y - 80 });
+      // The default prefix may fall outside an existing VNet's address space.
+      const prefix = freeSubnetPrefix(vnet.properties.addressSpace, []);
+      subnet = addNode("subnet", `snet-pe-${slug}`, { x: pe.position.x - 240, y: pe.position.y + 40 }, prefix ? { addressPrefix: prefix } : {});
+      addEdge(subnet.id, vnet.id, "depends_on");
     }
+    addEdge(pe.id, subnet.id, "network");
   }
 
-  const aiNodes = nodes.filter((n) => n.type === "applicationInsights");
-  let workspace = findFirstOfType("logAnalytics");
-  for (const ai of aiNodes) {
-    if (!hasOutgoing(ai.id, "logAnalytics", "depends_on")) {
-      if (!workspace) {
-        workspace = makeNode("logAnalytics", `log-${document.metadata.name.replace(/[^A-Za-z0-9_-]/g, "-")}`, {
-          x: ai.position.x + 200,
-          y: ai.position.y,
-        });
-        nodes.push(workspace);
-        autoNodeIds.add(workspace.id);
-        additions.push({
-          kind: "node",
-          node: workspace,
-          reason: "Application Insights v2 workspace-based requires Log Analytics",
-        });
-      }
-      const edge = makeEdge(ai.id, workspace.id, "depends_on");
-      edges.push(edge);
-      autoEdgeIds.add(edge.id);
-      additions.push({
-        kind: "edge",
-        edge,
-        reason: "Application Insights must reference a Log Analytics workspace",
-      });
-    }
+  let workspace = nodes.find((node) => node.type === "logAnalytics");
+  for (const ai of nodes.filter((node) => node.type === "applicationInsights")) {
+    if (hasOutgoing(ai.id, "logAnalytics", "depends_on")) continue;
+    workspace ??= addNode("logAnalytics", `log-${slug}`, { x: ai.position.x + 200, y: ai.position.y });
+    addEdge(ai.id, workspace.id, "depends_on");
   }
 
-  return {
-    document: { ...document, nodes, edges },
-    additions,
-    autoNodeIds,
-    autoEdgeIds,
-  };
-}
-
-export function isAutoGenerated(graph: ExpandedGraph, id: string): boolean {
-  return graph.autoNodeIds.has(id) || graph.autoEdgeIds.has(id);
+  return { document: { ...document, nodes, edges }, autoNodeIds };
 }

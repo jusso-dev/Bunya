@@ -1,18 +1,14 @@
-import { validateGeneration } from "./shared/validate";
 import { GraphDocument } from "@/lib/graph/schema";
 import { GeneratedFile, GeneratorResult } from "./types";
-import { buildGeneratorContext } from "./shared/context";
+import { prepareGeneration } from "./shared/context";
 import { generateMermaid } from "./mermaid";
 import { getServiceDefinition } from "@/lib/catalogue/services";
 
 export function generateReadme(document: GraphDocument): GeneratorResult {
-  const validated = validateGeneration(document, false);
-  if (!validated.ok) return validated;
-  document = validated.document;
-  const ctx = buildGeneratorContext(document);
-  if (!ctx.topo.ok) {
-    return { ok: false, reason: "cycle detected", cycle: ctx.topo.cycle };
-  }
+  const prepared = prepareGeneration(document, false);
+  if (!prepared.ok) return prepared;
+  const { ctx } = prepared;
+  document = ctx.source;
 
   const grouped = new Map<string, { name: string; resourceName: string; auto: boolean }[]>();
   for (const node of ctx.document.nodes) {
@@ -20,14 +16,14 @@ export function generateReadme(document: GraphDocument): GeneratorResult {
     if (!grouped.has(def.label)) grouped.set(def.label, []);
     grouped.get(def.label)!.push({
       name: node.name,
-      resourceName: ctx.resourceNames.get(node.id)!,
-      auto: ctx.expanded.autoNodeIds.has(node.id),
+      resourceName: ctx.name(node.id),
+      auto: ctx.autoNodeIds.has(node.id),
     });
   }
 
   const mermaid = generateMermaid(document);
-  const mermaidContent =
-    mermaid.ok && mermaid.files[0] ? mermaid.files[0].content : "%% mermaid unavailable";
+  if (!mermaid.ok) return mermaid;
+  const mermaidContent = mermaid.files[0].content;
 
   const lines: string[] = [
     `# ${document.metadata.name}`,

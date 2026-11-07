@@ -4,13 +4,12 @@ import { GraphDocumentSchema, type GraphDocument } from "../../graph/schema";
 import { checkImportText, checkObjectDepth } from "../../graph/limits";
 import { topologyProblems } from "../../graph/topology";
 import { expandImplicits } from "./implicits";
-import { assertExportLiterals } from "../../graph/literal";
+import { MAX_LITERAL, assertExportLiterals } from "../../graph/literal";
 
 // Display names reach only diagrams and docs, never deployment code, so they
 // may also use parentheses, e.g. the catalogue label "Web App (App Service)".
 const displayName = /^[\p{L}\p{N} ._/@:+,=*()-]*$/u;
 
-// Schema errors arrive as JSON issue lists; turn them into sentences.
 function readableError(error: unknown): string {
   if (error instanceof ZodError) {
     const lines = error.issues.slice(0, 10).map((issue) => {
@@ -33,7 +32,7 @@ export function validateGeneration(document: GraphDocument, deployment = true): 
     assertExportLiterals(parsed.metadata, "Document");
     if (!/^[A-Za-z0-9_.-]+$/.test(parsed.metadata.resourceGroupName)) throw new Error("Resource group name must use letters, numbers, dots, underscores or hyphens.");
     for (const node of parsed.nodes) {
-      if (!displayName.test(node.name) || node.name.length > 4096) throw new Error(`${node.name.slice(0, 80)}: display name contains unsupported characters. Use letters, numbers, spaces and basic punctuation.`);
+      if (!displayName.test(node.name) || node.name.length > MAX_LITERAL) throw new Error(`${node.name.slice(0, 80)}: display name contains unsupported characters. Use letters, numbers, spaces and basic punctuation.`);
       if (!/^[A-Za-z0-9_.-]+$/.test(node.resourceName)) throw new Error(`${node.name} "${node.resourceName.slice(0, 80)}": resource name must use letters, numbers, dots, underscores or hyphens. Rename it in the inspector.`);
       const properties = getServiceDefinition(node.type).propertiesSchema.parse(node.properties) as Record<string, unknown>;
       if (node.properties.tags !== undefined) {
@@ -49,8 +48,6 @@ export function validateGeneration(document: GraphDocument, deployment = true): 
       node.properties = properties;
     }
     if (deployment) {
-      // Check the graph as drawn and as exporters emit it, including plans and
-      // edges implicit expansion adds for unattached apps.
       const messages = new Set<string>();
       const problems = [...topologyProblems(parsed), ...topologyProblems(expandImplicits(parsed).document)].filter((problem) => {
         if (messages.has(problem.message)) return false;

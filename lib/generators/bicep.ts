@@ -1,43 +1,37 @@
-import { validateGeneration } from "./shared/validate";
 import { GraphDocument, GraphNode, ServiceType } from "@/lib/graph/schema";
 import {
   GeneratorContext,
   autoComment,
-  buildGeneratorContext,
-  incomingOf,
-  outgoingOf,
-  resolveVirtualNetwork,
+  dnsLinkName,
+  dnsZoneName,
+  endpointZones,
+  prepareGeneration,
+  sqlServerName,
+  subnetOf,
+  subnetVnet,
+  targetOfType,
+  zoneVnets,
 } from "./shared/context";
 import { GeneratedFile, GeneratorResult } from "./types";
-import { expr, planBody, siteBody, toBicep, type Refs } from "./shared/site-resource";
-import { roleAssignmentsFor } from "./shared/roles";
+import { expr, planBody, siteBody, toBicep, type Refs, type SiteBody } from "./shared/site-resource";
+import { portableGrants, roleSlug, type RoleGrant } from "./shared/roles";
 import { quote } from "./shared/quote";
-import { contentShareName } from "./shared/hosting";
+import { apiVersion } from "./shared/api-versions";
+import { contentShareName, deploymentContainerName } from "./shared/hosting";
 import { privateEndpointTarget, subnetDelegations } from "@/lib/graph/topology";
 import { storagePublicNetwork } from "@/lib/catalogue/services";
+import { tlsVersionToArm } from "@/lib/catalogue/azure";
 
-function bicepIdent(raw: string): string {
-  const cleaned = raw.toLowerCase().replace(/[^a-z0-9]/g, "_");
-  if (/^[0-9]/.test(cleaned)) return `r_${cleaned}`;
-  return cleaned.length > 0 ? cleaned : "resource";
-}
-
-function name(ctx: GeneratorContext, id: string): string {
-  return ctx.resourceNames.get(id) ?? id;
+function typed(armType: string): string {
+  return `${armType}@${apiVersion(armType)}`;
 }
 
 function nodeRef(ctx: GeneratorContext, id: string): string {
-  return `node_${ctx.document.nodes.findIndex((node) => node.id === id)}_${ctx.identifiers.get(id) ?? bicepIdent(id)}_resource`;
+  return `node_${ctx.document.nodes.findIndex((node) => node.id === id)}_${ctx.identifiers.get(id)}_resource`;
 }
 
 function tagsLiteral(ctx: GeneratorContext, node: GraphNode): string {
-  const userTags = (node.properties.tags as Record<string, string> | undefined) ?? {};
-  const merged = {
-    environment: ctx.document.metadata.environment,
-    managed_by: "bunya",
-    ...userTags,
-  };
-  const entries = Object.entries(merged)
+  const entries = Object.entries(ctx.tags(node))
     .map(([k, v]) => `    '${k}': '${v}'`)
     .join("\n");
   return `  tags: {\n${entries}\n  }`;
@@ -53,17 +47,17 @@ function emitResourceGroup(): string {
 
 function emitVirtualNetwork(node: GraphNode, ctx: GeneratorContext): string {
   const ident = nodeRef(ctx, node.id);
-  const addressSpace = (node.properties.addressSpace as string) ?? "10.0.0.0/16";
+  const addressSpace = String(node.properties.addressSpace);
   return [
     autoComment(ctx, node.id, "//"),
-    `resource ${ident} 'Microsoft.Network/virtualNetworks@2023-11-01' = {`,
-    `  name: '${name(ctx, node.id)}'`,
+    `resource ${ident} '${typed("Microsoft.Network/virtualNetworks")}' = {`,
+    `  name: '${ctx.name(node.id)}'`,
     `  location: location`,
     `  properties: {`,
     `    addressSpace: {`,
     `      addressPrefixes: [`,
     `        '${addressSpace}'`,
-    ...((node.properties.additionalAddressSpaces as string[] | undefined) ?? []).map((space) => `        '${space}'`),
+    ...((node.properties.additionalAddressSpaces as string[])).map((space) => `        '${space}'`),
     `      ]`,
     `    }`,
     ...(Array.isArray(node.properties.dnsServers) && (node.properties.dnsServers as string[]).length > 0
@@ -77,17 +71,15 @@ function emitVirtualNetwork(node: GraphNode, ctx: GeneratorContext): string {
 
 function emitSubnet(node: GraphNode, ctx: GeneratorContext): string {
   const ident = nodeRef(ctx, node.id);
-  const prefix = (node.properties.addressPrefix as string) ?? "10.0.1.0/24";
-  const vnet = resolveVirtualNetwork(ctx, node);
-  const vnetIdent = vnet ? nodeRef(ctx, vnet.id) : "mainVnet";
+  const prefix = String(node.properties.addressPrefix);
   return [
     autoComment(ctx, node.id, "//"),
-    `resource ${ident} 'Microsoft.Network/virtualNetworks/subnets@2023-11-01' = {`,
-    `  name: '${name(ctx, node.id)}'`,
-    `  parent: ${vnetIdent}`,
+    `resource ${ident} '${typed("Microsoft.Network/virtualNetworks/subnets")}' = {`,
+    `  name: '${ctx.name(node.id)}'`,
+    `  parent: ${nodeRef(ctx, subnetVnet(ctx, node).id)}`,
     `  properties: {`,
     `    addressPrefix: '${prefix}'`,
-    `    privateEndpointNetworkPolicies: '${(node.properties.privateEndpointNetworkPolicies as string) ?? "Disabled"}'`,
+    `    privateEndpointNetworkPolicies: '${String(node.properties.privateEndpointNetworkPolicies)}'`,
     ...delegationLines(ctx, node),
     `  }`,
     `}`,
@@ -115,8 +107,8 @@ function emitNsg(node: GraphNode, ctx: GeneratorContext): string {
   const ident = nodeRef(ctx, node.id);
   return [
     autoComment(ctx, node.id, "//"),
-    `resource ${ident} 'Microsoft.Network/networkSecurityGroups@2023-11-01' = {`,
-    `  name: '${name(ctx, node.id)}'`,
+    `resource ${ident} '${typed("Microsoft.Network/networkSecurityGroups")}' = {`,
+    `  name: '${ctx.name(node.id)}'`,
     `  location: location`,
     `  properties: {`,
     `    securityRules: []`,
@@ -126,22 +118,19 @@ function emitNsg(node: GraphNode, ctx: GeneratorContext): string {
   ].filter(Boolean).join("\n");
 }
 
-// Registers the endpoint's private IP in the zones it is wired to.
-function bicepZoneGroup(ctx: GeneratorContext, node: GraphNode, ident: string): string[] {
-  const zones = outgoingOf(ctx, node.id, "network")
-    .map((edge) => ctx.nodesById.get(edge.target))
-    .filter((target): target is GraphNode => target?.type === "privateDnsZone");
+function bicepZoneGroup(ctx: GeneratorContext, node: GraphNode): string[] {
+  const zones = endpointZones(ctx, node);
   if (zones.length === 0) return [];
   return [
     ``,
-    `resource ${ident}_dns 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups@2023-11-01' = {`,
-    `  parent: ${ident}`,
+    `resource ${zoneGroupRef(ctx, node)} '${typed("Microsoft.Network/privateEndpoints/privateDnsZoneGroups")}' = {`,
+    `  parent: ${nodeRef(ctx, node.id)}`,
     `  name: 'default'`,
     `  properties: {`,
     `    privateDnsZoneConfigs: [`,
     ...zones.flatMap((zone) => [
       `      {`,
-      `        name: '${String(zone.properties.zoneName ?? name(ctx, zone.id)).replace(/\./g, "-")}'`,
+      `        name: '${dnsZoneName(zone).replace(/\./g, "-")}'`,
       `        properties: {`,
       `          privateDnsZoneId: ${nodeRef(ctx, zone.id)}.id`,
       `        }`,
@@ -155,17 +144,14 @@ function bicepZoneGroup(ctx: GeneratorContext, node: GraphNode, ident: string): 
 
 function emitPrivateEndpoint(node: GraphNode, ctx: GeneratorContext): string {
   const ident = nodeRef(ctx, node.id);
-  const subnetEdge = outgoingOf(ctx, node.id, "network").find(
-    (e) => ctx.nodesById.get(e.target)?.type === "subnet",
-  );
-  const subnetIdent = subnetEdge ? nodeRef(ctx, subnetEdge.target) : "mainSubnet";
+  const subnetIdent = nodeRef(ctx, subnetOf(ctx, node)!.id);
   const target = privateEndpointTarget(ctx.document, node);
-  const targetIdent = target ? nodeRef(ctx, target.id) : "targetService";
-  const groupId = (node.properties.groupId as string) ?? "blob";
+  const targetId = target ? `${nodeRef(ctx, target.id)}.id` : "null";
+  const groupId = String(node.properties.groupId);
   return [
     autoComment(ctx, node.id, "//"),
-    `resource ${ident} 'Microsoft.Network/privateEndpoints@2023-11-01' = {`,
-    `  name: '${name(ctx, node.id)}'`,
+    `resource ${ident} '${typed("Microsoft.Network/privateEndpoints")}' = {`,
+    `  name: '${ctx.name(node.id)}'`,
     `  location: location`,
     `  properties: {`,
     `    subnet: {`,
@@ -173,9 +159,9 @@ function emitPrivateEndpoint(node: GraphNode, ctx: GeneratorContext): string {
     `    }`,
     `    privateLinkServiceConnections: [`,
     `      {`,
-    `        name: '${name(ctx, node.id)}-psc'`,
+    `        name: '${ctx.name(node.id)}-psc'`,
     `        properties: {`,
-    `          privateLinkServiceId: ${targetIdent}.id`,
+    `          privateLinkServiceId: ${targetId}`,
     `          groupIds: [`,
     `            '${groupId}'`,
     `          ]`,
@@ -185,33 +171,37 @@ function emitPrivateEndpoint(node: GraphNode, ctx: GeneratorContext): string {
     `  }`,
     tagsLiteral(ctx, node),
     `}`,
-    ...bicepZoneGroup(ctx, node, ident),
+    ...bicepZoneGroup(ctx, node),
   ].filter(Boolean).join("\n");
 }
 
 function bicepRefs(ctx: GeneratorContext): Refs {
-  const storageIdent = (storage: GraphNode | null) => (storage ? nodeRef(ctx, storage.id) : "mainStorage");
   return {
-    id: (node) => expr(`${nodeRef(ctx, node.id)}.id`, ""),
-    name: (node) => name(ctx, node.id),
+    id: (node) => expr(`${nodeRef(ctx, node.id)}.id`),
     storageConnectionString: (storage) => {
-      const ident = storageIdent(storage);
-      return expr(`'DefaultEndpointsProtocol=https;AccountName=\${${ident}.name};EndpointSuffix=\${environment().suffixes.storage};AccountKey=\${${ident}.listKeys().keys[0].value}'`, "");
+      const ident = nodeRef(ctx, storage.id);
+      return expr(`'DefaultEndpointsProtocol=https;AccountName=\${${ident}.name};EndpointSuffix=\${environment().suffixes.storage};AccountKey=\${${ident}.listKeys().keys[0].value}'`);
     },
-    // emitSite fills in the container path for Flex apps.
-    blobEndpoint: (storage) => expr(`${storageIdent(storage)}.properties.primaryEndpoints.blob`, ""),
-    appInsightsConnectionString: (component) => expr(`${nodeRef(ctx, component.id)}.properties.ConnectionString`, ""),
-    userIdentityClientId: (identity) => expr(`${nodeRef(ctx, identity.id)}.properties.clientId`, ""),
+    deploymentContainerUrl: (storage, site) => expr(`'\${${nodeRef(ctx, storage.id)}.properties.primaryEndpoints.blob}${deploymentContainerName(ctx, site)}'`),
+    appInsightsConnectionString: (component) => expr(`${nodeRef(ctx, component.id)}.properties.ConnectionString`),
+    userIdentityClientId: (identity) => expr(`${nodeRef(ctx, identity.id)}.properties.clientId`),
   };
 }
+
+const contentShareRef = (ctx: GeneratorContext, site: GraphNode) => `${nodeRef(ctx, site.id)}_contentshare`;
+const deploymentRef = (ctx: GeneratorContext, site: GraphNode) => `${nodeRef(ctx, site.id)}_deployment`;
+const zoneGroupRef = (ctx: GeneratorContext, pe: GraphNode) => `${nodeRef(ctx, pe.id)}_dns`;
+const dnsLinkRef = (ctx: GeneratorContext, zone: GraphNode, vnet: GraphNode) => `${nodeRef(ctx, zone.id)}_${ctx.identifiers.get(vnet.id)}_link`;
+const grantRef = (ctx: GeneratorContext, { principal, scope, role }: Pick<RoleGrant, "principal" | "scope" | "role">) =>
+  `${nodeRef(ctx, principal.id)}_${nodeRef(ctx, scope.id)}_${scope.type === "keyVault" ? "secrets" : roleSlug(role)}`;
 
 function emitAppServicePlan(node: GraphNode, ctx: GeneratorContext): string {
   const ident = nodeRef(ctx, node.id);
   const body = planBody(node);
   return [
     autoComment(ctx, node.id, "//"),
-    `resource ${ident} 'Microsoft.Web/serverfarms@2024-04-01' = {`,
-    `  name: '${name(ctx, node.id)}'`,
+    `resource ${ident} '${typed("Microsoft.Web/serverfarms")}' = {`,
+    `  name: '${ctx.name(node.id)}'`,
     `  location: location`,
     `  kind: '${body.kind}'`,
     `  sku: ${toBicep(body.sku, 1)}`,
@@ -224,36 +214,31 @@ function emitAppServicePlan(node: GraphNode, ctx: GeneratorContext): string {
 function emitSite(node: GraphNode, ctx: GeneratorContext): string {
   const ident = nodeRef(ctx, node.id);
   const body = siteBody(ctx, node, bicepRefs(ctx));
+  const storageIdent = body.hosting.storage ? nodeRef(ctx, body.hosting.storage.id) : "";
   const lines = [autoComment(ctx, node.id, "//")];
   if (body.hosting.privateContentShare) {
     // Secured storage: the content share must exist before the app.
-    const storageIdent = body.hosting.storage ? nodeRef(ctx, body.hosting.storage.id) : "mainStorage";
     lines.push(
-      `resource ${ident}_contentshare 'Microsoft.Storage/storageAccounts/fileServices/shares@2023-05-01' = {`,
+      `resource ${contentShareRef(ctx, node)} '${typed("Microsoft.Storage/storageAccounts/fileServices/shares")}' = {`,
       `  name: '\${${storageIdent}.name}/default/${contentShareName(ctx, node)}'`,
       `}`,
       ``,
     );
   }
-  if (body.hosting.family === "flex" && node.type === "functionApp") {
-    // Flex Consumption deploys packages from a blob container.
-    const storage = body.hosting.storage;
-    const storageIdent = storage ? nodeRef(ctx, storage.id) : "mainStorage";
+  if (body.hosting.flex) {
     lines.push(
-      `resource ${ident}_deployment 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {`,
-      `  name: '\${${storageIdent}.name}/default/${body.hosting.deploymentContainer}'`,
+      `resource ${deploymentRef(ctx, node)} '${typed("Microsoft.Storage/storageAccounts/blobServices/containers")}' = {`,
+      `  name: '\${${storageIdent}.name}/default/${deploymentContainerName(ctx, node)}'`,
       `  properties: {`,
       `    publicAccess: 'None'`,
       `  }`,
       `}`,
       ``,
     );
-    const config = (body.properties.functionAppConfig as Record<string, Record<string, Record<string, unknown>>>).deployment.storage;
-    config.value = expr(`'\${${storageIdent}.properties.primaryEndpoints.blob}${body.hosting.deploymentContainer}'`, "");
   }
   lines.push(
-    `resource ${ident} 'Microsoft.Web/sites@2024-04-01' = {`,
-    `  name: '${name(ctx, node.id)}'`,
+    `resource ${ident} '${typed("Microsoft.Web/sites")}' = {`,
+    `  name: '${ctx.name(node.id)}'`,
     `  location: location`,
     `  kind: '${body.kind}'`,
     `  identity: ${toBicep(body.identity, 1)}`,
@@ -265,34 +250,30 @@ function emitSite(node: GraphNode, ctx: GeneratorContext): string {
   return lines.filter(Boolean).join("\n");
 }
 
-// Bicep infers most ordering; add the Flex deployment container and, for a
-// user-assigned pull identity, its AcrPull grant so the first pull succeeds.
-function siteDependsOn(ctx: GeneratorContext, node: GraphNode, hosting: ReturnType<typeof siteBody>["hosting"]): string[] {
+// Bicep infers most ordering. A user-assigned pull identity needs its AcrPull
+// grant before the site starts, so the first pull succeeds.
+function siteDependsOn(ctx: GeneratorContext, node: GraphNode, hosting: SiteBody["hosting"]): string[] {
   const deps: string[] = [];
-  if (hosting.family === "flex" && node.type === "functionApp") deps.push(`${nodeRef(ctx, node.id)}_deployment`);
-  if (hosting.privateContentShare) deps.push(`${nodeRef(ctx, node.id)}_contentshare`);
-  // Private storage: wait for its endpoints and their DNS zone groups.
+  if (hosting.flex) deps.push(deploymentRef(ctx, node));
+  if (hosting.privateContentShare) deps.push(contentShareRef(ctx, node));
   for (const { pe, hasDns } of hosting.storageEndpoints) {
     deps.push(nodeRef(ctx, pe.id));
-    if (hasDns) deps.push(`${nodeRef(ctx, pe.id)}_dns`);
+    if (hasDns) deps.push(zoneGroupRef(ctx, pe));
   }
-  for (const { zone, vnet } of hosting.storageDnsLinks) deps.push(`${nodeRef(ctx, zone.id)}_${ctx.identifiers.get(vnet.id)}_link`);
+  for (const { zone, vnet } of hosting.storageDnsLinks) deps.push(dnsLinkRef(ctx, zone, vnet));
   if (hosting.registry && hosting.pullIdentity?.kind === "user") {
-    deps.push(`${nodeRef(ctx, hosting.pullIdentity.node.id)}_${nodeRef(ctx, hosting.registry.id)}_acrpull`);
+    deps.push(grantRef(ctx, { principal: hosting.pullIdentity.node, scope: hosting.registry, role: "AcrPull" }));
   }
   return deps.length > 0 ? [`  dependsOn: [`, ...deps.map((dep) => `    ${dep}`), `  ]`] : [];
 }
 
-const emitAppService = emitSite;
-const emitFunctionApp = emitSite;
-
 function emitStaticWebApp(node: GraphNode, ctx: GeneratorContext): string {
   const ident = nodeRef(ctx, node.id);
-  const sku = (node.properties.sku as string) ?? "Standard";
+  const sku = String(node.properties.sku);
   return [
     autoComment(ctx, node.id, "//"),
-    `resource ${ident} 'Microsoft.Web/staticSites@2023-12-01' = {`,
-    `  name: '${name(ctx, node.id)}'`,
+    `resource ${ident} '${typed("Microsoft.Web/staticSites")}' = {`,
+    `  name: '${ctx.name(node.id)}'`,
     `  location: location`,
     `  sku: {`,
     `    name: '${sku}'`,
@@ -304,45 +285,37 @@ function emitStaticWebApp(node: GraphNode, ctx: GeneratorContext): string {
   ].filter(Boolean).join("\n");
 }
 
-function subnetRef(ctx: GeneratorContext, subnetId?: string): string {
-  return subnetId ? `${nodeRef(ctx, subnetId)}.id` : "mainSubnet.id";
-}
-
 function emitAksCluster(node: GraphNode, ctx: GeneratorContext): string {
   const ident = nodeRef(ctx, node.id);
-  const subnetEdge = outgoingOf(ctx, node.id, "network").find(
-    (e) => ctx.nodesById.get(e.target)?.type === "subnet",
-  );
-  const workspaceEdge = outgoingOf(ctx, node.id, "diagnostic").find(
-    (e) => ctx.nodesById.get(e.target)?.type === "logAnalytics",
-  );
-  const authorizedRanges = (node.properties.authorizedIpRanges as string[] | undefined) ?? [];
+  const subnet = subnetOf(ctx, node);
+  const workspace = targetOfType(ctx, node.id, "diagnostic", "logAnalytics");
+  const authorizedRanges = (node.properties.authorizedIpRanges as string[]);
   const privateCluster = node.properties.privateCluster === true;
-  const networkPolicy = (node.properties.networkPolicy as string) ?? "azure";
+  const networkPolicy = String(node.properties.networkPolicy);
   const lines = [
     autoComment(ctx, node.id, "//"),
-    `resource ${ident} 'Microsoft.ContainerService/managedClusters@2024-07-01' = {`,
-    `  name: '${name(ctx, node.id)}'`,
+    `resource ${ident} '${typed("Microsoft.ContainerService/managedClusters")}' = {`,
+    `  name: '${ctx.name(node.id)}'`,
     `  location: location`,
     `  identity: {`,
     `    type: '${node.properties.managedIdentity === false ? "None" : "SystemAssigned"}'`,
     `  }`,
     `  properties: {`,
-    `    dnsPrefix: '${(node.properties.dnsPrefix as string) || name(ctx, node.id)}'`,
+    `    dnsPrefix: '${(node.properties.dnsPrefix as string) || ctx.name(node.id)}'`,
     `    enableRBAC: true`,
     `    agentPoolProfiles: [`,
     `      {`,
     `        name: 'system'`,
-    `        count: ${(node.properties.nodeCount as number) ?? 3}`,
-    `        vmSize: '${(node.properties.nodeVmSize as string) ?? "Standard_D2s_v5"}'`,
+    `        count: ${Number(node.properties.nodeCount)}`,
+    `        vmSize: '${String(node.properties.nodeVmSize)}'`,
     `        osType: 'Linux'`,
     `        mode: 'System'`,
     `        type: 'VirtualMachineScaleSets'`,
-    ...(subnetEdge ? [`        vnetSubnetID: ${subnetRef(ctx, subnetEdge.target)}`] : []),
+    ...(subnet ? [`        vnetSubnetID: ${nodeRef(ctx, subnet.id)}.id`] : []),
     `      }`,
     `    ]`,
     `    networkProfile: {`,
-    `      networkPlugin: '${(node.properties.networkPlugin as string) ?? "azure"}'`,
+    `      networkPlugin: '${String(node.properties.networkPlugin)}'`,
     ...(networkPolicy === "none" ? [] : [`      networkPolicy: '${networkPolicy}'`]),
     `      loadBalancerSku: 'standard'`,
     `    }`,
@@ -356,13 +329,13 @@ function emitAksCluster(node: GraphNode, ctx: GeneratorContext): string {
         ]
       : []),
     `    }`,
-    ...(workspaceEdge
+    ...(workspace
       ? [
           `    addonProfiles: {`,
           `      omsagent: {`,
           `        enabled: true`,
           `        config: {`,
-          `          logAnalyticsWorkspaceResourceID: ${nodeRef(ctx, workspaceEdge.target)}.id`,
+          `          logAnalyticsWorkspaceResourceID: ${nodeRef(ctx, workspace.id)}.id`,
           `        }`,
           `      }`,
           `    }`,
@@ -377,26 +350,23 @@ function emitAksCluster(node: GraphNode, ctx: GeneratorContext): string {
 
 function emitVmss(node: GraphNode, ctx: GeneratorContext): string {
   const ident = nodeRef(ctx, node.id);
-  const subnetEdge = outgoingOf(ctx, node.id, "network").find(
-    (e) => ctx.nodesById.get(e.target)?.type === "subnet",
-  );
   return [
     autoComment(ctx, node.id, "//"),
-    `resource ${ident} 'Microsoft.Compute/virtualMachineScaleSets@2024-07-01' = {`,
-    `  name: '${name(ctx, node.id)}'`,
+    `resource ${ident} '${typed("Microsoft.Compute/virtualMachineScaleSets")}' = {`,
+    `  name: '${ctx.name(node.id)}'`,
     `  location: location`,
     `  sku: {`,
-    `    name: '${(node.properties.sku as string) ?? "Standard_B2s"}'`,
+    `    name: '${String(node.properties.sku)}'`,
     `    tier: 'Standard'`,
-    `    capacity: ${(node.properties.capacity as number) ?? 2}`,
+    `    capacity: ${Number(node.properties.capacity)}`,
     `  }`,
     `  identity: {`,
     `    type: 'SystemAssigned'`,
     `  }`,
     `  properties: {`,
-    `    orchestrationMode: '${(node.properties.orchestrationMode as string) ?? "Flexible"}'`,
+    `    orchestrationMode: '${String(node.properties.orchestrationMode)}'`,
     `    upgradePolicy: {`,
-    `      mode: '${(node.properties.upgradeMode as string) ?? "Automatic"}'`,
+    `      mode: '${String(node.properties.upgradeMode)}'`,
     `    }`,
     `    automaticRepairsPolicy: {`,
     `      enabled: ${node.properties.automaticRepairs !== false}`,
@@ -405,9 +375,9 @@ function emitVmss(node: GraphNode, ctx: GeneratorContext): string {
     `    virtualMachineProfile: {`,
     `      storageProfile: {`,
     `        imageReference: {`,
-    `          publisher: '${(node.properties.imagePublisher as string) ?? "Canonical"}'`,
-    `          offer: '${(node.properties.imageOffer as string) ?? "0001-com-ubuntu-server-jammy"}'`,
-    `          sku: '${(node.properties.imageSku as string) ?? "22_04-lts-gen2"}'`,
+    `          publisher: '${String(node.properties.imagePublisher)}'`,
+    `          offer: '${String(node.properties.imageOffer)}'`,
+    `          sku: '${String(node.properties.imageSku)}'`,
     `          version: 'latest'`,
     `        }`,
     `        osDisk: {`,
@@ -418,7 +388,7 @@ function emitVmss(node: GraphNode, ctx: GeneratorContext): string {
     `        }`,
     `      }`,
     `      osProfile: {`,
-    `        computerNamePrefix: '${name(ctx, node.id).slice(0, 9)}'`,
+    `        computerNamePrefix: '${ctx.name(node.id).slice(0, 9)}'`,
     `        adminUsername: vmAdminUsername`,
     `        linuxConfiguration: {`,
     `          disablePasswordAuthentication: true`,
@@ -443,7 +413,7 @@ function emitVmss(node: GraphNode, ctx: GeneratorContext): string {
     `                  name: 'ipconfig1'`,
     `                  properties: {`,
     `                    subnet: {`,
-    `                      id: ${subnetRef(ctx, subnetEdge?.target)}`,
+    `                      id: ${nodeRef(ctx, subnetOf(ctx, node)!.id)}.id`,
     `                    }`,
     `                  }`,
     `                }`,
@@ -461,21 +431,21 @@ function emitVmss(node: GraphNode, ctx: GeneratorContext): string {
 
 function emitStorageAccount(node: GraphNode, ctx: GeneratorContext): string {
   const ident = nodeRef(ctx, node.id);
-  const sku = (node.properties.sku as string) ?? "Standard_LRS";
-  const kind = (node.properties.kind as string) ?? "StorageV2";
+  const sku = String(node.properties.sku);
+  const kind = String(node.properties.kind);
   const allowPublic = node.properties.allowPublicAccess === true;
-  const tls = (node.properties.minTlsVersion as string) ?? "1.2";
+  const tls = String(node.properties.minTlsVersion);
   return [
     autoComment(ctx, node.id, "//"),
-    `resource ${ident} 'Microsoft.Storage/storageAccounts@2023-05-01' = {`,
-    `  name: '${name(ctx, node.id)}'`,
+    `resource ${ident} '${typed("Microsoft.Storage/storageAccounts")}' = {`,
+    `  name: '${ctx.name(node.id)}'`,
     `  location: location`,
     `  kind: '${kind}'`,
     `  sku: {`,
     `    name: '${sku}'`,
     `  }`,
     `  properties: {`,
-    `    minimumTlsVersion: 'TLS1_${tls.split(".")[1]}'`,
+    `    minimumTlsVersion: '${tlsVersionToArm(tls)}'`,
     `    allowBlobPublicAccess: ${allowPublic}`,
     `    publicNetworkAccess: '${storagePublicNetwork(node.properties) ? "Enabled" : "Disabled"}'`,
     `    supportsHttpsTrafficOnly: true`,
@@ -487,12 +457,12 @@ function emitStorageAccount(node: GraphNode, ctx: GeneratorContext): string {
 
 function emitSqlDatabase(node: GraphNode, ctx: GeneratorContext): string {
   const ident = nodeRef(ctx, node.id);
-  const sku = (node.properties.sku as string) ?? "S0";
-  const admin = (node.properties.adminLogin as string) ?? "bunyaadmin";
+  const sku = String(node.properties.sku);
+  const admin = String(node.properties.adminLogin);
   return [
     autoComment(ctx, node.id, "//"),
-    `resource ${ident}Server 'Microsoft.Sql/servers@2023-08-01-preview' = {`,
-    `  name: '${name(ctx, node.id)}-srv'`,
+    `resource ${ident}Server '${typed("Microsoft.Sql/servers")}' = {`,
+    `  name: '${sqlServerName(ctx, node)}'`,
     `  location: location`,
     `  properties: {`,
     `    administratorLogin: '${admin}'`,
@@ -503,8 +473,8 @@ function emitSqlDatabase(node: GraphNode, ctx: GeneratorContext): string {
     tagsLiteral(ctx, node),
     `}`,
     ``,
-    `resource ${ident} 'Microsoft.Sql/servers/databases@2023-08-01-preview' = {`,
-    `  name: '${name(ctx, node.id)}'`,
+    `resource ${ident} '${typed("Microsoft.Sql/servers/databases")}' = {`,
+    `  name: '${ctx.name(node.id)}'`,
     `  parent: ${ident}Server`,
     `  location: location`,
     `  sku: {`,
@@ -517,12 +487,12 @@ function emitSqlDatabase(node: GraphNode, ctx: GeneratorContext): string {
 
 function emitCosmosDb(node: GraphNode, ctx: GeneratorContext): string {
   const ident = nodeRef(ctx, node.id);
-  const consistency = (node.properties.consistency as string) ?? "Session";
+  const consistency = String(node.properties.consistency);
   const freeTier = node.properties.freeTier === true;
   return [
     autoComment(ctx, node.id, "//"),
-    `resource ${ident} 'Microsoft.DocumentDB/databaseAccounts@2024-05-15' = {`,
-    `  name: '${name(ctx, node.id)}'`,
+    `resource ${ident} '${typed("Microsoft.DocumentDB/databaseAccounts")}' = {`,
+    `  name: '${ctx.name(node.id)}'`,
     `  location: location`,
     `  kind: 'GlobalDocumentDB'`,
     `  properties: {`,
@@ -545,13 +515,13 @@ function emitCosmosDb(node: GraphNode, ctx: GeneratorContext): string {
 
 function emitKeyVault(node: GraphNode, ctx: GeneratorContext): string {
   const ident = nodeRef(ctx, node.id);
-  const sku = (node.properties.sku as string) ?? "standard";
+  const sku = String(node.properties.sku);
   const purge = node.properties.purgeProtection !== false;
-  const retention = (node.properties.softDeleteRetentionDays as number) ?? 7;
+  const retention = Number(node.properties.softDeleteRetentionDays);
   const lines = [
     autoComment(ctx, node.id, "//"),
-    `resource ${ident} 'Microsoft.KeyVault/vaults@2023-07-01' = {`,
-    `  name: '${name(ctx, node.id)}'`,
+    `resource ${ident} '${typed("Microsoft.KeyVault/vaults")}' = {`,
+    `  name: '${ctx.name(node.id)}'`,
     `  location: location`,
     `  properties: {`,
     `    sku: {`,
@@ -567,46 +537,22 @@ function emitKeyVault(node: GraphNode, ctx: GeneratorContext): string {
     tagsLiteral(ctx, node),
     `}`,
   ];
-  for (const edge of incomingOf(ctx, node.id, "identity")) {
-    const src = ctx.nodesById.get(edge.source);
-    if (!src) continue;
-    if (src.type !== "appService" && src.type !== "functionApp" && src.type !== "userAssignedIdentity") continue;
-    const srcIdent = nodeRef(ctx, src.id);
-    const principal =
-      src.type === "userAssignedIdentity"
-        ? `${srcIdent}.properties.principalId`
-        : `${srcIdent}.identity.principalId`;
-    lines.push(
-      ``,
-      `resource ${srcIdent}_${ident}_secrets 'Microsoft.Authorization/roleAssignments@2022-04-01' = {`,
-      `  scope: ${ident}`,
-      `  name: guid(${ident}.id, ${srcIdent}.id, 'Key Vault Secrets User')`,
-      `  properties: {`,
-      `    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')`,
-      `    principalId: ${principal}`,
-      `    principalType: '${src.type === "userAssignedIdentity" ? "ServicePrincipal" : "ServicePrincipal"}'`,
-      `  }`,
-      `}`,
-    );
-  }
+  for (const grant of portableGrants(ctx).filter((candidate) => candidate.scope.id === node.id)) lines.push(``, roleAssignment(ctx, grant));
   return lines.filter(Boolean).join("\n");
 }
 
 function emitAppInsights(node: GraphNode, ctx: GeneratorContext): string {
   const ident = nodeRef(ctx, node.id);
-  const workspaceEdge = outgoingOf(ctx, node.id, "depends_on").find(
-    (e) => ctx.nodesById.get(e.target)?.type === "logAnalytics",
-  );
-  const workspaceRef = workspaceEdge ? `${nodeRef(ctx, workspaceEdge.target)}.id` : `null`;
+  const workspace = targetOfType(ctx, node.id, "depends_on", "logAnalytics")!;
   return [
     autoComment(ctx, node.id, "//"),
-    `resource ${ident} 'Microsoft.Insights/components@2020-02-02' = {`,
-    `  name: '${name(ctx, node.id)}'`,
+    `resource ${ident} '${typed("Microsoft.Insights/components")}' = {`,
+    `  name: '${ctx.name(node.id)}'`,
     `  location: location`,
     `  kind: 'web'`,
     `  properties: {`,
     `    Application_Type: 'web'`,
-    `    WorkspaceResourceId: ${workspaceRef}`,
+    `    WorkspaceResourceId: ${nodeRef(ctx, workspace.id)}.id`,
     `  }`,
     tagsLiteral(ctx, node),
     `}`,
@@ -617,14 +563,14 @@ function emitLogAnalytics(node: GraphNode, ctx: GeneratorContext): string {
   const ident = nodeRef(ctx, node.id);
   return [
     autoComment(ctx, node.id, "//"),
-    `resource ${ident} 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {`,
-    `  name: '${name(ctx, node.id)}'`,
+    `resource ${ident} '${typed("Microsoft.OperationalInsights/workspaces")}' = {`,
+    `  name: '${ctx.name(node.id)}'`,
     `  location: location`,
     `  properties: {`,
     `    sku: {`,
-    `      name: '${(node.properties.sku as string) ?? "PerGB2018"}'`,
+    `      name: '${String(node.properties.sku)}'`,
     `    }`,
-    `    retentionInDays: ${(node.properties.retentionDays as number) ?? 30}`,
+    `    retentionInDays: ${Number(node.properties.retentionDays)}`,
     `  }`,
     tagsLiteral(ctx, node),
     `}`,
@@ -633,11 +579,11 @@ function emitLogAnalytics(node: GraphNode, ctx: GeneratorContext): string {
 
 function emitFrontDoor(node: GraphNode, ctx: GeneratorContext): string {
   const ident = nodeRef(ctx, node.id);
-  const sku = (node.properties.sku as string) ?? "Standard_AzureFrontDoor";
+  const sku = String(node.properties.sku);
   return [
     autoComment(ctx, node.id, "//"),
-    `resource ${ident} 'Microsoft.Cdn/profiles@2024-02-01' = {`,
-    `  name: '${name(ctx, node.id)}'`,
+    `resource ${ident} '${typed("Microsoft.Cdn/profiles")}' = {`,
+    `  name: '${ctx.name(node.id)}'`,
     `  location: 'global'`,
     `  sku: {`,
     `    name: '${sku}'`,
@@ -649,18 +595,18 @@ function emitFrontDoor(node: GraphNode, ctx: GeneratorContext): string {
 
 function emitApplicationGateway(node: GraphNode, ctx: GeneratorContext): string {
   const ident = nodeRef(ctx, node.id);
-  const sku = (node.properties.sku as string) ?? "WAF_v2";
+  const sku = String(node.properties.sku);
   return [
     autoComment(ctx, node.id, "//"),
     `// Application Gateway shell. Configure listeners and pools per your topology.`,
-    `resource ${ident} 'Microsoft.Network/applicationGateways@2023-11-01' = {`,
-    `  name: '${name(ctx, node.id)}'`,
+    `resource ${ident} '${typed("Microsoft.Network/applicationGateways")}' = {`,
+    `  name: '${ctx.name(node.id)}'`,
     `  location: location`,
     `  properties: {`,
     `    sku: {`,
     `      name: '${sku}'`,
     `      tier: '${sku}'`,
-    `      capacity: ${(node.properties.capacity as number) ?? 2}`,
+    `      capacity: ${Number(node.properties.capacity)}`,
     `    }`,
     `    gatewayIPConfigurations: []`,
     `    frontendIPConfigurations: []`,
@@ -677,19 +623,19 @@ function emitApplicationGateway(node: GraphNode, ctx: GeneratorContext): string 
 
 function emitApim(node: GraphNode, ctx: GeneratorContext): string {
   const ident = nodeRef(ctx, node.id);
-  const sku = (node.properties.sku as string) ?? "Consumption";
+  const sku = String(node.properties.sku);
   return [
     autoComment(ctx, node.id, "//"),
-    `resource ${ident} 'Microsoft.ApiManagement/service@2023-09-01-preview' = {`,
-    `  name: '${name(ctx, node.id)}'`,
+    `resource ${ident} '${typed("Microsoft.ApiManagement/service")}' = {`,
+    `  name: '${ctx.name(node.id)}'`,
     `  location: location`,
     `  sku: {`,
     `    name: '${sku}'`,
     `    capacity: 0`,
     `  }`,
     `  properties: {`,
-    `    publisherName: '${(node.properties.publisherName as string) ?? "Bunya"}'`,
-    `    publisherEmail: ${quote.bicep((node.properties.publisherEmail as string) ?? "ops@example.com")}`,
+    `    publisherName: '${String(node.properties.publisherName)}'`,
+    `    publisherEmail: ${quote.bicep(String(node.properties.publisherEmail))}`,
     `  }`,
     tagsLiteral(ctx, node),
     `}`,
@@ -698,11 +644,11 @@ function emitApim(node: GraphNode, ctx: GeneratorContext): string {
 
 function emitContainerRegistry(node: GraphNode, ctx: GeneratorContext): string {
   const ident = nodeRef(ctx, node.id);
-  const sku = (node.properties.sku as string) ?? "Basic";
+  const sku = String(node.properties.sku);
   return [
     autoComment(ctx, node.id, "//"),
-    `resource ${ident} 'Microsoft.ContainerRegistry/registries@2023-11-01-preview' = {`,
-    `  name: '${name(ctx, node.id)}'`,
+    `resource ${ident} '${typed("Microsoft.ContainerRegistry/registries")}' = {`,
+    `  name: '${ctx.name(node.id)}'`,
     `  location: location`,
     `  sku: {`,
     `    name: '${sku}'`,
@@ -720,8 +666,8 @@ function emitUserAssignedIdentity(node: GraphNode, ctx: GeneratorContext): strin
   const ident = nodeRef(ctx, node.id);
   return [
     autoComment(ctx, node.id, "//"),
-    `resource ${ident} 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {`,
-    `  name: '${name(ctx, node.id)}'`,
+    `resource ${ident} '${typed("Microsoft.ManagedIdentity/userAssignedIdentities")}' = {`,
+    `  name: '${ctx.name(node.id)}'`,
     `  location: location`,
     tagsLiteral(ctx, node),
     `}`,
@@ -732,19 +678,16 @@ function emitPrivateDnsZone(node: GraphNode, ctx: GeneratorContext): string {
   const ident = nodeRef(ctx, node.id);
   return [
     autoComment(ctx, node.id, "//"),
-    `resource ${ident} 'Microsoft.Network/privateDnsZones@2020-06-01' = {`,
-    `  name: '${(node.properties.zoneName as string) ?? name(ctx, node.id)}'`,
+    `resource ${ident} '${typed("Microsoft.Network/privateDnsZones")}' = {`,
+    `  name: '${dnsZoneName(node)}'`,
     `  location: 'global'`,
     tagsLiteral(ctx, node),
     `}`,
-    ...outgoingOf(ctx, node.id, "network")
-      .map((edge) => ctx.nodesById.get(edge.target))
-      .filter((target): target is GraphNode => target?.type === "virtualNetwork")
-      .flatMap((vnet) => [
+    ...zoneVnets(ctx, node).flatMap((vnet) => [
         ``,
-        `resource ${ident}_${ctx.identifiers.get(vnet.id)}_link 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2020-06-01' = {`,
+        `resource ${dnsLinkRef(ctx, node, vnet)} '${typed("Microsoft.Network/privateDnsZones/virtualNetworkLinks")}' = {`,
         `  parent: ${ident}`,
-        `  name: '${name(ctx, vnet.id)}-link'`,
+        `  name: '${dnsLinkName(ctx, vnet)}'`,
         `  location: 'global'`,
         `  properties: {`,
         `    registrationEnabled: false`,
@@ -761,16 +704,16 @@ function emitActionGroup(node: GraphNode, ctx: GeneratorContext): string {
   const ident = nodeRef(ctx, node.id);
   return [
     autoComment(ctx, node.id, "//"),
-    `resource ${ident} 'Microsoft.Insights/actionGroups@2023-01-01' = {`,
-    `  name: '${name(ctx, node.id)}'`,
+    `resource ${ident} '${typed("Microsoft.Insights/actionGroups")}' = {`,
+    `  name: '${ctx.name(node.id)}'`,
     `  location: 'global'`,
     `  properties: {`,
-    `    groupShortName: '${(node.properties.shortName as string) ?? "ops"}'`,
+    `    groupShortName: '${String(node.properties.shortName)}'`,
     `    enabled: true`,
     `    emailReceivers: [`,
     `      {`,
     `        name: 'ops'`,
-    `        emailAddress: ${quote.bicep((node.properties.email as string) ?? "ops@example.com")}`,
+    `        emailAddress: ${quote.bicep(String(node.properties.email))}`,
     `        useCommonAlertSchema: true`,
     `      }`,
     `    ]`,
@@ -782,19 +725,17 @@ function emitActionGroup(node: GraphNode, ctx: GeneratorContext): string {
 
 function emitMonitorAlert(node: GraphNode, ctx: GeneratorContext): string {
   const ident = nodeRef(ctx, node.id);
-  const actionEdge = outgoingOf(ctx, node.id, "depends_on").find(
-    (e) => ctx.nodesById.get(e.target)?.type === "actionGroup",
-  );
-  const actionIdent = actionEdge ? nodeRef(ctx, actionEdge.target) : undefined;
+  const actionGroup = targetOfType(ctx, node.id, "depends_on", "actionGroup");
+  const actionIdent = actionGroup ? nodeRef(ctx, actionGroup.id) : undefined;
   return [
     autoComment(ctx, node.id, "//"),
-    `// Monitor Alert ${name(ctx, node.id)}: add workload-specific metric/log criteria before production deployment.`,
+    `// Monitor Alert ${ctx.name(node.id)}: add workload-specific metric/log criteria before production deployment.`,
     ...(actionIdent ? [`// Routes to action group: ${actionIdent}`] : []),
-    `resource ${ident} 'Microsoft.Insights/metricAlerts@2018-03-01' = {`,
-    `  name: '${name(ctx, node.id)}'`,
+    `resource ${ident} '${typed("Microsoft.Insights/metricAlerts")}' = {`,
+    `  name: '${ctx.name(node.id)}'`,
     `  location: 'global'`,
     `  properties: {`,
-    `    description: '${(node.properties.condition as string) ?? "Platform metric threshold"}'`,
+    `    description: '${String(node.properties.condition)}'`,
     `    severity: 2`,
     `    enabled: ${node.properties.enabled !== false}`,
     `    scopes: [resourceGroup().id]`,
@@ -814,7 +755,7 @@ function emitMonitorAlert(node: GraphNode, ctx: GeneratorContext): string {
 function emitRoleAssignmentNode(node: GraphNode, ctx: GeneratorContext): string {
   return [
     autoComment(ctx, node.id, "//"),
-    `// Role Assignment ${name(ctx, node.id)} (${(node.properties.roleDefinitionName as string) ?? "Reader"})`,
+    `// Role Assignment ${ctx.name(node.id)} (${String(node.properties.roleDefinitionName)})`,
     `// Direct identity edges are expanded into deployable roleAssignments where the generator can resolve principalId and scope.`,
   ].filter(Boolean).join("\n");
 }
@@ -827,8 +768,8 @@ const EMITTERS: Record<ServiceType, (node: GraphNode, ctx: GeneratorContext) => 
   privateEndpoint: emitPrivateEndpoint,
   privateDnsZone: emitPrivateDnsZone,
   appServicePlan: emitAppServicePlan,
-  appService: emitAppService,
-  functionApp: emitFunctionApp,
+  appService: emitSite,
+  functionApp: emitSite,
   staticWebApp: emitStaticWebApp,
   aksCluster: emitAksCluster,
   virtualMachineScaleSet: emitVmss,
@@ -851,15 +792,13 @@ const EMITTERS: Record<ServiceType, (node: GraphNode, ctx: GeneratorContext) => 
 function emitDiagnostics(ctx: GeneratorContext): string {
   const blocks: string[] = [];
   for (const edge of ctx.edges) {
-    if (edge.kind !== "diagnostic") continue;
-    const source = ctx.nodesById.get(edge.source);
-    const target = ctx.nodesById.get(edge.target);
-    if (!source || !target || target.type !== "logAnalytics") continue;
-    const sIdent = nodeRef(ctx, source.id);
+    const target = ctx.nodesById.get(edge.target)!;
+    if (edge.kind !== "diagnostic" || target.type !== "logAnalytics") continue;
+    const sIdent = nodeRef(ctx, edge.source);
     const tIdent = nodeRef(ctx, target.id);
     blocks.push(
       [
-        `resource ${sIdent}_to_${tIdent} 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {`,
+        `resource ${sIdent}_to_${tIdent} '${typed("Microsoft.Insights/diagnosticSettings")}' = {`,
         `  name: '${sIdent}-to-${tIdent}'`,
         `  scope: ${sIdent}`,
         `  properties: {`,
@@ -884,44 +823,39 @@ function emitDiagnostics(ctx: GeneratorContext): string {
   return blocks.join("\n\n");
 }
 
-// Roles implied by identity edges, e.g. AcrPull for registry pulls.
+function roleAssignment(ctx: GeneratorContext, grant: RoleGrant): string {
+  const pIdent = nodeRef(ctx, grant.principal.id);
+  const sIdent = nodeRef(ctx, grant.scope.id);
+  const principalId = grant.principal.type === "userAssignedIdentity" ? `${pIdent}.properties.principalId` : `${pIdent}.identity.principalId`;
+  return [
+    `resource ${grantRef(ctx, grant)} '${typed("Microsoft.Authorization/roleAssignments")}' = {`,
+    `  scope: ${sIdent}`,
+    `  name: guid(${sIdent}.id, ${pIdent}.id, '${grant.role}')`,
+    `  properties: {`,
+    `    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '${grant.roleId}')`,
+    `    principalId: ${principalId}`,
+    `    principalType: 'ServicePrincipal'`,
+    `  }`,
+    `}`,
+  ].join("\n");
+}
+
 function emitRoleGrants(ctx: GeneratorContext): string {
-  return roleAssignmentsFor(ctx)
-    .map(({ principal, scope, role, roleId }) => {
-      const pIdent = nodeRef(ctx, principal.id);
-      const sIdent = nodeRef(ctx, scope.id);
-      const principalId = principal.type === "userAssignedIdentity" ? `${pIdent}.properties.principalId` : `${pIdent}.identity.principalId`;
-      return [
-        `resource ${pIdent}_${sIdent}_${role.toLowerCase().replace(/[^a-z0-9]+/g, "_")} 'Microsoft.Authorization/roleAssignments@2022-04-01' = {`,
-        `  scope: ${sIdent}`,
-        `  name: guid(${sIdent}.id, ${pIdent}.id, '${role}')`,
-        `  properties: {`,
-        `    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '${roleId}')`,
-        `    principalId: ${principalId}`,
-        `    principalType: 'ServicePrincipal'`,
-        `  }`,
-        `}`,
-      ].join("\n");
-    })
+  return portableGrants(ctx)
+    .filter((grant) => grant.scope.type !== "keyVault")
+    .map((grant) => roleAssignment(ctx, grant))
     .join("\n\n");
 }
 
-function renderParametersFile(
-  document: GraphDocument,
-  includeSqlAdmin: boolean,
-  includeVmssSsh: boolean,
-): GeneratedFile {
+// Secure parameters (sqlAdminPassword, vmSshPublicKey) are supplied at
+// deployment time, never written to the file.
+function renderParametersFile(ctx: GeneratorContext): GeneratedFile {
+  const { document } = ctx;
   const parameters: Record<string, { value: unknown }> = {
     location: { value: document.metadata.region },
     environmentTag: { value: document.metadata.environment },
   };
-  if (includeSqlAdmin) {
-    // Supply sqlAdminPassword securely at deployment time.
-  }
-  if (includeVmssSsh) {
-    parameters.vmAdminUsername = { value: "azureuser" };
-    // Supply vmSshPublicKey at deployment time.
-  }
+  if (ctx.hasVmss) parameters.vmAdminUsername = { value: "azureuser" };
   return {
     path: "main.parameters.json",
     language: "json",
@@ -938,15 +872,10 @@ function renderParametersFile(
 }
 
 export function generateBicep(document: GraphDocument): GeneratorResult {
-  const validated = validateGeneration(document);
-  if (!validated.ok) return validated;
-  document = validated.document;
-  const ctx = buildGeneratorContext(document);
-  if (!ctx.topo.ok) {
-    return { ok: false, reason: "cycle detected", cycle: ctx.topo.cycle };
-  }
-  const hasSql = ctx.document.nodes.some((n) => n.type === "sqlDatabase");
-  const hasVmss = ctx.document.nodes.some((n) => n.type === "virtualMachineScaleSet");
+  const prepared = prepareGeneration(document);
+  if (!prepared.ok) return prepared;
+  const { ctx } = prepared;
+  document = ctx.source;
   const lines: string[] = [
     `// Generated by Bunya. Do not edit by hand.`,
     `// Document: ${document.metadata.name} (${document.metadata.environment})`,
@@ -965,14 +894,14 @@ export function generateBicep(document: GraphDocument): GeneratorResult {
     `param environmentTag string = '${document.metadata.environment}'`,
     ``,
   ];
-  if (hasSql) {
+  if (ctx.hasSql) {
     lines.push(
       `@secure()`,
       `param sqlAdminPassword string`,
       ``,
     );
   }
-  if (hasVmss) {
+  if (ctx.hasVmss) {
     lines.push(
       `@description('Linux admin username for VM scale sets.')`,
       `param vmAdminUsername string = 'azureuser'`,
@@ -983,11 +912,7 @@ export function generateBicep(document: GraphDocument): GeneratorResult {
       ``,
     );
   }
-  for (const node of ctx.topo.order) {
-    const emit = EMITTERS[node.type];
-    if (!emit) continue;
-    lines.push(emit(node, ctx), "");
-  }
+  for (const node of ctx.order) lines.push(EMITTERS[node.type](node, ctx), "");
   const diag = emitDiagnostics(ctx);
   if (diag) lines.push(diag, "");
   const roles = emitRoleGrants(ctx);
@@ -999,7 +924,7 @@ export function generateBicep(document: GraphDocument): GeneratorResult {
       language: "bicep",
       content: lines.join("\n"),
     },
-    renderParametersFile(document, hasSql, hasVmss),
+    renderParametersFile(ctx),
   ];
   return { ok: true, files };
 }
