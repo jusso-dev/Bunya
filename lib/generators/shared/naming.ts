@@ -1,9 +1,6 @@
 import type { ServiceType } from "@/lib/graph/schema";
 import { SUFFIXED_NAME_TYPES } from "@/lib/catalogue/azure";
-
-// Storage account and Key Vault names are globally unique and at most 24
-// characters (Microsoft Learn, "Naming rules and restrictions").
-const SUFFIXED_MAX = 24;
+import { getServiceDefinition } from "@/lib/catalogue/services";
 
 function shortHash(input: string, length = 6): string {
   let h = 5381;
@@ -24,10 +21,11 @@ export function terraformIdentifier(raw: string): string {
 export function azureResourceName(type: ServiceType, baseName: string, documentSeed: string): string {
   if (!SUFFIXED_NAME_TYPES.has(type)) return baseName;
   const hash = shortHash(`${documentSeed}:${type}:${baseName}`);
+  const max = getServiceDefinition(type).nameMaxLength;
   if (type === "storageAccount") {
-    const base = baseName.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, SUFFIXED_MAX - hash.length);
+    const base = baseName.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, max - hash.length);
     return (base || "stg") + hash;
   }
-  const base = baseName.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-+|-+$/g, "").slice(0, SUFFIXED_MAX - hash.length - 1);
+  const base = baseName.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-+|-+$/g, "").slice(0, max - hash.length - 1);
   return `${base || "kv"}-${hash}`;
 }
