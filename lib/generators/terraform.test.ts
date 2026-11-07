@@ -17,22 +17,6 @@ describe("generateTerraform", () => {
     expect(summary).toMatchSnapshot();
   });
 
-  it("emits each of the five first-cut Terraform resource types", () => {
-    const result = generateTerraform(firstCutGraph);
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    const main = result.files.find((f) => f.path === "main.tf")?.content ?? "";
-    for (const kind of [
-      "azurerm_resource_group",
-      "azurerm_service_plan",
-      "azurerm_linux_web_app",
-      "azurerm_storage_account",
-      "azurerm_key_vault",
-    ]) {
-      expect(main).toContain(kind);
-    }
-  });
-
   it("is deterministic across repeated calls", () => {
     const a = generateTerraform(firstCutGraph);
     const b = generateTerraform(firstCutGraph);

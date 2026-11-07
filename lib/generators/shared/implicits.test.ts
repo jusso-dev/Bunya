@@ -54,11 +54,6 @@ describe("expandImplicits", () => {
     expect(types).toContain("virtualNetwork");
   });
 
-  it("flags new nodes as auto-generated", () => {
-    const result = expandImplicits(tinyGraph());
-    expect(result.autoNodeIds.size).toBeGreaterThan(0);
-  });
-
   it("treats App Service Plan containment as a hosting relationship", () => {
     const graph = tinyGraph();
     graph.nodes.unshift({

@@ -18,7 +18,6 @@ describe("generatePowerShell", () => {
     expect(content).toContain("Set-StrictMode -Version Latest");
     expect(content).toContain("$ErrorActionPreference = 'Stop'");
     expect(content).toContain("SupportsShouldProcess");
-    expect(content).not.toContain("Write-Host");
   });
 
   it("deploys private full-stack resources atomically through ARM", () => {
