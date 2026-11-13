@@ -1,8 +1,8 @@
 {
   "$comment": "Maintained by `pnpm icons:sync`. Each service type maps to an icon in Microsoft's Azure architecture icon pack.",
   "pack": {
-    "version": 24,
-    "url": "https://arch-center.azureedge.net/icons/Azure_Public_Service_Icons_V24.zip",
+    "version": 25,
+    "url": "https://arch-center.azureedge.net/icons/Azure_Public_Service_Icons_V25.zip",
     "page": "https://learn.microsoft.com/en-us/azure/architecture/icons/"
   },
   "icons": {
