@@ -79,6 +79,8 @@ function CanvasInner() {
   const selectNode = useGraphStore((s) => s.selectNode);
   const selectEdge = useGraphStore((s) => s.selectEdge);
   const reparentNode = useGraphStore((s) => s.reparentNode);
+  const beginDrag = useGraphStore((s) => s.beginDrag);
+  const endDrag = useGraphStore((s) => s.endDrag);
   const fitRequest = useSessionUi((s) => s.fitRequest);
 
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
@@ -280,6 +282,12 @@ function CanvasInner() {
         edges={edges}
         nodeTypes={NODE_TYPES}
         onNodesChange={onNodesChange}
+        // React Flow calls the start handler before the first move and the stop
+        // handler after the final position change, so a drag is one undo step.
+        onNodeDragStart={beginDrag}
+        onNodeDragStop={endDrag}
+        onSelectionDragStart={beginDrag}
+        onSelectionDragStop={endDrag}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         isValidConnection={isValidConnection}

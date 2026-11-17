@@ -37,3 +37,144 @@ describe("useGraphStore", () => {
     expect(useGraphStore.getState().document.nodes[0].exactName).toBeUndefined();
   });
 });
+
+describe("drag history", () => {
+  const store = () => useGraphStore.getState();
+  // Where every node sits, the part of the document a drag changes.
+  const layout = () => store().document.nodes.map((n) => ({ id: n.id, x: n.position.x, y: n.position.y, parent: n.parentId ?? null }));
+
+  let rg: string;
+  let vnet: string;
+  let storage: string;
+
+  beforeEach(() => {
+    store().reset();
+    rg = store().addNode({ ...baseNode, position: { x: 0, y: 0 } });
+    vnet = store().addNode({ ...baseNode, type: "virtualNetwork", name: "VNet", resourceName: "vnet", position: { x: 400, y: 0 } });
+    storage = store().addNode({ ...baseNode, type: "storageAccount", name: "Storage", resourceName: "st", position: { x: 40, y: 40 }, parentId: rg });
+    // Start each case from a clean undo stack so counts below are the drag's own.
+    store().reset(store().document);
+  });
+
+  function drag(id: string, steps: Array<{ x: number; y: number }>) {
+    store().beginDrag();
+    for (const step of steps) store().moveNode(id, step);
+    store().endDrag();
+  }
+
+  it("records one undo step for a drag made of many pointer moves", () => {
+    const before = layout();
+    drag(storage, Array.from({ length: 200 }, (_, i) => ({ x: 40 + i, y: 40 + i })));
+    expect(store().history).toHaveLength(1);
+    const after = layout();
+    expect(after.find((n) => n.id === storage)).toMatchObject({ x: 239, y: 239, parent: rg });
+
+    store().undo();
+    expect(layout()).toEqual(before);
+    expect(store().history).toHaveLength(0);
+    store().redo();
+    expect(layout()).toEqual(after);
+  });
+
+  it("does not record anything while the gesture is still in progress", () => {
+    store().beginDrag();
+    store().moveNode(storage, { x: 80, y: 80 });
+    store().moveNode(storage, { x: 120, y: 120 });
+    expect(store().history).toHaveLength(0);
+    store().endDrag();
+    expect(store().history).toHaveLength(1);
+  });
+
+  it("makes a container drag undoable", () => {
+    const before = layout();
+    drag(rg, [{ x: 10, y: 10 }, { x: 160, y: 96 }]);
+    expect(store().history).toHaveLength(1);
+    expect(store().document.nodes.find((n) => n.id === rg)?.position).toEqual({ x: 160, y: 96 });
+    store().undo();
+    expect(layout()).toEqual(before);
+  });
+
+  it("folds a reparent at the end of the drag into the same step", () => {
+    const before = layout();
+    store().beginDrag();
+    store().moveNode(storage, { x: 300, y: 20 });
+    store().moveNode(storage, { x: 352, y: 32 });
+    store().reparentNode(storage, vnet, { x: 32, y: 48 });
+    store().endDrag();
+    expect(store().history).toHaveLength(1);
+    expect(layout().find((n) => n.id === storage)).toMatchObject({ x: 32, y: 48, parent: vnet });
+
+    store().undo();
+    expect(layout()).toEqual(before);
+    expect(layout().find((n) => n.id === storage)).toMatchObject({ x: 40, y: 40, parent: rg });
+    store().redo();
+    expect(layout().find((n) => n.id === storage)).toMatchObject({ x: 32, y: 48, parent: vnet });
+  });
+
+  it("leaves history and redo alone when a drag ends where it began", () => {
+    // Build a redo branch first.
+    drag(storage, [{ x: 100, y: 100 }]);
+    store().undo();
+    const history = store().history;
+    const future = store().future;
+    expect(future).toHaveLength(1);
+
+    drag(storage, [{ x: 90, y: 90 }, { x: 40, y: 40 }]);
+    expect(store().history).toEqual(history);
+    expect(store().future).toEqual(future);
+
+    store().beginDrag();
+    store().endDrag();
+    expect(store().history).toEqual(history);
+    expect(store().future).toEqual(future);
+    store().redo();
+    expect(layout().find((n) => n.id === storage)).toMatchObject({ x: 100, y: 100 });
+  });
+
+  it("drops the redo branch when a drag changes something", () => {
+    drag(storage, [{ x: 100, y: 100 }]);
+    store().undo();
+    expect(store().future).toHaveLength(1);
+    drag(storage, [{ x: 200, y: 200 }]);
+    expect(store().future).toHaveLength(0);
+  });
+
+  it("moves several nodes dragged together as one step", () => {
+    const before = layout();
+    store().beginDrag();
+    store().moveNode(storage, { x: 64, y: 64 });
+    store().moveNode(vnet, { x: 480, y: 80 });
+    store().endDrag();
+    expect(store().history).toHaveLength(1);
+    store().undo();
+    expect(layout()).toEqual(before);
+  });
+
+  it("makes a nudge with no drag in progress its own undo step, and ignores a nudge that goes nowhere", () => {
+    const before = layout();
+    store().moveNode(storage, { x: 56, y: 40 });
+    expect(store().history).toHaveLength(1);
+    store().moveNode(storage, { x: 56, y: 40 });
+    expect(store().history).toHaveLength(1);
+    store().undo();
+    expect(layout()).toEqual(before);
+  });
+
+  it("does not let an abandoned gesture swallow later history", () => {
+    store().beginDrag();
+    store().moveNode(storage, { x: 80, y: 80 });
+    store().reset();
+    store().addNode({ ...baseNode, name: "Another", resourceName: "rg-other" });
+    store().moveNode(store().document.nodes[0].id, { x: 16, y: 16 });
+    // addNode and the nudge are each undoable; nothing was left open by the reset.
+    expect(store().history).toHaveLength(2);
+
+    store().beginDrag();
+    store().moveNode(store().document.nodes[0].id, { x: 32, y: 32 });
+    store().undo();
+    store().moveNode(store().document.nodes[0].id, { x: 48, y: 48 });
+    expect(store().history).toHaveLength(2);
+    store().endDrag();
+    expect(store().history).toHaveLength(2);
+  });
+});

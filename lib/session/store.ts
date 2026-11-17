@@ -22,6 +22,8 @@ export type GraphStoreState = {
   selectedEdgeId: string | null;
   history: GraphDocument[];
   future: GraphDocument[];
+  // The document as it was when the current drag began; null when no drag is open.
+  dragOrigin: GraphDocument | null;
   collapsed: Record<PanelId, boolean>;
   fxAudPerUsd: number;
   organisationRules: OrganisationRule[];
@@ -32,6 +34,11 @@ export type GraphStoreActions = {
   setImportNotes: (notes: { source: string; notes: string[] } | null) => void;
   addNode: (input: AddNodeInput) => string;
   removeNode: (id: string) => void;
+  // A drag is one undo step: beginDrag remembers the document, moveNode and
+  // reparentNode then update it without recording history, and endDrag records
+  // the remembered document once if any node ended up somewhere else.
+  beginDrag: () => void;
+  endDrag: () => void;
   moveNode: (id: string, position: { x: number; y: number }) => void;
   resizeNode: (id: string, size: { width: number; height: number }) => void;
   reparentNode: (
@@ -75,12 +82,31 @@ function pushHistory(state: GraphStoreState): Pick<GraphStoreState, "history" | 
   return { history: next, future: [] };
 }
 
+// Whether any node now sits at a different position or under a different parent.
+function layoutChanged(before: GraphDocument, after: GraphDocument): boolean {
+  if (before.nodes === after.nodes) return false;
+  const origin = new Map(before.nodes.map((n) => [n.id, n]));
+  return after.nodes.some((n) => {
+    const was = origin.get(n.id);
+    return !!was && (was.position.x !== n.position.x || was.position.y !== n.position.y || (was.parentId ?? null) !== (n.parentId ?? null));
+  });
+}
+
+// Records `origin` as an undo step when the layout has moved since.
+function commitDrag(state: GraphStoreState): Partial<GraphStoreState> {
+  const origin = state.dragOrigin;
+  if (!origin) return {};
+  if (!layoutChanged(origin, state.document)) return { dragOrigin: null };
+  return { history: [...state.history, origin].slice(-HISTORY_LIMIT), future: [], dragOrigin: null };
+}
+
 const graphStoreInitializer: StateCreator<GraphStore> = (set, get) => ({
   document: emptyGraph("bunya"),
   selectedNodeId: null,
   selectedEdgeId: null,
   history: [],
   future: [],
+  dragOrigin: null,
   collapsed: { palette: false, properties: false, output: false, validation: false },
   fxAudPerUsd: DEFAULT_FX_AUD_PER_USD,
   organisationRules: [],
@@ -175,13 +201,28 @@ const graphStoreInitializer: StateCreator<GraphStore> = (set, get) => ({
     });
   },
 
+  beginDrag: () => {
+    // A drag that never reported its end is closed first, so it is not lost.
+    set((state) => ({ ...commitDrag(state), dragOrigin: state.document }));
+  },
+
+  endDrag: () => {
+    set((state) => commitDrag(state));
+  },
+
   moveNode: (id, position) => {
-    set((state) => ({
-      document: {
-        ...state.document,
-        nodes: state.document.nodes.map((n) => (n.id === id ? { ...n, position } : n)),
-      },
-    }));
+    set((state) => {
+      const node = state.document.nodes.find((n) => n.id === id);
+      if (!node || (node.position.x === position.x && node.position.y === position.y)) return state;
+      return {
+        // Inside a drag only endDrag records history; a lone move (arrow-key nudge) is its own step.
+        ...(state.dragOrigin ? {} : pushHistory(state)),
+        document: {
+          ...state.document,
+          nodes: state.document.nodes.map((n) => (n.id === id ? { ...n, position } : n)),
+        },
+      };
+    });
   },
 
   resizeNode: (id, size) => {
@@ -196,7 +237,7 @@ const graphStoreInitializer: StateCreator<GraphStore> = (set, get) => ({
 
   reparentNode: (id, parentId, position) => {
     set((state) => ({
-      ...pushHistory(state),
+      ...(state.dragOrigin ? {} : pushHistory(state)),
       document: {
         ...state.document,
         nodes: state.document.nodes.map((n) =>
@@ -248,6 +289,7 @@ const graphStoreInitializer: StateCreator<GraphStore> = (set, get) => ({
   replaceDocument: (doc) => {
     set((state) => ({
       ...pushHistory(state),
+      dragOrigin: null,
       document: doc,
       selectedNodeId: null,
       selectedEdgeId: null,
@@ -297,6 +339,7 @@ const graphStoreInitializer: StateCreator<GraphStore> = (set, get) => ({
       selectedEdgeId: null,
       history: [],
       future: [],
+      dragOrigin: null,
     }),
 
   undo: () => {
@@ -305,6 +348,7 @@ const graphStoreInitializer: StateCreator<GraphStore> = (set, get) => ({
     if (!prev) return;
     set({
       document: prev,
+      dragOrigin: null,
       selectedNodeId: null, selectedEdgeId: null,
       history: state.history.slice(0, -1),
       future: [state.document, ...state.future],
@@ -317,6 +361,7 @@ const graphStoreInitializer: StateCreator<GraphStore> = (set, get) => ({
     if (!next) return;
     set({
       document: next,
+      dragOrigin: null,
       selectedNodeId: null, selectedEdgeId: null,
       future: rest,
       history: [...state.history, state.document],
