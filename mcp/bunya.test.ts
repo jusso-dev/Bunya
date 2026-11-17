@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createDiagram, diagramViewUrl, exportDiagram, parseDocument } from "./bunya";
+import { createBunyaMcpServer } from "./create-server";
 
 describe("Bunya MCP diagram core", () => {
   const input = {
@@ -73,5 +76,50 @@ describe("Bunya MCP document input", () => {
 
   it("rejects input that is not a Bunya document", () => {
     expect(() => parseDocument({ nodes: [] })).toThrow();
+  });
+});
+
+describe("Bunya MCP tools through the SDK", () => {
+  async function connect() {
+    const server = createBunyaMcpServer();
+    const client = new Client({ name: "test", version: "1" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    return { client, close: async () => { await client.close(); await server.close(); } };
+  }
+  const payload = (result: Awaited<ReturnType<Client["callTool"]>>) => {
+    const [first] = result.content as Array<{ type: string; text: string }>;
+    return JSON.parse(first.text) as Record<string, unknown>;
+  };
+
+  it("creates, validates and exports a small diagram, validating tool input with Zod", async () => {
+    const { client, close } = await connect();
+    try {
+      const tools = (await client.listTools()).tools.map((tool) => tool.name);
+      expect(tools).toEqual(expect.arrayContaining(["bunya_create_diagram", "bunya_validate_diagram", "bunya_export_iac"]));
+
+      const created = await client.callTool({
+        name: "bunya_create_diagram",
+        arguments: { name: "sdk-check", nodes: [{ id: "store", type: "storageAccount", name: "Assets" }] },
+      });
+      expect(created.isError).toBeFalsy();
+      const { document } = payload(created) as { document: { nodes: Array<{ id: string }> } };
+      expect(document.nodes.map((node) => node.id)).toEqual(expect.arrayContaining(["store", "resource-group"]));
+
+      const validated = payload(await client.callTool({ name: "bunya_validate_diagram", arguments: { document } }));
+      expect(Array.isArray(validated.findings)).toBe(true);
+
+      const exported = payload(await client.callTool({ name: "bunya_export_iac", arguments: { document, target: "arm" } })) as { exports: Array<{ files: Array<{ path: string }> }> };
+      expect(exported.exports[0].files.map((file) => file.path)).toContain("azuredeploy.json");
+
+      // The SDK rejects an unknown export target before the handler runs.
+      const rejected = await client.callTool({ name: "bunya_export_iac", arguments: { document, target: "not-a-format" } }).then(
+        (result) => ({ failed: result.isError === true }),
+        () => ({ failed: true }),
+      );
+      expect(rejected.failed).toBe(true);
+    } finally {
+      await close();
+    }
   });
 });
