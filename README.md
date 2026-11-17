@@ -163,6 +163,13 @@ working graph:
   graph nodes where the exported template contains them.
 - Unsupported ARM resources are skipped with a warning instead of failing the
   whole import.
+- Resource `condition` values are evaluated from the template alone (literals,
+  parameter defaults and template-only functions). A condition that is true keeps
+  the resource. One that is false, depends on a value only known at deployment, or
+  is not a boolean leaves the resource out, with a warning that says which.
+- `copy` loops are not expanded. A resource with a `copy` block, and a virtual
+  network's copied subnets, are left out with a warning; draw one resource for each
+  instance yourself. A resource left out also leaves out the resources nested in it.
 
 ## Generators
 

@@ -1,6 +1,6 @@
 import { parseJsonInput, stripJsonComments } from "./limits";
 import { toExportLiterals } from "./literal";
-import { createEvaluator, isExpression, type Evaluator } from "./arm-expressions";
+import { createEvaluator, isExpression, UNRESOLVED, type Evaluator } from "./arm-expressions";
 import { getServiceDefinition } from "@/lib/catalogue/services";
 import type {
   EdgeKind,
@@ -38,6 +38,8 @@ type ArmResource = {
   resources?: unknown;
   tags?: unknown;
   existing?: unknown;
+  condition?: unknown;
+  copy?: unknown;
 };
 
 type FlatArmResource = {
@@ -132,6 +134,42 @@ function resourceList(value: unknown): unknown[] {
   return Object.values(asRecord(value));
 }
 
+// How many resources sit below `resources`, counting an inline-subnet array.
+function nestedCount(written: ArmResource): number {
+  const own = resourceList(written.resources);
+  const inline = typeof written.type === "string" && written.type.toLowerCase() === "microsoft.network/virtualnetworks"
+    ? asArray(asRecord(written.properties).subnets).length
+    : 0;
+  return own.reduce<number>((total, child) => total + 1 + nestedCount(asRecord(child) as ArmResource), inline);
+}
+
+function describeArmResource(written: ArmResource, index: number): string {
+  const type = typeof written.type === "string" ? written.type : "resource";
+  const name = typeof written.name === "string" && written.name.trim() ? ` "${written.name}"` : ` #${index + 1}`;
+  return `${type}${name}`;
+}
+
+// Resource-level `condition` and `copy`. Returns the reason to leave the
+// resource (and everything nested in it) out of the diagram, or null to keep it.
+// A condition is kept only when it evaluates to exactly true; Bunya never
+// guesses, so unresolved or nonboolean results are left out and reported.
+function controlFlowSkip(written: ArmResource, evaluator: Evaluator): string | null {
+  if (written.condition !== undefined) {
+    const condition = evaluator.evaluate(written.condition);
+    if (condition === UNRESOLVED) {
+      return "its condition depends on values only known at deployment, which Bunya cannot evaluate";
+    }
+    if (typeof condition !== "boolean") return "its condition is not true or false";
+    if (!condition) return "its condition evaluates to false";
+  }
+  if (written.copy !== undefined) {
+    const count = evaluator.evaluate(asRecord(written.copy).count);
+    if (count === 0) return "its copy count is 0, so nothing is deployed";
+    return "it is a copy loop and Bunya does not expand loops, so draw one resource for each instance yourself";
+  }
+  return null;
+}
+
 function flattenResources(
   resources: unknown[],
   evaluator: Evaluator,
@@ -142,6 +180,12 @@ function flattenResources(
   resources.forEach((value, index) => {
     const written = asRecord(value) as ArmResource;
     if (written.existing === true) return;
+    const skipReason = controlFlowSkip(written, evaluator);
+    if (skipReason) {
+      const nested = nestedCount(written);
+      warnings.push(`${describeArmResource(written, index)} was left out: ${skipReason}.${nested > 0 ? ` Its ${nested} nested resource${nested === 1 ? "" : "s"} were left out too.` : ""}`);
+      return;
+    }
     const rawType = resolvedString(evaluator.evaluate(written.type));
     const evaluatedName = evaluator.evaluateLenient(written.name);
     // Portal exports default unset name parameters to "": keep the resource
@@ -170,9 +214,17 @@ function flattenResources(
     out.push(...flattenResources(resourceList(written.resources), evaluator, warnings, flat));
     // Subnets declared inline on a virtual network are resources of their own.
     if (type.toLowerCase() === "microsoft.network/virtualnetworks") {
+      const subnetLoops = asArray(asRecord(written.properties).copy).filter((loop) => asRecord(loop).name === "subnets");
+      if (subnetLoops.length > 0) {
+        warnings.push(`${describeArmResource(written, index)}: its subnets are declared in a copy loop and Bunya does not expand loops, so they were left out; add the subnets yourself.`);
+      }
       asArray(asRecord(written.properties).subnets).forEach((subnet) => {
         const entry = asRecord(subnet);
-        if (entry.copy !== undefined || typeof entry.name !== "string") return;
+        if (entry.copy !== undefined) {
+          warnings.push(`${describeArmResource(written, index)}: subnet "${typeof entry.name === "string" ? entry.name : "(unnamed)"}" is a copy loop and Bunya does not expand loops, so it was left out; add the subnets yourself.`);
+          return;
+        }
+        if (typeof entry.name !== "string") return;
         out.push(...flattenResources([{ ...entry, type: "subnets" }], evaluator, warnings, flat).map((child) => ({ ...child, inline: true })));
       });
     }
