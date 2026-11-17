@@ -23,7 +23,7 @@
     "e2e": "playwright test"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.31.0",
+    "@modelcontextprotocol/sdk": "^1.32.0",
     "html-to-image": "1.11.13",
     "jszip": "^3.10.2",
     "next": "16.4.6",
@@ -32,7 +32,7 @@
     "reactflow": "^11.11.4",
     "sonner": "2.0.8",
     "ulid": "^3.0.2",
-    "zod": "^4.6.5",
+    "zod": "^4.6.6",
     "zustand": "^5.0.15"
   },
   "devDependencies": {
