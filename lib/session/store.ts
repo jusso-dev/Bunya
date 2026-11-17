@@ -77,9 +77,13 @@ export const FX_RATE_STORAGE_KEY = "bunya.settings.fxAudPerUsd";
 // Below this width the panels overlay the canvas, so only one stays open.
 export const COMPACT_LAYOUT_QUERY = "(max-width: 1023px)";
 
-function pushHistory(state: GraphStoreState): Pick<GraphStoreState, "history" | "future"> {
-  const next = [...state.history, state.document].slice(-HISTORY_LIMIT);
-  return { history: next, future: [] };
+function pushHistory(state: GraphStoreState): Pick<GraphStoreState, "history" | "future" | "dragOrigin"> {
+  // Any other edit arriving while a drag is open closes the drag first: the
+  // pre-drag document is recorded, then the document the edit starts from, so
+  // undo replays them in order.
+  const origin = state.dragOrigin;
+  const entries = origin && layoutChanged(origin, state.document) ? [origin, state.document] : [state.document];
+  return { history: [...state.history, ...entries].slice(-HISTORY_LIMIT), future: [], dragOrigin: null };
 }
 
 // Whether any node now sits at a different position or under a different parent.

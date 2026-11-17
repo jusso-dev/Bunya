@@ -160,6 +160,23 @@ describe("drag history", () => {
     expect(layout()).toEqual(before);
   });
 
+  it("closes an open drag in order when another edit arrives mid-gesture", () => {
+    const before = layout();
+    store().beginDrag();
+    store().moveNode(storage, { x: 120, y: 120 });
+    const mid = layout();
+    store().addNode({ ...baseNode, type: "keyVault", name: "Vault", resourceName: "kv", position: { x: 600, y: 0 } });
+    expect(store().history).toHaveLength(2);
+    // Undo steps back through the add, then the drag, never skipping either.
+    store().undo();
+    expect(layout()).toEqual(mid);
+    store().undo();
+    expect(layout()).toEqual(before);
+    // The drag is closed, so a later move is its own step rather than being swallowed.
+    store().moveNode(storage, { x: 200, y: 200 });
+    expect(store().history).toHaveLength(1);
+  });
+
   it("does not let an abandoned gesture swallow later history", () => {
     store().beginDrag();
     store().moveNode(storage, { x: 80, y: 80 });
