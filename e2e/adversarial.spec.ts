@@ -75,7 +75,13 @@ test("mobile panels and dialogs stay within viewport", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByTestId("bunya-canvas")).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
-  await page.getByRole("button", { name: "Palette", exact: true }).click();
+  // The server renders every panel open; after hydration the compact-layout
+  // effect collapses them. Wait for that before toggling, or a click that lands
+  // first is lost (pre-hydration) or undone by the collapse.
+  const paletteToggle = page.getByRole("button", { name: "Palette", exact: true });
+  await expect(paletteToggle).toHaveAttribute("aria-pressed", "false");
+  await paletteToggle.click();
+  await expect(paletteToggle).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "Add Storage Account", exact: true }).click();
   await expect(page.locator(".react-flow__node")).toHaveCount(1);
   await page.getByRole("button", { name: "Import", exact: true }).click();
