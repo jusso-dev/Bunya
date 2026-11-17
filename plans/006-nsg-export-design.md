@@ -1,7 +1,7 @@
 # Design 006: Faithful NSG rule and subnet-association export
 
 Status: design only. No runtime code was changed and no export block was lifted.
-Planned against `c870765371b6e10cf9968659c568f368afe920f9`; written 2026-11-17 on top of plans 001–005.
+Planned against `c870765371b6e10cf9968659c568f368afe920f9`; written 2026-11-17 on top of plans 001–005 (line numbers in `lib/graph/arm-import.ts` are those of the branch after plan 002, which added about 55 lines near the top).
 
 Goal: let one well-defined subset of Network Security Group (NSG) intent reach all five deployment exports
 (Terraform, Bicep, ARM, az CLI, PowerShell) without silently dropping or widening a rule. Everything outside the
