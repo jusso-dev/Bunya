@@ -49,7 +49,7 @@ Source port is always `*`. A source port other than `*` in an input is **unrepre
 
 **Not representable in the model, so never emitted (stay blocked):** source port ranges, application security group
 references, `Esp`/`Ah`, rule descriptions, IPv6 prefixes, expression-valued fields, NSG flow logs, NIC-level
-associations (the VMSS to NSG edge), NSGs in a different resource group from their subnets (Bunya has one resource group per document today).
+associations (the VMSS to NSG edge), and NSGs in a different resource group from their subnets. The last restriction is a deliberate first-slice boundary, not a limitation of Bunya's graph: multiple resource groups already exist and `resourceGroupOf(ctx, node)` resolves ancestry in `lib/generators/shared/context.ts`.
 
 **Unrepresented-rule marker (new, additive).** Add to `nsgSchema` an optional
 `unrepresentedRules: z.array(z.object({ name: z.string(), direction: z.enum(["Inbound","Outbound"]).optional(), reason: z.string() })).default([])`.
@@ -76,7 +76,7 @@ Normalisation, in this order, identical for every format:
 3. Split a comma list into a list (`"80, 1024-65535"` becomes `["80","1024-65535"]`, trimmed). A single value stays a single value so the common case produces the singular property.
 4. A list of one element uses the singular property; two or more use the plural one. Never emit both (Azure requires exactly one of the pair; azurerm requires one of `destination_port_range` / `destination_port_ranges`).
 
-API versions stay as in `lib/generators/shared/api-versions.ts` (NSG, subnet 2023-11-01). Resource group scoping is unchanged: every resource is created in the document's resource group, and the NSG uses the same location expression as today (`[parameters('location')]` / `location`).
+API versions stay as in `lib/generators/shared/api-versions.ts` (NSG, subnet 2023-11-01). Preserve each exporter's existing scope handling; do not flatten graph resource groups into one. Terraform already uses `rgRef(ctx, node)` backed by `resourceGroupOf` for per-resource ownership. Compare the NSG and subnet's owning group before emitting an association; reject cross-group pairs in this first slice. Preserve existing location expressions. ARM/Bicep and shell formats must retain their existing deployment-scope restrictions rather than gaining implicit cross-group support through this feature.
 
 ### ARM (`lib/generators/arm.ts`, `emitNsg`, `emitSubnet`)
 
@@ -243,6 +243,8 @@ pnpm test && pnpm typecheck && pnpm lint && pnpm rules:verify
 | N20 | Rule value containing a quote, newline or template syntax (benign literal such as `a"b`) | `ok:false` (existing `assertExportLiterals` behaviour), same message family as other nodes. |
 | N21 | Terraform/Bicep/az/PowerShell quoting of a rule name with `.` and `-` | Appears verbatim and unescaped inside the correct quote style (assert the exact emitted line). |
 | N22 | Zero-rule `defaultDeny:false` NSG associated to a subnet | `ok:true`, association emitted in every format. |
+| N23 | Two resource groups, each with its own VNet/subnet and NSG | Terraform retains each pair's owning resource group via `resourceGroupOf`; no pair is moved to the first group. Other formats retain their existing multi-group support or explicit rejection. |
+| N24 | A subnet and its associated NSG belong to different resource groups | Export is blocked with a named cross-group-association limitation; neither resource is silently relocated. |
 | I01 | ARM with inline rule `protocol:"TCP"` | Imported `protocol` is `Tcp`, not `*`. (Fails on today's code: it yields `*`.) |
 | I02 | ARM with protocol `Esp` | Rule not in `inboundRules`; present in `unrepresentedRules` with a reason; the import warning names it; the diagram NSG exports blocked. |
 | I03 | ARM with `sourceAddressPrefixes` of two CIDRs | Imported prefix is `"a,b"` (not only the first). |
@@ -277,6 +279,7 @@ Remaining gaps after rollout, and why each stays blocked: ASG references (need a
 7. **Default deny scope.** Inbound-only deny at 4096 follows `PSRULE.NSG.DENYALLINBOUND`; the owner should confirm that is the intended meaning of `defaultDeny` and accept that it shadows the built-in VNet and load-balancer allows. The alternative is to keep `defaultDeny: true` blocked and require explicit rules (smaller change, less convenient).
 8. **Authoring path.** The inspector cannot edit rule arrays (Finding 4). Decide whether rule editing UI belongs in the same release, or whether v1 is import, JSON and MCP only.
 9. **Reverse-direction edges.** Whether to migrate existing `nsg -> subnet` `depends_on` edges to `subnet -> nsg` on load, rather than blocking them.
+10. **Older readers and loss markers.** Current schemas strip unknown properties. A new `unrepresentedRules` marker therefore does not survive an old reader/exporter merely because parsing succeeds. Before release, define a version gate or another proven compatibility mechanism so an old client cannot discard that marker and emit an empty NSG. A round-trip test through the previous reader is required; do not claim safe bidirectional compatibility from the additive schema alone.
 
 ## References
 
