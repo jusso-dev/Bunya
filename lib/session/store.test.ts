@@ -189,10 +189,37 @@ describe("drag history", () => {
     store().beginDrag();
     store().moveNode(store().document.nodes[0].id, { x: 32, y: 32 });
     store().undo();
+    expect(store().document.nodes[0].position).toEqual({ x: 16, y: 16 });
     store().moveNode(store().document.nodes[0].id, { x: 48, y: 48 });
-    expect(store().history).toHaveLength(2);
+    expect(store().history).toHaveLength(3);
     store().endDrag();
-    expect(store().history).toHaveLength(2);
+    expect(store().history).toHaveLength(3);
+  });
+
+  it("undoes an open drag even when no earlier history exists", () => {
+    const before = layout();
+    store().beginDrag();
+    store().moveNode(storage, { x: 120, y: 120 });
+    const after = layout();
+    store().undo();
+    expect(layout()).toEqual(before);
+    expect(store().dragOrigin).toBeNull();
+    store().redo();
+    expect(layout()).toEqual(after);
+  });
+
+  it("does not replay an old redo branch over an open changed drag", () => {
+    drag(storage, [{ x: 100, y: 100 }]);
+    store().undo();
+    store().beginDrag();
+    store().moveNode(storage, { x: 200, y: 200 });
+    const after = layout();
+    store().redo();
+    expect(layout()).toEqual(after);
+    expect(store().future).toHaveLength(0);
+    expect(store().dragOrigin).toBeNull();
+    store().undo();
+    expect(layout().find((n) => n.id === storage)).toMatchObject({ x: 40, y: 40 });
   });
 });
 

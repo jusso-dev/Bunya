@@ -355,6 +355,7 @@ const graphStoreInitializer: StateCreator<GraphStore> = (set, get) => ({
     }),
 
   undo: () => {
+    get().endDrag();
     const state = get();
     const prev = state.history[state.history.length - 1];
     if (!prev) return;
@@ -368,6 +369,7 @@ const graphStoreInitializer: StateCreator<GraphStore> = (set, get) => ({
   },
 
   redo: () => {
+    get().endDrag();
     const state = get();
     const [next, ...rest] = state.future;
     if (!next) return;
