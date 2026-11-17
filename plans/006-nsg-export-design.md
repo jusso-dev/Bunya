@@ -134,7 +134,7 @@ resource "azurerm_subnet_network_security_group_association" "<subnetIdent>_<nsg
 }
 ```
 
-Arguments from the [association page](https://github.com/hashicorp/terraform-provider-azurerm/blob/v4.80.0/website/docs/r/subnet_network_security_group_association.html.markdown). `azurerm_subnet` itself is not given an NSG argument. Check the provider version Bunya's generated `required_providers` pins (`terraform.ts`, provider block) before implementation; the field names above are v4.80.0.
+Arguments from the [association page](https://github.com/hashicorp/terraform-provider-azurerm/blob/v4.80.0/website/docs/r/subnet_network_security_group_association.html.markdown). `azurerm_subnet` itself is not given an NSG argument. The generated provider pin is `~> 4.35` (`terraform.ts:949-953`); the field names above are from the v4.80.0 pages (see Open questions).
 
 ### az CLI (`lib/generators/azcli.ts`)
 
@@ -183,10 +183,10 @@ Subnet association hazard: the documented route for an existing in-memory subnet
 
 `defaultDeny` today means "Bunya adds explicit deny-all rules" and the importer sets it `false` because a portal export contains only custom rules (`arm-import.ts:526-529`). Subset semantics:
 
-- `defaultDeny: false`: emit only the listed rules. Azure's built-in default rules (priorities 65000–65500, [overview](https://github.com/microsoftdocs/azure-docs/blob/main/articles/virtual-network/network-security-groups-overview.md): "Azure default security rules are given the lowest priority") still apply and are never emitted by Bunya.
+- `defaultDeny: false`: emit only the listed rules. Azure's built-in default rules (priorities in the 65000s; the overview says only that they have the lowest priority, and the repo's own PSRule text at `psrule-azure/rules.ts:760` cites 65500 for DenyAllInbound; the exact numbers of the other defaults are from memory and were not in the pages retrieved, [overview](https://github.com/microsoftdocs/azure-docs/blob/main/articles/virtual-network/network-security-groups-overview.md): "Azure default security rules are given the lowest priority") still apply and are never emitted by Bunya.
 - `defaultDeny: true`: additionally emit one rule, name `bunya-deny-all-inbound`, `Inbound`, `Deny`, protocol `*`, source `*`, destination `*`, port `*`, **priority 4096**. No outbound deny is emitted: an outbound deny-all would cut off outbound internet and Azure platform dependencies, and `PSRULE.NSG.DENYALLINBOUND` (`psrule-azure/rules.ts:751`) asks only for an explicit inbound deny.
 - Collision: a user rule named `bunya-deny-all-inbound`, or any user Inbound rule at priority 4096, makes export fail with a message naming it. The reserved rule is never silently renamed or dropped.
-- Consequence to surface in generated README/output, not hide: priority 4096 sits below all custom rules but above Azure's default `AllowVnetInBound` (65000) and `AllowAzureLoadBalancerInBound` (65001), so with `defaultDeny: true` VNet-internal and load-balancer-probe traffic is denied unless the user draws an explicit Allow rule. Bunya must not invent those allows.
+- Consequence to surface in generated README/output, not hide: priority 4096 sits below all custom rules but above Azure's default `AllowVnetInBound` and `AllowAzureLoadBalancerInBound` (their exact priorities, 65000 and 65001 from memory, were not confirmed in the pages retrieved), so with `defaultDeny: true` VNet-internal and load-balancer-probe traffic is denied unless the user draws an explicit Allow rule. Bunya must not invent those allows.
 
 This changes what a default NSG node exports: today a fresh NSG is blocked; after the rollout it exports a lone inbound deny-all. That is a visible behaviour change, hence an Open question for the owner before implementation.
 
@@ -268,12 +268,12 @@ Remaining gaps after rollout, and why each stays blocked: ASG references (need a
 
 ## Open questions
 
-1. **Per-NSG rule limit.** The Microsoft NSG limits page read for this design says 2,000 including default rules; other Azure documentation has stated 1,000. Not resolved; the 100-per-direction Bunya cap avoids depending on either. Confirm against the current [Azure limits](https://learn.microsoft.com/azure/azure-resource-manager/management/azure-subscription-service-limits) page before documenting a figure.
+1. **Per-NSG rule limit.** The Microsoft NSG limits page read for this design says 2,000 including default rules; I recall older guidance of 1,000 but did not retrieve a source for it. Not resolved; the 100-per-direction Bunya cap avoids depending on either. Confirm against the current [Azure limits](https://learn.microsoft.com/azure/azure-resource-manager/management/azure-subscription-service-limits) page before documenting a figure.
 2. **Is a comma list accepted in the singular `destinationPortRange`?** Microsoft's portal text shows comma separation for ranges; the ARM examples use the plural array. This design splits into the plural arrays everywhere (safest). Verify with `az deployment group validate` / `what-if` and Terraform `validate`/`plan` during implementation; do not call Azure for this spike.
 3. **Service tag validation.** The pattern accepts any identifier-like tag. Azure's tag set changes; decide whether to ship a list (and refresh it with `scripts/upstream-check.ts`) or keep the permissive pattern and rely on Azure to reject unknown tags.
 4. **`Add-AzVirtualNetworkSubnetConfig` and an NSG.** Whether it exposes `-NetworkSecurityGroup`/`-NetworkSecurityGroupId` was not confirmed from the cmdlet documentation read (only `New-` and `Set-AzVirtualNetworkSubnetConfig` were). Resolve before enabling PowerShell associations.
 5. **NSG and subnet region rule.** Confirm Azure's same-region requirement for associations; the single-region document model likely makes it moot.
-6. **Terraform provider version.** Argument names come from azurerm v4.80.0; confirm the version Bunya's generated `required_providers` block pins and re-check the two pages.
+6. **Terraform provider version.** Bunya's generated `required_providers` block pins `azurerm` to `~> 4.35` (`lib/generators/terraform.ts:949-953`), so any 4.x from 4.35 may run. Argument names above come from the v4.80.0 pages; confirm none of the used arguments were added after 4.35 (all are long-standing arguments, but this was not checked against the changelog).
 7. **Default deny scope.** Inbound-only deny at 4096 follows `PSRULE.NSG.DENYALLINBOUND`; the owner should confirm that is the intended meaning of `defaultDeny` and accept that it shadows the built-in VNet and load-balancer allows. The alternative is to keep `defaultDeny: true` blocked and require explicit rules (smaller change, less convenient).
 8. **Authoring path.** The inspector cannot edit rule arrays (Finding 4). Decide whether rule editing UI belongs in the same release, or whether v1 is import, JSON and MCP only.
 9. **Reverse-direction edges.** Whether to migrate existing `nsg -> subnet` `depends_on` edges to `subnet -> nsg` on load, rather than blocking them.

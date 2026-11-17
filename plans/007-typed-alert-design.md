@@ -46,7 +46,7 @@ Chosen pair, confirmed from current Microsoft documentation:
 
 Only the **App Service** node type (`appService`, ARM type `Microsoft.Web/sites`, Terraform `azurerm_linux_web_app`) is a valid target in v1. `functionApp` shares the namespace and the metric, but Linux Consumption exclusion means Bunya would have to know the plan type; it stays out of v1 (listed in Open questions).
 
-Allowed values (every one is from the references above or the Terraform provider page):
+Allowed values (every one is from the references above or the Terraform provider page; the generated provider pin is `~> 4.35`, `lib/generators/terraform.ts:949-953`, and the pages cited are v4.80.0, so check no used argument post-dates 4.35):
 
 - `timeAggregation`: `Total` only (documented default; the API enum also allows Average, Count, Maximum, Minimum, but the metric page lists only Total, so v1 does not offer others).
 - `operator`: `GreaterThan`, `GreaterThanOrEqual` (API enum also has Equals, LessThan, LessThanOrEqual; those make little sense for an error count and are left out).
@@ -146,7 +146,7 @@ type AlertEmission = {
     "actions": [ { "actionGroupId": "[resourceId('Microsoft.Insights/actionGroups', '<ag name>')]" } ] } }
 ```
 
-Property names and the `odata.type` value are from the [metricAlerts reference](https://learn.microsoft.com/en-us/azure/templates/microsoft.insights/metricalerts) (the `SingleResourceMultipleMetricCriteria` object and its `allOf` items). Use the existing `armResourceId` helper for the ids (the same expression style the file already uses) and add the target and Action Group ids to `dependsOn` so the alert deploys after both. `threshold` is a JSON number. Fix both existing defects: scopes come from the validated target, `severity` from the model.
+Property names and the `odata.type` value are from the [metricAlerts reference](https://learn.microsoft.com/en-us/azure/templates/microsoft.insights/metricalerts) (the `SingleResourceMultipleMetricCriteria` object and its `allOf` items). Use the existing `armResourceId` helper for the ids (the same expression style the file already uses) and add the target and Action Group ids to `dependsOn` so the alert deploys after both. `threshold` is a JSON number. Scopes come from the validated target and `severity` from the model (today ARM ignores the severity property and Bicep and Terraform ignore edge targets; these are the scaffold's known limits, now removed for the typed case).
 
 ### Bicep (`lib/generators/bicep.ts`, `emitMonitorAlert`)
 
