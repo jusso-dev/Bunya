@@ -265,15 +265,23 @@ const graphStoreInitializer: StateCreator<GraphStore> = (set, get) => ({
   },
 
   updateNodeProperties: (id, patch) => {
-    set((state) => ({
-      ...pushHistory(state),
-      document: {
-        ...state.document,
-        nodes: state.document.nodes.map((n) =>
-          n.id === id ? { ...n, properties: { ...n.properties, ...patch } } : n,
-        ),
-      },
-    }));
+    set((state) => {
+      const node = state.document.nodes.find((n) => n.id === id);
+      // Committing the value a field already has (a number input commits on
+      // change and again on blur) must not spend an undo step. Values compare
+      // by identity, so a rebuilt array or object counts as a change.
+      const changes = (key: string) => !(key in (node?.properties ?? {})) || !Object.is(node?.properties[key], patch[key]);
+      if (!node || !Object.keys(patch).some(changes)) return state;
+      return {
+        ...pushHistory(state),
+        document: {
+          ...state.document,
+          nodes: state.document.nodes.map((n) =>
+            n.id === id ? { ...n, properties: { ...n.properties, ...patch } } : n,
+          ),
+        },
+      };
+    });
   },
 
   setMetadata: (patch) => {

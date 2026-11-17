@@ -178,3 +178,77 @@ describe("drag history", () => {
     expect(store().history).toHaveLength(2);
   });
 });
+
+describe("property edit history", () => {
+  const store = () => useGraphStore.getState();
+  let id: string;
+
+  beforeEach(() => {
+    store().reset();
+    id = store().addNode({ ...baseNode, type: "appServicePlan", name: "Plan", resourceName: "plan", properties: { capacity: 1, sku: "B1" } });
+    store().reset(store().document);
+  });
+
+  const properties = () => store().document.nodes.find((n) => n.id === id)?.properties;
+
+  it("undoes a changed value in one step and redoes it", () => {
+    store().updateNodeProperties(id, { capacity: 3 });
+    expect(properties()).toMatchObject({ capacity: 3, sku: "B1" });
+    expect(store().history).toHaveLength(1);
+    store().undo();
+    expect(properties()).toMatchObject({ capacity: 1 });
+    store().redo();
+    expect(properties()).toMatchObject({ capacity: 3 });
+  });
+
+  it("ignores a second commit of the same value (change, then blur)", () => {
+    store().updateNodeProperties(id, { capacity: 3 });
+    const document = store().document;
+    store().updateNodeProperties(id, { capacity: 3 });
+    expect(store().history).toHaveLength(1);
+    expect(store().document).toBe(document);
+
+    // The first Undo already restores the earlier value.
+    store().undo();
+    expect(properties()).toMatchObject({ capacity: 1 });
+  });
+
+  it("keeps redo when an edit changes nothing", () => {
+    store().updateNodeProperties(id, { capacity: 3 });
+    store().undo();
+    expect(store().future).toHaveLength(1);
+    store().updateNodeProperties(id, { capacity: 1, sku: "B1" });
+    expect(store().future).toHaveLength(1);
+    expect(store().history).toHaveLength(0);
+    store().redo();
+    expect(properties()).toMatchObject({ capacity: 3 });
+  });
+
+  it("records a patch that changes only some of its values, and drops redo", () => {
+    store().updateNodeProperties(id, { capacity: 3 });
+    store().undo();
+    store().updateNodeProperties(id, { capacity: 1, sku: "P1v3" });
+    expect(properties()).toMatchObject({ capacity: 1, sku: "P1v3" });
+    expect(store().history).toHaveLength(1);
+    expect(store().future).toHaveLength(0);
+  });
+
+  it("records a property that was not set before", () => {
+    store().updateNodeProperties(id, { zoneRedundant: false });
+    expect(properties()).toMatchObject({ zoneRedundant: false });
+    expect(store().history).toHaveLength(1);
+  });
+
+  it("treats a rebuilt array or object as a change", () => {
+    store().updateNodeProperties(id, { tags: { env: "dev" } });
+    store().updateNodeProperties(id, { tags: { env: "dev" } });
+    expect(store().history).toHaveLength(2);
+  });
+
+  it("does nothing for a node that does not exist", () => {
+    const document = store().document;
+    store().updateNodeProperties("missing", { capacity: 9 });
+    expect(store().document).toBe(document);
+    expect(store().history).toHaveLength(0);
+  });
+});

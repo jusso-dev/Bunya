@@ -39,6 +39,46 @@ test("an invalid number never reaches the saved diagram", async ({ page }) => {
   await expect(page.locator(".react-flow__node")).toHaveCount(1);
 });
 
+test("a valid number followed by blur is one undo step, and redo restores it", async ({ page }) => {
+  await page.getByRole("button", { name: "Add App Service Plan", exact: true }).click();
+  const node = page.locator(".react-flow__node").first();
+  await node.click();
+  const capacity = page.locator("label", { hasText: "capacity" }).locator("input");
+  const original = await capacity.inputValue();
+  expect(original).not.toBe("3");
+
+  await capacity.fill("3");
+  await capacity.blur();
+  await expect(capacity).toHaveValue("3");
+
+  // One Undo restores the earlier value; the node itself is still on the canvas.
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(page.locator(".react-flow__node")).toHaveCount(1);
+  await node.click();
+  await expect(capacity).toHaveValue(original);
+
+  await page.getByRole("button", { name: "Redo", exact: true }).click();
+  await node.click();
+  await expect(capacity).toHaveValue("3");
+});
+
+test("a clamped number is also a single undo step", async ({ page }) => {
+  await page.getByRole("button", { name: "Add App Service Plan", exact: true }).click();
+  const node = page.locator(".react-flow__node").first();
+  await node.click();
+  const capacity = page.locator("label", { hasText: "capacity" }).locator("input");
+  const original = await capacity.inputValue();
+
+  await capacity.fill("-5");
+  await capacity.blur();
+  await expect(capacity).toHaveValue("0");
+
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(page.locator(".react-flow__node")).toHaveCount(1);
+  await node.click();
+  await expect(capacity).toHaveValue(original);
+});
+
 test("a bad saved diagram is recovered from the backup instead of wiped", async ({ page }) => {
   await page.getByRole("button", { name: "Add Key Vault", exact: true }).click();
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("bunya.document.v1") ?? "{}").nodes?.length)).toBe(1);
