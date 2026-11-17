@@ -14,8 +14,15 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # The same gate pull requests run, on this exact commit. Nothing is built or
+  # deployed unless it passes.
+  verify:
+    name: Verify
+    uses: ./.github/workflows/verify.yml
+
   build:
     name: Build static site
+    needs: verify
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:

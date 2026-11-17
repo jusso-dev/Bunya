@@ -478,9 +478,11 @@ Scripts:
 ```bash
 pnpm typecheck       # tsc --noEmit, strict
 pnpm test            # vitest run (unit tests, snapshot coverage of every generator)
-pnpm e2e             # playwright tests against the dev server
+pnpm e2e             # playwright tests against the dev server (not the documentation screenshots)
+pnpm e2e:pages       # playwright smoke tests against out/ served at /Bunya/ (run pnpm build:pages first)
+pnpm e2e:screenshots # regenerate the README screenshots in project-docs/screenshots (opt-in; rewrites tracked PNGs)
 pnpm build           # next build (Turbopack)
-pnpm build:pages     # static export to out/ with the /Bunya base path (CI deploys it on every push to main)
+pnpm build:pages     # static export to out/ with the /Bunya base path (deployed on pushes to main once verification passes)
 pnpm rules:verify    # every rule matches RuleSchema, no duplicate ids, >=100 total
 pnpm rules:coverage  # regenerate project-docs/rules/COVERAGE.md + GAPS.md
 pnpm prices:refresh  # fetch Azure Retail Prices API and stage a snapshot diff
@@ -547,6 +549,7 @@ lib/
     graph-rules/                    # Bunya's own BUNYA.* rules
 scripts/
   rules-verify.ts                   # pnpm rules:verify (CI)
+  serve-pages.mjs                   # serves out/ at /Bunya/ for pnpm e2e:pages (local only)
   generate-coverage.ts              # COVERAGE.md + GAPS.md generator
 mcp/
   server.ts                          # stdio MCP entry point
@@ -664,6 +667,7 @@ Pull requests welcome. The bar:
 
 - `pnpm typecheck` clean
 - `pnpm test` green (add tests for new generators or rules)
+- `pnpm e2e` green; for UI changes also `pnpm build:pages && pnpm e2e:pages` (CI runs both, and Pages deploys only after they pass)
 - New rules must cite a source URL (verify.ts will block PRs that don't)
 - Generator changes get snapshot diffs reviewed
 - Australian spelling in user-facing copy

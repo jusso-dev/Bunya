@@ -143,7 +143,7 @@ describe("ARM resource conditions", () => {
 });
 
 describe("ARM resource copy loops", () => {
-  const fixed = (count: unknown, name: unknown = "[concat('stcopy', copyIndex())]") =>
+  const fixed = (count: unknown, name ="[concat('stcopy', copyIndex())]") =>
     imported({
       $schema: SCHEMA,
       parameters: { items: { type: "array", defaultValue: ["a", "b"] }, runtime: { type: "int" } },

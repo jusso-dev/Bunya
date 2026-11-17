@@ -1,0 +1,62 @@
+name: Verify
+
+# Reusable quality gate. ci.yml and pages.yml both call it, so a pull request and
+# a Pages deployment run the same checks against the same commit (github.sha of
+# the calling run; nothing here looks up a branch or another run's artifacts).
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Lint, typecheck, unit tests, browser tests and build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 10.33.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Verify rules registry
+        run: pnpm rules:verify
+
+      - name: Install Playwright browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Browser tests
+        run: pnpm e2e
+
+      - name: Build
+        run: pnpm build
+
+      - name: Build static site for GitHub Pages
+        run: pnpm build:pages
+
+      - name: Static site smoke tests
+        run: pnpm e2e:pages
