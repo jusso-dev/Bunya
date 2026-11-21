@@ -141,12 +141,13 @@ function resolvesPrivately(document: GraphDocument, pe: GraphNode, groupId: stri
   const servers = appVnet.properties.dnsServers;
   if (Array.isArray(servers) && servers.length > 0) return true;
   const zoneName = privateDnsZoneFor(groupId);
+  if (!zoneName) return false;
   const linked = (a: string, b: string) =>
     document.edges.some((edge) => edge.kind === "network" && ((edge.source === a && edge.target === b) || (edge.source === b && edge.target === a)));
   return document.nodes.some(
     (zone) =>
       zone.type === "privateDnsZone" &&
-      String(zone.properties.zoneName ?? zone.resourceName) === zoneName &&
+      String(zone.properties.zoneName ?? zone.resourceName).toLowerCase() === zoneName.toLowerCase() &&
       linked(pe.id, zone.id) &&
       document.edges.some((edge) => edge.kind === "network" && edge.source === zone.id && edge.target === appVnet.id),
   );
@@ -196,32 +197,11 @@ function hostingProblems(document: GraphDocument): TopologyProblem[] {
 
   for (const site of document.nodes.filter(isSite)) {
     const plan = sitePlan(document, site);
-    if (!plan) continue;
-    sitesByPlan.set(plan.id, [...(sitesByPlan.get(plan.id) ?? []), site]);
-    const sku = String(plan.properties.sku);
-    const family = planFamily(sku);
-    const pair = [site.id, plan.id];
-    if (plan.properties.os === "Windows") {
-      problems.push({ nodeIds: pair, message: `${label(site)} runs on the Windows plan ${label(plan)}. Bunya exports Linux apps only, so it cannot generate code for this app; exclude it, or switch it to Linux if the app supports that.`, kind: "bunya" });
-    }
-    if (site.type === "appService" && family !== "dedicated") {
-      problems.push({ nodeIds: pair, message: `${label(site)} is a web app, but ${label(plan)} (${sku}) only hosts Function Apps; use a Basic, Standard or Premium plan.`, kind: "azure" });
-    }
-    if (site.properties.containerImage && isServerlessPlan(sku)) {
-      problems.push({ nodeIds: pair, message: `${label(site)} runs a container image, which ${label(plan)} (${sku}) does not support; use an Elastic Premium or dedicated plan, or clear the image.`, kind: "azure" });
-    }
     const registry = siteRegistry(document, site);
     if (registry && !hasRegistryPullIdentity(document, site, registry)) {
       problems.push({ nodeIds: [site.id, registry.id], message: `${label(site)} pulls its image from ${label(registry)} with registry credentials, which Bunya does not export. Draw an identity edge from the app (or a user-assigned identity it uses) to the registry so the exported code pulls with managed identity and grants AcrPull.`, kind: "bunya" });
     }
-    if (family === "flex" && site.type === "functionApp") {
-      const runtime = String(site.properties.runtime ?? "node");
-      const allowed = FLEX_RUNTIME_VERSIONS[runtime] ?? [];
-      const version = flexRuntimeVersion(runtime, String(site.properties.runtimeVersion ?? ""));
-      if (!allowed.includes(version)) {
-        problems.push({ nodeIds: pair, message: `${label(site)} uses ${runtime} ${String(site.properties.runtimeVersion)}, which Flex Consumption no longer accepts for new deployments (a running app keeps working); use ${runtime} ${allowed.join(", ")} to export it.`, kind: "bunya" });
-      }
-    }
+    const sku = plan ? String(plan.properties.sku) : "B1";
     const backingStorage = site.type === "functionApp"
       ? document.edges.filter((edge) => edge.source === site.id && edge.kind === "data").map((edge) => byId.get(edge.target)).find((target) => target?.type === "storageAccount")
       : undefined;
@@ -239,6 +219,27 @@ function hostingProblems(document: GraphDocument): TopologyProblem[] {
           ? `add ${missing.join(", ")} Private Endpoints to it in the app's VNet`
           : `integrate the app with a VNet that has ${needed.join(", ")} Private Endpoints to it`;
         problems.push({ nodeIds: [site.id, backingStorage.id], message: `Bunya cannot see how ${label(site)} reaches ${label(backingStorage)}: its public network access is off and the diagram has no private path (peered hub networks are not modelled), so ${how}, or turn public network access on.${needed.includes("table") ? " Durable Functions also need a queue Private Endpoint." : ""}`, kind: "bunya" });
+      }
+    }
+    if (!plan) continue;
+    sitesByPlan.set(plan.id, [...(sitesByPlan.get(plan.id) ?? []), site]);
+    const family = planFamily(sku);
+    const pair = [site.id, plan.id];
+    if (plan.properties.os === "Windows") {
+      problems.push({ nodeIds: pair, message: `${label(site)} runs on the Windows plan ${label(plan)}. Bunya exports Linux apps only, so it cannot generate code for this app; exclude it, or switch it to Linux if the app supports that.`, kind: "bunya" });
+    }
+    if (site.type === "appService" && family !== "dedicated") {
+      problems.push({ nodeIds: pair, message: `${label(site)} is a web app, but ${label(plan)} (${sku}) only hosts Function Apps; use a Basic, Standard or Premium plan.`, kind: "azure" });
+    }
+    if (site.properties.containerImage && isServerlessPlan(sku)) {
+      problems.push({ nodeIds: pair, message: `${label(site)} runs a container image, which ${label(plan)} (${sku}) does not support; use an Elastic Premium or dedicated plan, or clear the image.`, kind: "azure" });
+    }
+    if (family === "flex" && site.type === "functionApp") {
+      const runtime = String(site.properties.runtime ?? "node");
+      const allowed = FLEX_RUNTIME_VERSIONS[runtime] ?? [];
+      const version = flexRuntimeVersion(runtime, String(site.properties.runtimeVersion ?? ""));
+      if (!allowed.includes(version)) {
+        problems.push({ nodeIds: pair, message: `${label(site)} uses ${runtime} ${String(site.properties.runtimeVersion)}, which Flex Consumption no longer accepts for new deployments (a running app keeps working); use ${runtime} ${allowed.join(", ")} to export it.`, kind: "bunya" });
       }
     }
     if (family === "flex" && site.type === "functionApp" && !document.edges.some((edge) => edge.source === site.id && edge.kind === "data" && byId.get(edge.target)?.type === "storageAccount")) {
@@ -360,9 +361,15 @@ export function freeSubnetPrefix(addressSpace: unknown, used: unknown[], bits = 
   const length = Math.max(bits, spaceBits);
   const size = 2 ** (32 - length);
   const taken = used.map(parseCidr).filter((range): range is Cidr => range !== null);
-  for (let start = space.start; start + size - 1 <= space.end; start += size) {
+  for (let start = space.start; start + size - 1 <= space.end; ) {
     const end = start + size - 1;
-    if (taken.some((range) => range.start <= end && start <= range.end)) continue;
+    const blocking = taken.find((range) => range.start <= end && start <= range.end);
+    if (blocking) {
+      // Jump straight past the overlapping CIDR block instead of stepping one /24 at a time.
+      const next = Math.ceil((blocking.end + 1) / size) * size;
+      start = Math.max(start + size, next);
+      continue;
+    }
     const octets = [24, 16, 8, 0].map((shift) => Math.floor(start / 2 ** shift) % 256);
     return `${octets.join(".")}/${length}`;
   }

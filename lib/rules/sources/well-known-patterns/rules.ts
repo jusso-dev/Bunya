@@ -4,7 +4,7 @@ import { graphRule, nodeRule, getProp, nodesOfType } from "@/lib/rules/builders"
 import type { RuleEntry } from "@/lib/rules/schema";
 import type { GraphNode } from "@/lib/graph/schema";
 
-export const PATTERNS_REVISION = "2026-04-01";
+export const PATTERNS_REVISION = "2026-11-22";
 const PATTERN_BASE = {
   name: "Microsoft Learn — Azure Architecture Center",
   license: "CC-BY-4.0",

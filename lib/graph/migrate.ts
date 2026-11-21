@@ -20,7 +20,21 @@ export function migrate(raw: unknown): GraphDocument {
           node.properties = { ...node.properties, publicNetworkAccess: imported || node.properties.allowPublicAccess === true };
         }
       }
-      for (const node of document.nodes) getServiceDefinition(node.type).propertiesSchema.parse(node.properties);
+      for (const node of document.nodes) {
+        const rawTags = node.properties.tags;
+        const parsed = getServiceDefinition(node.type).propertiesSchema.parse(node.properties) as Record<string, unknown>;
+        if (
+          rawTags !== undefined &&
+          !("tags" in parsed) &&
+          rawTags &&
+          typeof rawTags === "object" &&
+          !Array.isArray(rawTags) &&
+          Object.values(rawTags).every((value) => typeof value === "string")
+        ) {
+          parsed.tags = rawTags;
+        }
+        node.properties = parsed;
+      }
       return document;
     default:
       throw new Error(`unsupported schemaVersion: ${String(version)}`);

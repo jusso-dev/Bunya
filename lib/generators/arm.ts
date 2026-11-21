@@ -96,7 +96,7 @@ function emitSubnet(node: GraphNode, ctx: GeneratorContext): ArmResource {
       privateEndpointNetworkPolicies:
         String(node.properties.privateEndpointNetworkPolicies),
       ...(subnetDelegations(ctx.document, node).length > 0
-        ? { delegations: subnetDelegations(ctx.document, node).map((service) => ({ name: service.split("/")[1], properties: { serviceName: service } })) }
+        ? { delegations: subnetDelegations(ctx.document, node).map((service) => ({ name: service.split("/")[1] ?? service, properties: { serviceName: service } })) }
         : {}),
     },
     dependsOn: [resourceId("Microsoft.Network/virtualNetworks", vnetName)],
@@ -336,20 +336,40 @@ function emitAksCluster(node: GraphNode, ctx: GeneratorContext): ArmResource {
       },
     };
   }
+  const dependsOn = [
+    ...(subnet ? [armResourceId(subnet, ctx)] : []),
+    ...(workspace ? [armResourceId(workspace, ctx)] : []),
+  ];
   return {
     type: "Microsoft.ContainerService/managedClusters",
     apiVersion: apiVersion("Microsoft.ContainerService/managedClusters"),
     name: ctx.name(node.id),
     location: "[parameters('location')]",
     identity: { type: node.properties.managedIdentity === false ? "None" : "SystemAssigned" },
+    ...(dependsOn.length > 0 ? { dependsOn } : {}),
     properties,
     tags: ctx.tags(node),
   };
 }
 
+function vmssComputerNamePrefix(name: string): string {
+  const cleaned = name
+    .replace(/[^A-Za-z0-9-]+/g, "-")
+    .replace(/^-+/, "")
+    .slice(0, 9)
+    .replace(/-+$/, "");
+  return cleaned || "vmss";
+}
+
+function alertSeverityNumber(severity: unknown): number {
+  const parsed = Number.parseInt(String(severity ?? "Sev2").replace(/^Sev/i, ""), 10);
+  return Number.isInteger(parsed) && parsed >= 0 && parsed <= 4 ? parsed : 2;
+}
+
 function emitVmss(node: GraphNode, ctx: GeneratorContext): ArmResource {
   const sku = String(node.properties.sku);
   const capacity = Number(node.properties.capacity);
+  const subnetId = armResourceId(subnetOf(ctx, node)!, ctx);
   return {
     type: "Microsoft.Compute/virtualMachineScaleSets",
     apiVersion: apiVersion("Microsoft.Compute/virtualMachineScaleSets"),
@@ -357,6 +377,7 @@ function emitVmss(node: GraphNode, ctx: GeneratorContext): ArmResource {
     location: "[parameters('location')]",
     sku: { name: sku, tier: "Standard", capacity },
     identity: { type: "SystemAssigned" },
+    dependsOn: [subnetId],
     properties: {
       orchestrationMode: String(node.properties.orchestrationMode),
       upgradePolicy: {
@@ -380,7 +401,7 @@ function emitVmss(node: GraphNode, ctx: GeneratorContext): ArmResource {
           },
         },
         osProfile: {
-          computerNamePrefix: ctx.name(node.id).slice(0, 9),
+          computerNamePrefix: vmssComputerNamePrefix(ctx.name(node.id)),
           adminUsername: "[parameters('vmAdminUsername')]",
           linuxConfiguration: {
             disablePasswordAuthentication: true,
@@ -404,7 +425,7 @@ function emitVmss(node: GraphNode, ctx: GeneratorContext): ArmResource {
                   {
                     name: "ipconfig1",
                     properties: {
-                      subnet: { id: armResourceId(subnetOf(ctx, node)!, ctx) },
+                      subnet: { id: subnetId },
                     },
                   },
                 ],
@@ -493,7 +514,7 @@ function emitKeyVault(node: GraphNode, ctx: GeneratorContext): ArmResource {
     properties: {
       sku: { family: "A", name: String(node.properties.sku) },
       tenantId: "[subscription().tenantId]",
-      enablePurgeProtection: node.properties.purgeProtection !== false,
+      ...(node.properties.purgeProtection !== false ? { enablePurgeProtection: true } : {}),
       softDeleteRetentionInDays: Number(node.properties.softDeleteRetentionDays),
       enableRbacAuthorization: node.properties.rbacAuthorization !== false,
       publicNetworkAccess:
@@ -557,17 +578,18 @@ function emitActionGroup(node: GraphNode, ctx: GeneratorContext): ArmResource {
 function emitMonitorAlert(node: GraphNode, ctx: GeneratorContext): ArmResource {
   const scopes = targets(ctx, node.id, "diagnostic").filter((target) => target.type !== "actionGroup");
   const actionGroups = targets(ctx, node.id, "depends_on").filter((target) => target.type === "actionGroup");
+  const scopeIds = scopes.map((scope) => armResourceId(scope, ctx));
   return {
     type: "Microsoft.Insights/metricAlerts",
     apiVersion: apiVersion("Microsoft.Insights/metricAlerts"),
     name: ctx.name(node.id),
     location: "global",
+    ...(scopeIds.length > 0 ? { dependsOn: scopeIds } : {}),
     properties: {
       description: String(node.properties.condition),
-      severity: 2,
+      severity: alertSeverityNumber(node.properties.severity),
       enabled: node.properties.enabled !== false,
-      scopes:
-        scopes.length > 0 ? scopes.map((scope) => armResourceId(scope, ctx)) : ["[resourceGroup().id]"],
+      scopes: scopeIds.length > 0 ? scopeIds : ["[resourceGroup().id]"],
       evaluationFrequency: "PT5M",
       windowSize: "PT5M",
       criteria: {
@@ -613,12 +635,13 @@ function emitApplicationGateway(node: GraphNode, ctx: GeneratorContext): ArmReso
 }
 
 function emitApim(node: GraphNode, ctx: GeneratorContext): ArmResource {
+  const sku = String(node.properties.sku);
   return {
     type: "Microsoft.ApiManagement/service",
     apiVersion: apiVersion("Microsoft.ApiManagement/service"),
     name: ctx.name(node.id),
     location: "[parameters('location')]",
-    sku: { name: String(node.properties.sku), capacity: 0 },
+    sku: { name: sku, capacity: sku === "Consumption" ? 0 : 1 },
     properties: {
       publisherName: String(node.properties.publisherName),
       publisherEmail: String(node.properties.publisherEmail),
@@ -686,8 +709,17 @@ function emitRoleAssignments(ctx: GeneratorContext): ArmResource[] {
 
 // Diagnostic settings are extension resources on the source.
 function emitDiagnosticSettings(ctx: GeneratorContext): ArmResource[] {
+  const seen = new Set<string>();
   return ctx.edges
-    .filter((edge) => edge.kind === "diagnostic" && ctx.nodesById.get(edge.target)!.type === "logAnalytics" && DIAGNOSTIC_SOURCES.has(ctx.nodesById.get(edge.source)!.type))
+    .filter((edge) => {
+      if (edge.kind !== "diagnostic" || ctx.nodesById.get(edge.target)!.type !== "logAnalytics" || !DIAGNOSTIC_SOURCES.has(ctx.nodesById.get(edge.source)!.type)) {
+        return false;
+      }
+      const key = JSON.stringify([edge.source, edge.target]);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
     .map((edge) => {
       const source = ctx.nodesById.get(edge.source)!;
       const target = ctx.nodesById.get(edge.target)!;
@@ -701,7 +733,7 @@ function emitDiagnosticSettings(ctx: GeneratorContext): ArmResource[] {
           logs: [{ categoryGroup: "allLogs", enabled: true }],
           metrics: [{ category: "AllMetrics", enabled: true }],
         },
-        dependsOn: [armResourceId(source, ctx)],
+        dependsOn: [armResourceId(source, ctx), armResourceId(target, ctx)],
       };
     });
 }

@@ -15,8 +15,10 @@ export function Dialog({ label, onClose, children }: { label: string; onClose: (
     <dialog ref={ref} aria-label={label} onCancel={(event) => { event.preventDefault(); onClose(); }}
       onKeyDown={(event) => {
         if (event.key !== "Tab") return;
-        const elements = ref.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not([type="hidden"]):not(:disabled), textarea:not(:disabled), select:not(:disabled), [tabindex="0"]');
-        if (!elements?.length) return;
+        const elements = Array.from(
+          ref.current?.querySelectorAll<HTMLElement>('a[href], button:not(:disabled), input:not([type="hidden"]):not(:disabled), textarea:not(:disabled), select:not(:disabled), [tabindex="0"]') ?? [],
+        ).filter((el) => el.getClientRects().length > 0);
+        if (!elements.length) return;
         const first = elements[0], last = elements[elements.length - 1];
         if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
         else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }

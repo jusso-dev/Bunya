@@ -1,4 +1,5 @@
 import { graphRule } from "../builders";
+import { subnetVirtualNetwork } from "@/lib/graph/topology";
 import type { RuleEntry } from "../schema";
 
 export const implicitRules: RuleEntry[] = [
@@ -24,12 +25,9 @@ export const implicitRules: RuleEntry[] = [
             e.kind === "data" &&
             graph.nodes.find((n) => n.id === e.target)?.type === "storageAccount",
         );
-        if (!hasStg) partials.push({ nodeIds: [fn.id], autofixId: "add-storage" });
+        if (!hasStg) partials.push({ nodeIds: [fn.id] });
       }
       return partials;
-    },
-    autofixes: {
-      "add-storage": (graph) => graph,
     },
   }),
   graphRule({
@@ -59,7 +57,7 @@ export const implicitRules: RuleEntry[] = [
             e.kind === "depends_on" &&
             graph.nodes.find((n) => n.id === e.target)?.type === "appServicePlan",
         );
-        if (!hasPlan && !parentIsPlan) partials.push({ nodeIds: [site.id], autofixId: "add-plan" });
+        if (!hasPlan && !parentIsPlan) partials.push({ nodeIds: [site.id] });
       }
       return partials;
     },
@@ -78,15 +76,9 @@ export const implicitRules: RuleEntry[] = [
       "Subnets are child resources of a Virtual Network and cannot exist without a parent VNet. The depends_on edge is the only signal Bunya has to derive parent scope and ARM resource path during code generation. Without it the subnet will fail to deploy or worse, be attached to the wrong VNet if multiple are defined.",
     tags: ["bunya", "network", "subnet", "implicit"],
     predicate: (graph) => {
-      const partials: Array<{ nodeIds?: string[]; autofixId?: string }> = [];
+      const partials: Array<{ nodeIds?: string[] }> = [];
       for (const subnet of graph.nodes.filter((n) => n.type === "subnet")) {
-        const hasVnet = graph.edges.some(
-          (e) =>
-            e.source === subnet.id &&
-            e.kind === "depends_on" &&
-            graph.nodes.find((n) => n.id === e.target)?.type === "virtualNetwork",
-        );
-        if (!hasVnet) partials.push({ nodeIds: [subnet.id], autofixId: "add-vnet" });
+        if (!subnetVirtualNetwork(graph, subnet)) partials.push({ nodeIds: [subnet.id] });
       }
       return partials;
     },
@@ -113,7 +105,7 @@ export const implicitRules: RuleEntry[] = [
             e.kind === "network" &&
             graph.nodes.find((n) => n.id === e.target)?.type === "subnet",
         );
-        if (!hasSubnet) partials.push({ nodeIds: [pe.id], autofixId: "add-subnet" });
+        if (!hasSubnet) partials.push({ nodeIds: [pe.id] });
       }
       return partials;
     },
@@ -140,7 +132,7 @@ export const implicitRules: RuleEntry[] = [
             e.kind === "depends_on" &&
             graph.nodes.find((n) => n.id === e.target)?.type === "logAnalytics",
         );
-        if (!hasWs) partials.push({ nodeIds: [ai.id], autofixId: "add-workspace" });
+        if (!hasWs) partials.push({ nodeIds: [ai.id] });
       }
       return partials;
     },

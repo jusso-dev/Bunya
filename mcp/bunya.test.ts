@@ -122,4 +122,19 @@ describe("Bunya MCP tools through the SDK", () => {
       await close();
     }
   });
+
+  it("reserves explicit and edge-linked subnet prefixes before allocating defaults", () => {
+    const doc = createDiagram({
+      name: "subnet-alloc",
+      nodes: [
+        { id: "snet-auto", type: "subnet", name: "Auto", parentId: "vnet" },
+        { id: "snet-explicit", type: "subnet", name: "Explicit", parentId: "vnet", properties: { addressPrefix: "10.0.0.0/24" } },
+        { id: "snet-linked", type: "subnet", name: "Linked", properties: { addressPrefix: "10.0.1.0/24" } },
+        { id: "vnet", type: "virtualNetwork", name: "Main VNet", properties: { addressSpace: "10.0.0.0/16" } },
+      ],
+      connections: [{ source: "snet-linked", target: "vnet", kind: "depends_on" }],
+    });
+    const autoSubnet = doc.nodes.find((n) => n.id === "snet-auto");
+    expect(autoSubnet?.properties.addressPrefix).toBe("10.0.2.0/24");
+  });
 });

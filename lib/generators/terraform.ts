@@ -18,6 +18,7 @@ import { GeneratorResult, GeneratedFile } from "./types";
 import { contentShareName, deploymentContainerName, siteHosting, type SiteHosting } from "./shared/hosting";
 import { grantSuffix, portableGrants, writtenWithScope, type RoleGrant } from "./shared/roles";
 import { quote } from "./shared/quote";
+import { terraformIdentifier } from "./shared/naming";
 import { isSite, privateEndpointTarget, subnetDelegations } from "@/lib/graph/topology";
 import { storagePublicNetwork } from "@/lib/catalogue/services";
 import { DIAGNOSTIC_SOURCES, tlsVersionToArm } from "@/lib/catalogue/azure";
@@ -65,9 +66,14 @@ function rgRef(ctx: GeneratorContext, node: GraphNode): string {
 
 function tagsBlock(ctx: GeneratorContext, node: GraphNode): string {
   const lines = Object.entries(ctx.tags(node))
-    .map(([k, v]) => `    "${k}" = "${v}"`)
+    .map(([k, v]) => `    ${quote.hcl(k)} = ${quote.hcl(v)}`)
     .join("\n");
   return `  tags = {\n${lines}\n  }`;
+}
+
+function alertSeverityNumber(severity: unknown): number {
+  const parsed = Number.parseInt(String(severity ?? "Sev2").replace(/^Sev/i, ""), 10);
+  return Number.isInteger(parsed) && parsed >= 0 && parsed <= 4 ? parsed : 2;
 }
 
 function emitResourceGroup(node: GraphNode, ctx: GeneratorContext): string {
@@ -118,7 +124,7 @@ function emitSubnet(node: GraphNode, ctx: GeneratorContext): string {
     ...subnetDelegations(ctx.document, node).flatMap((service) => [
       ``,
       `  delegation {`,
-      `    name = "${service.split("/")[1]}"`,
+      `    name = "${service.split("/")[1] ?? service}"`,
       `    service_delegation {`,
       `      name    = "${service}"`,
       `      actions = ["Microsoft.Network/virtualNetworks/subnets/action"]`,
@@ -264,7 +270,13 @@ function emitAppService(node: GraphNode, ctx: GeneratorContext): string {
   const settings = connectionSettings(ctx, node, hosting, true);
   const stack = hosting.image
     ? [`      docker_image_name   = "${hosting.image.imageAndTag}"`, `      docker_registry_url = "${hosting.image.registryUrl}"`]
-    : [`      ${runtime}_version = "${runtimeVersion}"`];
+    : runtime === "java"
+      ? [
+          `      java_version        = "${runtimeVersion}"`,
+          `      java_server         = "JAVA"`,
+          `      java_server_version = "${runtimeVersion}"`,
+        ]
+      : [`      ${runtime}_version = "${runtimeVersion}"`];
   const lines = [
     autoComment(ctx, node.id),
     `resource "azurerm_linux_web_app" "${ident}" {`,
@@ -369,9 +381,10 @@ function emitFlexFunctionApp(node: GraphNode, ctx: GeneratorContext, hosting: Si
   const planRef = `${ref(ctx, hosting.plan)}.id`;
   const storage = ref(ctx, hosting.storage!);
   const settings = connectionSettings(ctx, node, hosting, false);
+  const deploymentLabel = allocateContainerLabel(ctx, `${ident}_deployment`);
   const lines = [
     autoComment(ctx, node.id),
-    `resource "azurerm_storage_container" "${ident}_deployment" {`,
+    `resource "azurerm_storage_container" "${deploymentLabel}" {`,
     `  name                  = "${deploymentContainerName(ctx, node)}"`,
     `  storage_account_id    = ${storage}.id`,
     `  container_access_type = "private"`,
@@ -383,7 +396,7 @@ function emitFlexFunctionApp(node: GraphNode, ctx: GeneratorContext, hosting: Si
     `  location                      = ${rgRef(ctx, node)}.location`,
     `  service_plan_id               = ${planRef}`,
     `  storage_container_type        = "blobContainer"`,
-    `  storage_container_endpoint    = "\${${storage}.primary_blob_endpoint}\${azurerm_storage_container.${ident}_deployment.name}"`,
+    `  storage_container_endpoint    = "\${${storage}.primary_blob_endpoint}\${azurerm_storage_container.${deploymentLabel}.name}"`,
     `  storage_authentication_type   = "StorageAccountConnectionString"`,
     `  storage_access_key            = ${storage}.primary_access_key`,
     `  runtime_name                  = "${hosting.workerRuntime}"`,
@@ -444,10 +457,17 @@ function emitAksCluster(node: GraphNode, ctx: GeneratorContext): string {
   }
   if (authorizedRanges.length > 0 && !privateCluster) {
     lines.push(
-      `  api_server_authorized_ip_ranges = [${authorizedRanges.map((r) => `"${r}"`).join(", ")}]`,
+      ``,
+      `  api_server_access_profile {`,
+      `    authorized_ip_ranges = [${authorizedRanges.map((r) => `"${r}"`).join(", ")}]`,
+      `  }`,
     );
   }
   lines.push(
+    ``,
+    `  node_provisioning_profile {`,
+    `    mode = "Manual"`,
+    `  }`,
     ``,
     `  default_node_pool {`,
     `    name       = "system"`,
@@ -480,6 +500,7 @@ function emitAksCluster(node: GraphNode, ctx: GeneratorContext): string {
 
 function emitVmss(node: GraphNode, ctx: GeneratorContext): string {
   const ident = ctx.identifiers.get(node.id);
+  const zones = Array.isArray(node.properties.availabilityZones) ? (node.properties.availabilityZones as string[]) : [];
   return [
     autoComment(ctx, node.id),
     `resource "azurerm_linux_virtual_machine_scale_set" "${ident}" {`,
@@ -490,7 +511,7 @@ function emitVmss(node: GraphNode, ctx: GeneratorContext): string {
     `  instances           = ${Number(node.properties.capacity)}`,
     `  admin_username      = "${String(node.properties.adminUsername)}"`,
     `  upgrade_mode        = "${String(node.properties.upgradeMode)}"`,
-    `  zones               = ["1", "2", "3"]`,
+    ...(zones.length > 0 ? [`  zones               = [${zones.map((z) => `"${z}"`).join(", ")}]`] : []),
     ``,
     `  admin_ssh_key {`,
     `    username   = "${String(node.properties.adminUsername)}"`,
@@ -529,6 +550,21 @@ function emitVmss(node: GraphNode, ctx: GeneratorContext): string {
   ].filter(Boolean).join("\n");
 }
 
+const containerLabelsByCtx = new WeakMap<GeneratorContext, Set<string>>();
+
+function allocateContainerLabel(ctx: GeneratorContext, base: string): string {
+  let labels = containerLabelsByCtx.get(ctx);
+  if (!labels) {
+    labels = new Set<string>();
+    containerLabelsByCtx.set(ctx, labels);
+  }
+  let label = base;
+  let suffix = 1;
+  while (labels.has(label)) label = `${base}_${suffix++}`;
+  labels.add(label);
+  return label;
+}
+
 function emitStorageAccount(node: GraphNode, ctx: GeneratorContext): string {
   const ident = ctx.identifiers.get(node.id);
   const sku = String(node.properties.sku);
@@ -555,10 +591,14 @@ function emitStorageAccount(node: GraphNode, ctx: GeneratorContext): string {
     tagsBlock(ctx, node),
     `}`,
   ];
+  const seenContainerNames = new Set<string>();
   for (const c of containers) {
+    if (seenContainerNames.has(c)) continue;
+    seenContainerNames.add(c);
+    const label = allocateContainerLabel(ctx, `${ident}_${terraformIdentifier(c)}`);
     lines.push(
       ``,
-      `resource "azurerm_storage_container" "${ident}_${c}" {`,
+      `resource "azurerm_storage_container" "${label}" {`,
       `  name                  = "${c}"`,
       `  storage_account_id    = azurerm_storage_account.${ident}.id`,
       `  container_access_type = "private"`,
@@ -609,7 +649,7 @@ function emitCosmosDb(node: GraphNode, ctx: GeneratorContext): string {
     `  location            = ${rgRef(ctx, node)}.location`,
     `  offer_type          = "Standard"`,
     `  kind                = "GlobalDocumentDB"`,
-    `  enable_free_tier    = ${freeTier}`,
+    `  free_tier_enabled   = ${freeTier}`,
     ``,
     `  consistency_policy {`,
     `    consistency_level = "${consistency}"`,
@@ -641,7 +681,7 @@ function emitKeyVault(node: GraphNode, ctx: GeneratorContext): string {
     `  sku_name                      = "${sku}"`,
     `  purge_protection_enabled      = ${purgeProtection}`,
     `  soft_delete_retention_days    = ${retention}`,
-    `  enable_rbac_authorization     = ${rbac}`,
+    `  rbac_authorization_enabled    = ${rbac}`,
     `  public_network_access_enabled = ${publicNet}`,
     tagsBlock(ctx, node),
     `}`,
@@ -734,7 +774,7 @@ function emitApiManagement(node: GraphNode, ctx: GeneratorContext): string {
     `  location            = ${rgRef(ctx, node)}.location`,
     `  publisher_name      = "${name}"`,
     `  publisher_email     = ${quote.hcl(email)}`,
-    `  sku_name            = "${sku}_0"`,
+    `  sku_name            = "${sku}_${sku === "Consumption" ? 0 : 1}"`,
     tagsBlock(ctx, node),
     `}`,
   ].filter(Boolean).join("\n");
@@ -788,11 +828,10 @@ function emitPrivateDnsZone(node: GraphNode, ctx: GeneratorContext): string {
     ...zoneVnets(ctx, node).flatMap((vnet) => [
         ``,
         `resource "azurerm_private_dns_zone_virtual_network_link" "${dnsLinkIdent(ctx, node, vnet)}" {`,
-        `  name                  = "${dnsLinkName(ctx, vnet)}"`,
-        `  resource_group_name   = ${rgRef(ctx, node)}.name`,
-        `  private_dns_zone_name = azurerm_private_dns_zone.${ident}.name`,
-        `  virtual_network_id    = ${ref(ctx, vnet)}.id`,
-        `  registration_enabled  = false`,
+        `  name                 = "${dnsLinkName(ctx, vnet)}"`,
+        `  private_dns_zone_id  = azurerm_private_dns_zone.${ident}.id`,
+        `  virtual_network_id   = ${ref(ctx, vnet)}.id`,
+        `  registration_enabled = false`,
         `}`,
       ]),
   ].filter(Boolean).join("\n");
@@ -831,7 +870,7 @@ function emitMonitorAlert(node: GraphNode, ctx: GeneratorContext): string {
     `  enabled             = ${node.properties.enabled !== false}`,
     `  frequency           = "PT5M"`,
     `  window_size         = "PT5M"`,
-    `  severity            = 2`,
+    `  severity            = ${alertSeverityNumber(node.properties.severity)}`,
     ``,
     `  criteria {`,
     `    metric_namespace = "Microsoft.Resources/subscriptions/resourceGroups"`,
@@ -892,10 +931,14 @@ const EMITTERS: Record<ServiceType, (node: GraphNode, ctx: GeneratorContext) => 
 
 function emitDiagnostics(ctx: GeneratorContext): string {
   const blocks: string[] = [];
+  const seen = new Set<string>();
   for (const edge of ctx.edges) {
     const source = ctx.nodesById.get(edge.source)!;
     const target = ctx.nodesById.get(edge.target)!;
     if (edge.kind !== "diagnostic" || target.type !== "logAnalytics" || !DIAGNOSTIC_SOURCES.has(source.type)) continue;
+    const key = JSON.stringify([edge.source, edge.target]);
+    if (seen.has(key)) continue;
+    seen.add(key);
     const sIdent = ctx.identifiers.get(source.id);
     const tIdent = ctx.identifiers.get(target.id);
     blocks.push(
@@ -907,7 +950,7 @@ function emitDiagnostics(ctx: GeneratorContext): string {
         `  enabled_log {`,
         `    category_group = "allLogs"`,
         `  }`,
-        `  metric {`,
+        `  enabled_metric {`,
         `    category = "AllMetrics"`,
         `  }`,
         `}`,
@@ -949,12 +992,13 @@ function renderVersionsFile(): GeneratedFile {
       `  required_providers {`,
       `    azurerm = {`,
       `      source  = "hashicorp/azurerm"`,
-      `      version = "~> 4.35"`,
+      `      version = "~> 5.0"`,
       `    }`,
       `  }`,
       `}`,
       ``,
       `provider "azurerm" {`,
+      `  resource_provider_registrations = "legacy"`,
       `  features {}`,
       `}`,
       ``,

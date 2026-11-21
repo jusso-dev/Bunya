@@ -10,6 +10,7 @@ import {
   isContainerType,
   type GraphDocument,
 } from "../lib/graph/schema";
+import { freeSubnetPrefix, subnetVirtualNetwork } from "../lib/graph/topology";
 import { serialiseToFragment, shareUrlFromFragment } from "../lib/graph/serialise";
 import { OUTPUT_IDS, OUTPUTS, type OutputId } from "../lib/generators/registry";
 import type { GeneratedFile } from "../lib/generators/types";
@@ -88,7 +89,18 @@ export function createDiagram(input: CreateDiagramInput): GraphDocument {
     edges: [],
   };
 
-  for (const [index, { id, ...plan }] of input.nodes.entries()) {
+  // Add container nodes first, then non-containers. Defer default addressPrefix
+  // allocation for implicit subnets until all explicit subnets and connections
+  // (including depends_on edges to VNets) are present.
+  const orderedInputs = [
+    ...input.nodes.map((node, index) => ({ node, index })).filter(({ node }) => isContainerType(node.type)),
+    ...input.nodes.map((node, index) => ({ node, index })).filter(({ node }) => !isContainerType(node.type)),
+  ];
+  const pendingSubnets = new Set<string>();
+  for (const { node: { id, ...plan }, index } of orderedInputs) {
+    if (plan.type === "subnet" && plan.properties?.addressPrefix === undefined) {
+      pendingSubnets.add(id);
+    }
     try {
       document.nodes.push({ id, ...newNode(document, { ...plan, position: gridPosition(index) }) });
     } catch (error) {
@@ -97,8 +109,11 @@ export function createDiagram(input: CreateDiagramInput): GraphDocument {
   }
   const hasResourceGroup = input.nodes.some((node) => node.type === "resourceGroup");
   if ((input.includeResourceGroup ?? true) && !hasResourceGroup) {
+    let rgId = "resource-group";
+    for (let suffix = 2; nodeIds.has(rgId); suffix++) rgId = `resource-group-${suffix}`;
+    nodeIds.add(rgId);
     document.nodes.unshift({
-      id: "resource-group",
+      id: rgId,
       ...newNode(document, { type: "resourceGroup", name: "Resource Group", resourceName: resourceGroupName, position: { x: 0, y: 0 } }),
     });
   }
@@ -124,6 +139,19 @@ export function createDiagram(input: CreateDiagramInput): GraphDocument {
       target: connection.target,
       kind: result.kind,
     });
+  }
+
+  for (const node of nodes) {
+    if (!pendingSubnets.has(node.id)) continue;
+    const vnet = subnetVirtualNetwork(document, node);
+    if (vnet) {
+      const used = nodes
+        .filter((candidate) => candidate.type === "subnet" && !pendingSubnets.has(candidate.id) && subnetVirtualNetwork(document, candidate)?.id === vnet.id)
+        .map((candidate) => candidate.properties.addressPrefix);
+      const prefix = freeSubnetPrefix(vnet.properties.addressSpace, used);
+      if (prefix) node.properties.addressPrefix = prefix;
+    }
+    pendingSubnets.delete(node.id);
   }
 
   return GraphDocumentSchema.parse(document);

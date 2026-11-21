@@ -3,7 +3,7 @@
 import { nodeRule } from "@/lib/rules/builders";
 import type { RuleEntry } from "@/lib/rules/schema";
 
-export const NAMING_TOOL_VERSION = "v3.4.0";
+export const NAMING_TOOL_VERSION = "v5.0.3";
 const NAMING_BASE = {
   name: "Azure Naming Tool",
   license: "MIT",

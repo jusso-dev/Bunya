@@ -9,7 +9,12 @@ import { extname, join, resolve, sep } from "node:path";
 const BASE = "/Bunya/";
 const root = resolve(process.cwd(), "out");
 const portFlag = process.argv.indexOf("--port");
-const port = Number(portFlag >= 0 ? process.argv[portFlag + 1] : process.env.PORT ?? 3190);
+const portRaw = portFlag >= 0 ? process.argv[portFlag + 1] : process.env.PORT ?? "3190";
+const port = Number(portRaw);
+if (!Number.isInteger(port) || port < 1 || port > 65535) {
+  console.error(`Invalid port: ${String(portRaw)}`);
+  process.exit(1);
+}
 
 if (!existsSync(join(root, "index.html"))) {
   console.error("out/index.html not found. Run `pnpm build:pages` first.");

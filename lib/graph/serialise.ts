@@ -91,7 +91,14 @@ export function saveToLocalStorage(document: GraphDocument): boolean {
     const raw = JSON.stringify(document);
     parseStored(raw);
     const previous = localStorage.getItem(STORAGE_KEY);
-    if (previous && previous !== raw) localStorage.setItem(BACKUP_KEY, previous);
+    if (previous && previous !== raw) {
+      try {
+        parseStored(previous);
+        localStorage.setItem(BACKUP_KEY, previous);
+      } catch {
+        // Keep the last valid backup instead of replacing it with unreadable data.
+      }
+    }
     localStorage.setItem(STORAGE_KEY, raw);
     return true;
   } catch { return false; }

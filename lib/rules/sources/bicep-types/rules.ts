@@ -137,14 +137,17 @@ export const BICEP_TYPE_RULES: RuleEntry[] = [
     predicate: (n) => {
       const v = getProp<string>(n, "runtimeVersion");
       if (typeof v !== "string" || v.length === 0) return false;
-      // Accept the catalogue's bare-major form ('3','4','20') as well as the
-      // canonical FUNCTIONS_EXTENSION_VERSION form ('~3','~4'). Anything else
-      // is flagged as out of range.
       if (v === "~3" || v === "~4") return false;
+      const runtime = getProp<string>(n, "runtime");
       const major = Number.parseInt(v, 10);
       if (Number.isNaN(major)) return false;
-      // Allow node major versions (16/18/20/22) — they map to ~4 implicitly.
-      if (major >= 16) return false;
+      // Language stack versions (e.g. Node 18-24, .NET 8-10, Java 8-25,
+      // Python 3.x, PowerShell 7.x) map to Functions host ~4 implicitly.
+      if (runtime === "node" && major >= 16) return false;
+      if (runtime === "dotnet" && major >= 6) return false;
+      if (runtime === "java" && major >= 8) return false;
+      if (runtime === "python" && major === 3) return false;
+      if (runtime === "powershell" && major >= 7) return false;
       return major < 3 || major > 4;
     },
   }),

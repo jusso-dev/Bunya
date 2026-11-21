@@ -89,12 +89,12 @@ export const STARTER_TEMPLATES: StarterTemplate[] = [
           properties: { ...getServiceDefinition("subnet").defaultProperties, addressPrefix: "10.0.2.0/24" },
         },
         buildNode("plan", "appServicePlan", "Plan", "plan-three-tier", 40, 60, "rg", { width: 300, height: 180 }),
-        buildNode("app", "appService", "Web", "app-three-tier", 40, 60, "plan"),
+        buildNode("app", "appService", "Web", "app-three-tier", 40, 60, "plan", undefined, { vnetIntegration: true }),
         buildNode("kv", "keyVault", "Secrets", "kv-three-tier", 980, 80, "rg"),
         buildNode("stg", "storageAccount", "Assets", "threetierstg", 980, 310, "rg"),
         buildNode("sql", "sqlDatabase", "AppDB", "sqldb-three-tier", 980, 560, "rg"),
         buildNode("pe-stg", "privateEndpoint", "Stg PE", "pe-stg", 660, 380, "rg"),
-        buildNode("pe-sql", "privateEndpoint", "SQL PE", "pe-sql", 660, 550, "rg"),
+        buildNode("pe-sql", "privateEndpoint", "SQL PE", "pe-sql", 660, 550, "rg", undefined, { groupId: "sqlServer" }),
         buildNode("la", "logAnalytics", "Workspace", "log-three-tier", 1260, 560, "rg"),
       ],
       edges: [
@@ -133,7 +133,7 @@ export const STARTER_TEMPLATES: StarterTemplate[] = [
       },
       nodes: [
         buildNode("rg", "resourceGroup", "Resource Group", "rg-event-driven", 0, 0, undefined, { width: 1320, height: 500 }),
-        buildNode("plan", "appServicePlan", "Consumption", "plan-event-driven", 40, 60, "rg", { width: 300, height: 180 }),
+        buildNode("plan", "appServicePlan", "Consumption", "plan-event-driven", 40, 60, "rg", { width: 300, height: 180 }, { sku: "Y1", capacity: 0 }),
         buildNode("fn", "functionApp", "Ingest", "fn-event-driven", 40, 60, "plan"),
         buildNode("stg", "storageAccount", "Function Storage", "eventdrivenstg", 400, 340, "rg", undefined, { publicNetworkAccess: true }),
         buildNode("cos", "cosmosDb", "Documents", "cos-event-driven", 400, 80, "rg"),

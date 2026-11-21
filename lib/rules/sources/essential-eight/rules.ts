@@ -1,4 +1,5 @@
 import { graphRule, nodeRule, nodesOfType } from "@/lib/rules/builders";
+import { planFamily } from "@/lib/catalogue/app-service-plans";
 import type { RuleEntry } from "@/lib/rules/schema";
 
 export const E8_RELEASE = "ML-2023";
@@ -102,6 +103,7 @@ export const ESSENTIAL_EIGHT_RULES: RuleEntry[] = [
     predicate: (n) => {
       const sku = (n.properties as { sku?: string }).sku;
       if (!sku) return false;
+      if (planFamily(sku) !== "dedicated") return false;
       return !sku.toLowerCase().includes("v3");
     },
   }),

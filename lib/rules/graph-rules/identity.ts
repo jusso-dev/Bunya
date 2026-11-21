@@ -39,6 +39,8 @@ export const identityRules: RuleEntry[] = [
         const tgt = graph.nodes.find((n) => n.id === e.target);
         if (!tgt || tgt.type !== "keyVault") continue;
         if (e.kind === "identity" || e.kind === "diagnostic") continue;
+        const src = graph.nodes.find((n) => n.id === e.source);
+        if (e.kind === "network" && src?.type === "privateEndpoint") continue;
         findings.push({ edgeIds: [e.id], nodeIds: [e.source, e.target] });
       }
       return findings;

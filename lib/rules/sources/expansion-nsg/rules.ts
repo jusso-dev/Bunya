@@ -18,13 +18,14 @@ const outboundRulesOf = (node: GraphNode) => rulesOf(node, "outboundRules");
 
 function portMatches(range: string | undefined, port: string): boolean {
   if (range === undefined) return false;
-  if (range === "*") return true;
-  if (range === port) return true;
-  if (range.includes(",")) {
-    return range.split(",").map((s) => s.trim()).includes(port);
+  const trimmed = range.trim();
+  if (trimmed === "*") return true;
+  if (trimmed === port) return true;
+  if (trimmed.includes(",")) {
+    return trimmed.split(",").some((part) => portMatches(part, port));
   }
-  if (range.includes("-")) {
-    const [lo, hi] = range.split("-").map((s) => Number(s.trim()));
+  if (trimmed.includes("-")) {
+    const [lo, hi] = trimmed.split("-").map((s) => Number(s.trim()));
     const p = Number(port);
     if (Number.isFinite(lo) && Number.isFinite(hi) && Number.isFinite(p)) {
       return p >= lo && p <= hi;

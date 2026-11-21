@@ -148,6 +148,7 @@ function NodeProperties({ node }: { node: GraphNode }) {
           <Field
             key={field.name}
             field={field}
+            schema={(def.propertiesSchema as { shape?: Record<string, FieldSchema> }).shape?.[field.name]}
             value={node.properties[field.name]}
             onChange={(v) => updateNodeProperties(node.id, { [field.name]: v })}
           />
@@ -157,12 +158,16 @@ function NodeProperties({ node }: { node: GraphNode }) {
   );
 }
 
+type FieldSchema = { safeParse: (value: unknown) => { success: boolean; data?: unknown } };
+
 function Field({
   field,
+  schema,
   value,
   onChange,
 }: {
   field: FieldDescriptor;
+  schema?: FieldSchema;
   value: unknown;
   onChange: (next: unknown) => void;
 }) {
@@ -203,29 +208,17 @@ function Field({
         </label>
       );
     case "stringArray":
-      return (
-        <label className="space-y-1">
-          {label}
-          <textarea
-            value={Array.isArray(value) ? value.join("\n") : ""}
-            maxLength={PROPERTY_TEXT_MAX}
-            onChange={(e) =>
-              onChange(
-                e.target.value
-                  .split("\n")
-                  .map((s) => s.trim().slice(0, 256))
-                  .filter(Boolean)
-                  .slice(0, 100),
-              )
-            }
-            rows={3}
-            className="w-full rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 font-mono text-xs dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
-            placeholder="One per line"
-          />
-        </label>
-      );
+      return <StringArrayField value={value} label={label} onChange={onChange} />;
     case "record":
-      return <RecordField name={field.name} value={value} onChange={onChange} />;
+      return (
+        <RecordField
+          name={field.name}
+          schema={schema}
+          expectArray={Array.isArray(field.defaultValue)}
+          value={value}
+          onChange={onChange}
+        />
+      );
     case "string":
     default:
       return (
@@ -240,6 +233,47 @@ function Field({
         </label>
       );
   }
+}
+
+function StringArrayField({
+  value,
+  label,
+  onChange,
+}: {
+  value: unknown;
+  label: React.ReactNode;
+  onChange: (next: unknown) => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const current = Array.isArray(value) ? (value as string[]) : [];
+  const parseLines = (text: string) =>
+    text
+      .split("\n")
+      .map((s) => s.trim().slice(0, 256))
+      .filter(Boolean)
+      .slice(0, 100);
+  const commit = (text: string) => {
+    const next = parseLines(text);
+    const same = next.length === current.length && next.every((item, i) => item === current[i]);
+    if (!same) onChange(next);
+  };
+  return (
+    <label className="space-y-1">
+      {label}
+      <textarea
+        value={draft ?? current.join("\n")}
+        maxLength={PROPERTY_TEXT_MAX}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => {
+          if (draft !== null) commit(draft);
+          setDraft(null);
+        }}
+        rows={3}
+        className="w-full rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 font-mono text-xs dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+        placeholder="One per line"
+      />
+    </label>
+  );
 }
 
 // A required name: capped at maxLength, and saved only when non-empty, so the
@@ -302,21 +336,46 @@ function NumberField({ field, value, label, onChange }: { field: FieldDescriptor
   );
 }
 
-function RecordField({ name, value, onChange }: { name: string; value: unknown; onChange: (value: unknown) => void }) {
+function RecordField({
+  name,
+  schema,
+  expectArray,
+  value,
+  onChange,
+}: {
+  name: string;
+  schema?: FieldSchema;
+  expectArray: boolean;
+  value: unknown;
+  onChange: (value: unknown) => void;
+}) {
   const [draft, setDraft] = useState<string | null>(null);
   const [error, setError] = useState(false);
+  const fallback = expectArray ? [] : {};
   return <label className="space-y-1">
     <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-400">{name}</span>
-    <textarea rows={4} maxLength={PROPERTY_TEXT_MAX} value={draft ?? JSON.stringify(value ?? {}, null, 2)} aria-invalid={error}
+    <textarea rows={4} maxLength={PROPERTY_TEXT_MAX} value={draft ?? JSON.stringify(value ?? fallback, null, 2)} aria-invalid={error}
       className="w-full rounded-md border border-zinc-300 bg-zinc-50 px-2 py-1 font-mono text-xs dark:bg-zinc-900"
       onChange={(event) => {
         setDraft(event.target.value);
         try {
           const parsed: unknown = JSON.parse(event.target.value);
-          if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Expected object");
-          setError(false); onChange(parsed);
+          if (expectArray) {
+            if (!Array.isArray(parsed)) throw new Error("Expected array");
+          } else if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+            throw new Error("Expected object");
+          }
+          if (schema) {
+            const checked = schema.safeParse(parsed);
+            if (!checked.success) throw new Error("Schema mismatch");
+            setError(false);
+            onChange(checked.data);
+          } else {
+            setError(false);
+            onChange(parsed);
+          }
         } catch { setError(true); }
       }} onBlur={() => { if (!error) setDraft(null); }} />
-    {error && <span role="alert" className="text-xs text-red-700 dark:text-red-300">Enter a valid JSON object. Last valid value is kept.</span>}
+    {error && <span role="alert" className="text-xs text-red-700 dark:text-red-300">Enter a valid JSON {expectArray ? "array" : "object"}. Last valid value is kept.</span>}
   </label>;
 }

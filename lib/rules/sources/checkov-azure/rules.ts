@@ -5,7 +5,7 @@ import { nodeRule, getProp } from "@/lib/rules/builders";
 import { storagePublicNetwork } from "@/lib/catalogue/services";
 import type { RuleEntry } from "@/lib/rules/schema";
 
-export const CHECKOV_VERSION = "v3.2.0";
+export const CHECKOV_VERSION = "3.4.6";
 const CHECKOV_BASE = {
   name: "Checkov",
   license: "Apache-2.0",

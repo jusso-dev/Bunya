@@ -6,7 +6,7 @@ import { storagePublicNetwork } from "@/lib/catalogue/services";
 import type { Autofix, RuleEntry } from "@/lib/rules/schema";
 import type { GraphDocument, GraphNode } from "@/lib/graph/schema";
 
-export const PSRULE_VERSION = "v1.42.0";
+export const PSRULE_VERSION = "v1.47.0";
 const BASE = { name: "PSRule for Azure", license: "MIT", version: PSRULE_VERSION } as const;
 
 function source(ruleId: string) {

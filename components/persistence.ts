@@ -29,21 +29,28 @@ function saveOrganisationRules(rules: OrganisationRule[]): void {
 
 // Shows a shared link if the URL carries one, else the diagram saved in this
 // browser, and restores the saved exchange rate and organisation rules.
-async function restore(isStopped: () => boolean): Promise<void> {
+// Returns false when unreadable local storage must be left untouched until the
+// user explicitly edits or imports a diagram.
+async function restore(isStopped: () => boolean): Promise<boolean> {
   const graph = useGraphStore.getState();
+  const initialDocument = graph.document;
   const fragment = window.location.hash.slice(1);
   const isShareLink = isShareFragment(fragment);
   const shared = isShareLink ? await deserialiseFromFragment(fragment) : null;
-  if (isStopped()) return;
-  const stored = loadStoredDocument();
-  if (shared) {
-    graph.replaceDocument(shared);
-  } else {
-    if (isShareLink) toast.warning("Shared diagram is invalid or too large. Restored your saved diagram.");
-    if (stored.status === "ok" || stored.status === "recovered") graph.replaceDocument(stored.document);
-    STORED_LOAD_NOTICE[stored.status]?.();
+  if (isStopped()) return false;
+  let shouldSaveInitial = true;
+  if (useGraphStore.getState().document === initialDocument) {
+    const stored = loadStoredDocument();
+    if (shared) {
+      graph.reset(shared);
+    } else {
+      if (isShareLink) toast.warning("Shared diagram is invalid or too large. Restored your saved diagram.");
+      if (stored.status === "ok" || stored.status === "recovered") graph.reset(stored.document);
+      if (stored.status === "unreadable") shouldSaveInitial = false;
+      STORED_LOAD_NOTICE[stored.status]?.();
+    }
+    useSessionUi.getState().requestFit();
   }
-  useSessionUi.getState().requestFit();
 
   const fx = Number(readStorage(FX_RATE_STORAGE_KEY));
   if (Number.isFinite(fx) && fx > 0) graph.setFxAudPerUsd(fx);
@@ -54,6 +61,7 @@ async function restore(isStopped: () => boolean): Promise<void> {
     if (parsed.ok) graph.replaceOrganisationRules(parsed.rules);
     else toast.warning("Saved organisation rules could not be loaded.", { id: "rules-load" });
   }
+  return shouldSaveInitial;
 }
 
 function debounce(run: () => void): { schedule: () => void; cancel: () => void } {
@@ -75,9 +83,15 @@ export function startPersistence(): () => void {
     if (state.organisationRules !== previous.organisationRules) rules.schedule();
   });
   void restore(() => stopped)
-    .catch((error) => console.error("Bunya could not restore the saved session:", error))
-    // Save once even when nothing changed, so blocked storage is reported straight away.
-    .finally(() => { if (!stopped) document.schedule(); });
+    .then((shouldSaveInitial) => {
+      // Save once even when nothing changed, so blocked storage is reported
+      // straight away — unless unreadable data is being preserved in storage.
+      if (!stopped && shouldSaveInitial) document.schedule();
+    })
+    .catch((error) => {
+      console.error("Bunya could not restore the saved session:", error);
+      if (!stopped) document.schedule();
+    });
   return () => {
     stopped = true;
     unsubscribe();

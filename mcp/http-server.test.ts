@@ -35,4 +35,15 @@ describe("HTTP boundary", () => {
     const port = await start();
     expect(await send(port, { "content-type": "application/json", accept: "application/json, text/event-stream" }, JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "test", version: "1" } } }))).toBe(200);
   });
+  it("enforces explicit allowedHosts strictly and normalizes Host/Content-Type casing", async () => {
+    const server = createBunyaHttpServer({ allowedHosts: ["Bunya.Example.com"] });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as AddressInfo).port;
+    expect(await send(port, { host: "localhost" })).toBe(403);
+    expect(await send(port, { host: `127.0.0.1:${port}` })).toBe(403);
+    expect(await send(port, { host: "bunya.example.com" })).toBe(200);
+    expect(await send(port, { host: "bunya.example.com", "content-type": "application/json-foo" }, "{}")).toBe(415);
+    expect(await send(port, { host: "bunya.example.com", "content-type": "Application/JSON; charset=utf-8", accept: "application/json, text/event-stream" }, JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "test", version: "1" } } }))).toBe(200);
+  });
 });

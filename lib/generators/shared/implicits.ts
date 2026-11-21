@@ -1,6 +1,6 @@
 import type { EdgeKind, GraphDocument, GraphEdge, GraphNode, ServiceType } from "@/lib/graph/schema";
 import { getServiceDefinition, storagePublicNetwork } from "@/lib/catalogue/services";
-import { freeSubnetPrefix, isSite } from "@/lib/graph/topology";
+import { freeSubnetPrefix, isSite, subnetVirtualNetwork } from "@/lib/graph/topology";
 import { planFamily } from "@/lib/catalogue/app-service-plans";
 
 export type ExpandedGraph = {
@@ -84,8 +84,13 @@ export function expandImplicits(document: GraphDocument): ExpandedGraph {
     if (hasOutgoing(pe.id, "subnet", "network")) continue;
     if (!subnet) {
       vnet ??= addNode("virtualNetwork", `vnet-${slug}`, { x: pe.position.x - 240, y: pe.position.y - 80 });
-      // The default prefix may fall outside an existing VNet's address space.
-      const prefix = freeSubnetPrefix(vnet.properties.addressSpace, []);
+      // The default prefix may fall outside an existing VNet's address space
+      // or collide with subnets already in it.
+      const draftDoc: GraphDocument = { ...document, nodes, edges };
+      const usedPrefixes = nodes
+        .filter((candidate) => candidate.type === "subnet" && subnetVirtualNetwork(draftDoc, candidate)?.id === vnet!.id)
+        .map((candidate) => candidate.properties.addressPrefix);
+      const prefix = freeSubnetPrefix(vnet.properties.addressSpace, usedPrefixes);
       subnet = addNode("subnet", `snet-pe-${slug}`, { x: pe.position.x - 240, y: pe.position.y + 40 }, prefix ? { addressPrefix: prefix } : {});
       addEdge(subnet.id, vnet.id, "depends_on");
     }

@@ -148,6 +148,51 @@ describe("organisation rule engine", () => {
     expect(runOrganisationRules(graphFixture([testNode("private-app", "appService", { publicNetworkAccess: false })]), [rule!])).toHaveLength(0);
     expect(runOrganisationRules(graphFixture([testNode("public-app", "appService", { publicNetworkAccess: true })]), [rule!])).toHaveLength(1);
   });
+
+  it("imports raw JSON arrays of rules and accepts capitalized Azure Policy effects", () => {
+    const rawArray = JSON.stringify([
+      {
+        id: "ORG.RAW.1",
+        name: "Rule 1",
+        severity: "warning",
+        serviceTypes: ["storageAccount"],
+        property: { key: "allowPublicAccess", operator: "equals", value: true },
+        message: "No public blobs.",
+      },
+      {
+        id: "ORG.RAW.2",
+        name: "Rule 2",
+        severity: "error",
+        serviceTypes: ["keyVault"],
+        property: { key: "purgeProtection", operator: "equals", value: false },
+        message: "Enable purge protection.",
+      },
+    ]);
+    const parsed = parseOrganisationRulesText(rawArray);
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) expect(parsed.rules.map((r) => r.id)).toEqual(["ORG.RAW.1", "ORG.RAW.2"]);
+
+    const policy = {
+      name: "audit-kv-public",
+      properties: {
+        displayName: "Audit Key Vault public access",
+        policyRule: {
+          if: {
+            allOf: [
+              { field: "type", equals: "Microsoft.KeyVault/vaults" },
+              { field: "Microsoft.KeyVault/vaults/publicNetworkAccess", notEquals: "Disabled" },
+            ],
+          },
+          then: { effect: "Audit" },
+        },
+      },
+    };
+    expect(translateAzurePolicy(policy)).toHaveLength(1);
+    const trailingProse = parseOrganisationRulesText(`${JSON.stringify(policy)}\nThis policy checks public access.`);
+    expect(trailingProse.ok).toBe(true);
+    const proseBrackets = parseOrganisationRulesText(`See [policy documentation]:\n${JSON.stringify(policy)}`);
+    expect(proseBrackets.ok).toBe(true);
+  });
 });
 
 function runOrganisationRules(graph: Parameters<typeof runRules>[0], rules: Parameters<typeof organisationRuleEntries>[0]) {

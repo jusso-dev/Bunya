@@ -192,4 +192,23 @@ describe("parseArmTemplate with real-world template shapes", () => {
     expect(prefixes.every((prefix) => String(prefix).startsWith("10.8."))).toBe(true);
     expect(warning).toMatch(/only known at deployment/);
   });
+
+  it("handles bool(1)/bool(0), shared object graphs in equals(), and >10k independent evaluations", () => {
+    const vars: Record<string, unknown> = {
+      a0: { value: 0 },
+      b0: { value: 0 },
+    };
+    for (let i = 1; i <= 30; i++) {
+      vars[`a${i}`] = { left: `[variables('a${i - 1}')]`, right: `[variables('a${i - 1}')]` };
+      vars[`b${i}`] = { left: `[variables('b${i - 1}')]`, right: `[variables('b${i - 1}')]` };
+    }
+    const evaluator = createEvaluator({ parameters: {}, variables: vars });
+    expect(evaluator.evaluate("[bool(1)]")).toBe(true);
+    expect(evaluator.evaluate("[bool(0)]")).toBe(false);
+    expect(evaluator.evaluate("[bool(2)]")).toBe(UNRESOLVED);
+    expect(evaluator.evaluate("[equals(variables('a30'), variables('b30'))]")).toBe(true);
+    for (let i = 0; i < 10_050; i++) {
+      expect(evaluator.evaluate("[true()]")).toBe(true);
+    }
+  });
 });

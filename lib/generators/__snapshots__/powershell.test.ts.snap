@@ -71,7 +71,6 @@ $kvParams = @{
     Sku                          = 'standard'
     EnablePurgeProtection        = $true
     SoftDeleteRetentionInDays    = 7
-    EnableRbacAuthorization      = $true
     PublicNetworkAccess          = 'Disabled'
 }
 New-AzKeyVault @kvParams | Out-Null

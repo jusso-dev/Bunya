@@ -87,7 +87,7 @@ export function ServicePalette() {
           Drag onto the canvas, or click to drop it in.
         </p>
       </header>
-      <div tabIndex={0} aria-label="Available services" className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-1">
+      <div role="region" tabIndex={0} aria-label="Available services" className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-1">
         {grouped.size === 0 && <p role="status">No services match “{filter}”.</p>}
         {CATEGORY_ORDER.map((cat) => {
           const items = grouped.get(cat);
@@ -118,19 +118,18 @@ function ServiceCard({
   onClick: () => void;
 }) {
   const theme = CATEGORY_THEME[def.category];
-  const onDragStart = (event: React.DragEvent<HTMLButtonElement>) => {
+  const onDragStart = (event: React.DragEvent<HTMLElement>) => {
     event.dataTransfer.setData("application/bunya-service", def.type);
     event.dataTransfer.effectAllowed = "copy";
   };
 
+  const descriptionId = `service-palette-desc-${def.type}`;
+
   return (
-    <li>
-    <button type="button"
-      aria-label={`Add ${def.label}`}
+    <li
       draggable
       onDragStart={onDragStart}
-      onClick={onClick}
-      className={`group flex w-full text-left cursor-grab items-center gap-2 rounded-md border bg-white px-2 py-2 text-sm text-zinc-800 transition-colors hover:bg-zinc-50 active:cursor-grabbing dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800 ${theme.cardRing}`}
+      className={`group relative flex w-full cursor-grab items-center gap-2 rounded-md border bg-white px-2 py-2 text-sm text-zinc-800 transition-colors hover:bg-zinc-50 active:cursor-grabbing dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800 ${theme.cardRing}`}
       data-service-type={def.type as ServiceType}
     >
       <span
@@ -139,12 +138,24 @@ function ServiceCard({
         <ServiceIcon type={def.type} size={20} strokeWidth={1.75} aria-hidden />
       </span>
       <span className="flex min-w-0 flex-col">
-        <span className="truncate text-sm font-medium leading-tight">{def.label}</span>
-        <span className="truncate text-[11px] leading-tight text-zinc-500 dark:text-zinc-400">
+        <button
+          type="button"
+          aria-label={`Add ${def.label}`}
+          aria-describedby={descriptionId}
+          draggable
+          onDragStart={onDragStart}
+          onClick={onClick}
+          className="truncate text-left text-sm font-medium leading-tight after:absolute after:inset-0 after:content-[''] focus:outline-none focus-visible:after:rounded-md focus-visible:after:ring-2 focus-visible:after:ring-zinc-400"
+        >
+          {def.label}
+        </button>
+        <span
+          id={descriptionId}
+          className="truncate text-[11px] leading-tight text-zinc-500 dark:text-zinc-400"
+        >
           {def.description}
         </span>
       </span>
-    </button>
     </li>
   );
 }

@@ -1,7 +1,7 @@
 // Renders the whole diagram, not just the visible part of the canvas, to a
 // JPEG or PNG in the browser. Nothing is uploaded; the image is downloaded.
 import { toJpeg, toPng } from "html-to-image";
-import { getRectOfNodes, getTransformForBounds, type Node } from "reactflow";
+import { getNodesBounds, getViewportForBounds, type Node } from "reactflow";
 import { fileStem } from "@/lib/graph/filename";
 
 export type ImageFormat = "jpeg" | "png";
@@ -17,10 +17,10 @@ export function imageFilename(name: string, format: ImageFormat): string {
 }
 
 export function exportFrame(nodes: Node[]): { width: number; height: number; transform: string } {
-  const bounds = getRectOfNodes(nodes);
+  const bounds = getNodesBounds(nodes);
   const width = Math.min(MAX_SIDE / SCALE, Math.max(320, Math.ceil(bounds.width + PADDING * 2)));
   const height = Math.min(MAX_SIDE / SCALE, Math.max(240, Math.ceil(bounds.height + PADDING * 2)));
-  const [x, y, zoom] = getTransformForBounds(bounds, width, height, 0.1, 2, PADDING / Math.max(width, height));
+  const { x, y, zoom } = getViewportForBounds(bounds, width, height, 0.1, 2, PADDING / Math.max(width, height));
   return { width, height, transform: `translate(${x}px, ${y}px) scale(${zoom})` };
 }
 

@@ -37,10 +37,12 @@ async function latestPack(): Promise<{ version: number; url: string }> {
   const response = await fetch(ICONS_PAGE, { headers: { "user-agent": "bunya-icons-sync" } });
   if (!response.ok) throw new Error(`GET ${ICONS_PAGE} returned ${response.status}`);
   const html = await response.text();
-  const packs = [...html.matchAll(/https:\/\/[^"'\s]+Azure_Public_Service_Icons_V(\d+)\.zip/g)].map((m) => ({
-    url: m[0],
-    version: Number(m[1]),
-  }));
+  const ALLOWED_HOSTS = new Set(["arch-center.azureedge.net", "learn.microsoft.com", "download.microsoft.com"]);
+  const packs = [...html.matchAll(/https:\/\/[^"'\s]+Azure_Public_Service_Icons_V(\d+)\.zip/g)]
+    .map((m) => ({ url: m[0], version: Number(m[1]) }))
+    .filter(({ url }) => {
+      try { return ALLOWED_HOSTS.has(new URL(url).hostname); } catch { return false; }
+    });
   if (packs.length === 0) throw new Error("No icon pack link found on the Azure architecture icons page.");
   return packs.sort((a, b) => b.version - a.version)[0];
 }
@@ -79,6 +81,8 @@ async function main(): Promise<void> {
 
   const problems: string[] = [];
   const changes: string[] = [];
+  const stagedWrites: { target: string; data: Uint8Array }[] = [];
+  const nextIcons: Manifest["icons"] = { ...manifest.icons };
   for (const [serviceType, icon] of Object.entries(manifest.icons)) {
     let file = icon.file;
     if (!byPath.has(file)) {
@@ -97,17 +101,23 @@ async function main(): Promise<void> {
     const target = path.join(ICON_DIR, `${serviceType}.svg`);
     const current = await readIfExists(target);
     if (hash !== icon.sha256 || !current || sha256(current) !== hash) {
-      await fs.writeFile(target, data);
+      stagedWrites.push({ target, data });
       if (hash !== icon.sha256) changes.push(`\`${serviceType}\`: artwork updated from \`${file}\`.`);
     }
-    manifest.icons[serviceType] = { file, sha256: hash };
+    nextIcons[serviceType] = { file, sha256: hash };
   }
 
-  if (pack.version !== manifest.pack.version) {
-    changes.unshift(`Icon pack V${manifest.pack.version} → V${pack.version} (${pack.url}).`);
+  if (problems.length === 0) {
+    for (const { target, data } of stagedWrites) {
+      await fs.writeFile(target, data);
+    }
+    if (pack.version !== manifest.pack.version) {
+      changes.unshift(`Icon pack V${manifest.pack.version} → V${pack.version} (${pack.url}).`);
+    }
+    manifest.icons = nextIcons;
+    manifest.pack = { ...manifest.pack, version: pack.version, url: pack.url };
+    await fs.writeFile(MANIFEST_PATH, JSON.stringify(manifest, null, 2) + "\n", "utf8");
   }
-  manifest.pack = { ...manifest.pack, version: pack.version, url: pack.url };
-  await fs.writeFile(MANIFEST_PATH, JSON.stringify(manifest, null, 2) + "\n", "utf8");
 
   const body = [
     "### Azure architecture icons",

@@ -185,7 +185,12 @@ export const EXPANSION_UAI_RULES: RuleEntry[] = [
           if (edge.kind !== "identity") return false;
           if (edge.target !== uai.id) return false;
           const source = graph.nodes.find((n) => n.id === edge.source);
-          return source?.type === "appService" || source?.type === "functionApp";
+          return (
+            source?.type === "appService" ||
+            source?.type === "functionApp" ||
+            source?.type === "aksCluster" ||
+            source?.type === "virtualMachineScaleSet"
+          );
         });
         if (!hasComputeAttachment) {
           partials.push({ nodeIds: [uai.id] });

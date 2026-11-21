@@ -407,7 +407,7 @@ function armProperties(type: ServiceType, resource: FlatArmResource, allResource
         imageSku: asString(image.sku),
         automaticRepairs: asRecord(props.automaticRepairsPolicy).enabled !== false,
         availabilityZones: asArray((resource.raw as { zones?: unknown }).zones).filter((v): v is string => typeof v === "string"),
-        managedIdentity: asString(identity.type) !== "None",
+        managedIdentity: Boolean(asString(identity.type) && asString(identity.type) !== "None"),
         azureMonitorAgent: hasMonitorAgent(resource, allResources),
         trustedLaunch:
           asString(asRecord(profile.securityProfile).securityType) === "TrustedLaunch",
@@ -431,9 +431,9 @@ function armProperties(type: ServiceType, resource: FlatArmResource, allResource
       }
       return {
         sku: skuName === "standard" || skuName === "premium" ? skuName : undefined,
-        purgeProtection: props.enablePurgeProtection !== false,
+        purgeProtection: props.enablePurgeProtection === true,
         softDeleteRetentionDays: asNumber(props.softDeleteRetentionInDays),
-        rbacAuthorization: props.enableRbacAuthorization !== false,
+        rbacAuthorization: props.enableRbacAuthorization === true,
         publicNetworkAccess: asString(props.publicNetworkAccess) !== "Disabled",
       };
     }
@@ -446,11 +446,20 @@ function armProperties(type: ServiceType, resource: FlatArmResource, allResource
       };
     case "privateDnsZone":
       return { zoneName: resource.name };
-    case "monitorAlert":
+    case "monitorAlert": {
+      const firstCriterion = asArray(asRecord(props.criteria).allOf)[0];
+      const criterionRecord = asRecord(firstCriterion);
+      const metricName = asString(criterionRecord.metricName);
+      const operator = asString(criterionRecord.operator);
+      const threshold = asNumber(criterionRecord.threshold);
+      const formatted = metricName
+        ? [metricName, operator, threshold !== undefined ? String(threshold) : undefined].filter(Boolean).join(" ")
+        : asString(firstCriterion);
       return {
         enabled: props.enabled !== false,
-        condition: asString(asArray(asRecord(props.criteria).allOf)[0]),
+        condition: formatted,
       };
+    }
     case "actionGroup":
       return {
         shortName: asString(props.groupShortName),
@@ -492,7 +501,10 @@ function armProperties(type: ServiceType, resource: FlatArmResource, allResource
           .filter((name): name is string => !!name),
       };
     case "privateEndpoint": {
-      const connection = asRecord(asArray(props.privateLinkServiceConnections ?? props.manualPrivateLinkServiceConnections)[0]);
+      const connection = asRecord(
+        asArray(props.privateLinkServiceConnections)[0] ??
+          asArray(props.manualPrivateLinkServiceConnections)[0],
+      );
       const groupId = asString(asArray(asRecord(connection.properties).groupIds)[0]);
       return {
         ...(groupId ? { groupId } : {}),
@@ -553,7 +565,13 @@ function hasMonitorAgent(resource: FlatArmResource, allResources: FlatArmResourc
 function validatedProperties(type: ServiceType, resource: FlatArmResource, properties: Record<string, unknown>, warnings: string[]): Record<string, unknown> {
   const dropped: string[] = [];
   const literal = withoutDeploymentExpressions(properties, "setting", dropped) as Record<string, unknown>;
-  const { value: safe, changes: changed } = toExportLiterals(literal, "setting");
+  const emailKeys =
+    type === "actionGroup"
+      ? new Set(["email"])
+      : type === "apiManagement"
+        ? new Set(["publisherEmail"])
+        : undefined;
+  const { value: safe, changes: changed } = toExportLiterals(literal, "setting", emailKeys);
   const changes = changed.map((change) => `${change.path} "${change.from.slice(0, 60)}" became "${change.to.slice(0, 60)}"`);
   const definition = getServiceDefinition(type);
   if (dropped.length > 0) {
@@ -954,9 +972,8 @@ function inferEdges(resources: ImportedResource[], allResources: FlatArmResource
         addEdge(edges, node, findReferencedNode(dep, resources), "depends_on");
       }
     }
-    if (node.type === "subnet" && flat.fullName.includes("/")) {
-      const parentName = flat.fullName.split("/")[0];
-      const vnet = resources.find((r) => r.node.type === "virtualNetwork" && r.flat.fullName === parentName)?.node;
+    if (node.type === "subnet" && (flat.fullName.includes("/") || flat.parentName)) {
+      const vnet = findVirtualNetworkParent(resources, item);
       addEdge(edges, node, vnet, "depends_on");
       const nsgId = asRecord(asRecord(flat.expanded.properties).networkSecurityGroup).id;
       addEdge(edges, node, findReferencedNode(nsgId, resources, ["networkSecurityGroup"]), "network");
@@ -993,7 +1010,10 @@ function inferEdges(resources: ImportedResource[], allResources: FlatArmResource
     if (node.type === "privateEndpoint") {
       const props = asRecord(flat.expanded.properties);
       addEdge(edges, node, findReferencedNode(asRecord(props.subnet).id, resources, ["subnet"]), "network");
-      const connection = asRecord(asArray(props.privateLinkServiceConnections)[0]);
+      const connection = asRecord(
+        asArray(props.privateLinkServiceConnections)[0] ??
+          asArray(props.manualPrivateLinkServiceConnections)[0],
+      );
       const connectionProps = asRecord(connection.properties);
       addEdge(edges, node, findReferencedNode(connectionProps.privateLinkServiceId, resources), "network");
     }

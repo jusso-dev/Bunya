@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { useGraphStore } from "@/lib/session/store";
-import { validate, applyAutofix } from "@/lib/rules/runtime";
+import { validate, applyAutofix, hasAutofix } from "@/lib/rules/runtime";
 import { alignmentLabel, ruleAlignments } from "@/lib/rules/compliance";
 
 const SEVERITY_STYLE: Record<string, string> = {
@@ -90,10 +90,13 @@ export function ValidationPanel() {
                   {f.source.name}
                 </a>
               ) : null}
-              {f.autofixId ? (
+              {hasAutofix(f) ? (
                 <button
                   type="button"
-                  onClick={() => replaceDocument(applyAutofix(document, f))}
+                  onClick={() => {
+                    const next = applyAutofix(document, f);
+                    if (next !== document) replaceDocument(next);
+                  }}
                   className="rounded bg-zinc-900 px-1.5 py-0.5 font-medium text-white dark:bg-zinc-50 dark:text-zinc-900"
                 >
                   Auto-fix
