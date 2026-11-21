@@ -381,9 +381,10 @@ function emitFlexFunctionApp(node: GraphNode, ctx: GeneratorContext, hosting: Si
   const planRef = `${ref(ctx, hosting.plan)}.id`;
   const storage = ref(ctx, hosting.storage!);
   const settings = connectionSettings(ctx, node, hosting, false);
+  const deploymentLabel = allocateContainerLabel(ctx, `${ident}_deployment`);
   const lines = [
     autoComment(ctx, node.id),
-    `resource "azurerm_storage_container" "${ident}_deployment" {`,
+    `resource "azurerm_storage_container" "${deploymentLabel}" {`,
     `  name                  = "${deploymentContainerName(ctx, node)}"`,
     `  storage_account_id    = ${storage}.id`,
     `  container_access_type = "private"`,
@@ -395,7 +396,7 @@ function emitFlexFunctionApp(node: GraphNode, ctx: GeneratorContext, hosting: Si
     `  location                      = ${rgRef(ctx, node)}.location`,
     `  service_plan_id               = ${planRef}`,
     `  storage_container_type        = "blobContainer"`,
-    `  storage_container_endpoint    = "\${${storage}.primary_blob_endpoint}\${azurerm_storage_container.${ident}_deployment.name}"`,
+    `  storage_container_endpoint    = "\${${storage}.primary_blob_endpoint}\${azurerm_storage_container.${deploymentLabel}.name}"`,
     `  storage_authentication_type   = "StorageAccountConnectionString"`,
     `  storage_access_key            = ${storage}.primary_access_key`,
     `  runtime_name                  = "${hosting.workerRuntime}"`,
@@ -551,13 +552,17 @@ function emitVmss(node: GraphNode, ctx: GeneratorContext): string {
 
 const containerLabelsByCtx = new WeakMap<GeneratorContext, Set<string>>();
 
-function containerLabelsFor(ctx: GeneratorContext): Set<string> {
+function allocateContainerLabel(ctx: GeneratorContext, base: string): string {
   let labels = containerLabelsByCtx.get(ctx);
   if (!labels) {
     labels = new Set<string>();
     containerLabelsByCtx.set(ctx, labels);
   }
-  return labels;
+  let label = base;
+  let suffix = 1;
+  while (labels.has(label)) label = `${base}_${suffix++}`;
+  labels.add(label);
+  return label;
 }
 
 function emitStorageAccount(node: GraphNode, ctx: GeneratorContext): string {
@@ -586,15 +591,11 @@ function emitStorageAccount(node: GraphNode, ctx: GeneratorContext): string {
     tagsBlock(ctx, node),
     `}`,
   ];
-  const seenContainerLabels = containerLabelsFor(ctx);
   const seenContainerNames = new Set<string>();
   for (const c of containers) {
     if (seenContainerNames.has(c)) continue;
     seenContainerNames.add(c);
-    let label = `${ident}_${terraformIdentifier(c)}`;
-    let suffix = 1;
-    while (seenContainerLabels.has(label)) label = `${ident}_${terraformIdentifier(c)}_${suffix++}`;
-    seenContainerLabels.add(label);
+    const label = allocateContainerLabel(ctx, `${ident}_${terraformIdentifier(c)}`);
     lines.push(
       ``,
       `resource "azurerm_storage_container" "${label}" {`,
