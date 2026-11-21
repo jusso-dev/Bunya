@@ -1,7 +1,7 @@
 import { graphRule, nodeRule, nodesOfType } from "@/lib/rules/builders";
 import type { RuleEntry } from "@/lib/rules/schema";
 
-export const ISM_RELEASE = "ISM-March-2024";
+export const ISM_RELEASE = "ISM-September-2026";
 const ISM_BASE = {
   name: "Australian Government Information Security Manual",
   license: "Commonwealth of Australia copyright; reproduced with attribution",
@@ -149,6 +149,7 @@ export const ISM_RULES: RuleEntry[] = [
       "Control ISM-1233 directs that event logs are retained centrally and protected from unauthorised modification. In Azure this is realised by sending diagnostic settings into a Log Analytics workspace (often combined with Sentinel for SIEM). A graph that contains workloads but no workspace has no sink for these logs and therefore cannot demonstrate the control.",
     tags: ["ism", "ism-1233", "acsc", "logging"],
     predicate: (graph) => {
+      if (graph.nodes.length === 0) return [];
       const workspaces = nodesOfType(graph, "logAnalytics");
       if (workspaces.length > 0) return [];
       return [
@@ -171,6 +172,7 @@ export const ISM_RULES: RuleEntry[] = [
       "Control ISM-0859 requires that event logs from systems are forwarded to a central log repository. Most Azure workloads (App Service, Function App, Storage, SQL, Cosmos, Key Vault, ACR, Application Gateway, Front Door, API Management) can emit diagnostic settings but only when a Log Analytics workspace exists to receive them. This rule flags graphs that contain such emitters without a workspace target.",
     tags: ["ism", "ism-0859", "acsc", "logging", "diagnostics"],
     predicate: (graph) => {
+      if (graph.nodes.length === 0) return [];
       const workspaces = nodesOfType(graph, "logAnalytics");
       if (workspaces.length > 0) return [];
       const emitterTypes: ReadonlyArray<string> = [

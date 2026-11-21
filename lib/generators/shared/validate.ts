@@ -40,7 +40,13 @@ export function validateGeneration(document: GraphDocument, deployment = true): 
         if (!tags || typeof tags !== "object" || Array.isArray(tags) || Object.values(tags).some((value) => typeof value !== "string")) throw new Error(`Node ${node.id}: tags must be a string map.`);
         properties.tags = tags;
       }
-      assertExportLiterals(properties, `${node.name} "${node.resourceName}"`);
+      const emailKeys =
+        node.type === "actionGroup"
+          ? new Set(["email"])
+          : node.type === "apiManagement"
+            ? new Set(["publisherEmail"])
+            : undefined;
+      assertExportLiterals(properties, `${node.name} "${node.resourceName}"`, emailKeys);
       if (deployment && node.type === "networkSecurityGroup" && (
         properties.defaultDeny !== false || (properties.inboundRules as unknown[]).length > 0 ||
         (properties.outboundRules as unknown[]).length > 0 || parsed.edges.some((edge) => edge.source === node.id || edge.target === node.id)

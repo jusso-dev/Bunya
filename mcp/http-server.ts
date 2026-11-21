@@ -26,19 +26,29 @@ export function createBunyaHttpServer(options: { allowedHosts?: string[]; allowe
     let server: ReturnType<typeof createBunyaMcpServer> | undefined;
     let transport: StreamableHTTPServerTransport | undefined;
     try {
-      const host = request.headers.host;
+      const host = request.headers.host?.toLowerCase();
+      const allowedHosts = options.allowedHosts?.map((item) => item.toLowerCase()).filter(Boolean) ?? [];
       const localHosts = ["localhost", "127.0.0.1", "[::1]"];
-      const validHost = host && (options.allowedHosts?.includes(host) || localHosts.some((name) => host === name || host === `${name}:${request.socket.localPort}`));
+      const validHost = Boolean(
+        host &&
+          (allowedHosts.length > 0
+            ? allowedHosts.includes(host)
+            : localHosts.some((name) => host === name || host === `${name}:${request.socket.localPort}`)),
+      );
       if (!validHost) { reply(403, "Host is not allowed."); return; }
-      if (request.headers.origin && !options.allowedOrigins?.includes(request.headers.origin)) { reply(403, "Origin is not allowed."); return; }
-      const url = new URL(request.url ?? "/", "http://localhost");
+      const origin = request.headers.origin;
+      if (origin && !options.allowedOrigins?.includes(origin)) { reply(403, "Origin is not allowed."); return; }
+      let url: URL;
+      try { url = new URL(request.url ?? "/", "http://localhost"); }
+      catch { reply(400, "Malformed request URL."); return; }
       if (request.method === "GET" && url.pathname === "/health") {
         response.writeHead(200, { "content-type": "application/json" });
         response.end(JSON.stringify({ ok: true, service: "bunya-mcp" }));
         return;
       }
       if (request.method !== "POST" || url.pathname !== "/mcp") { reply(404, "Use POST /mcp or GET /health."); return; }
-      if (!request.headers["content-type"]?.startsWith("application/json")) { reply(415, "Use application/json."); return; }
+      const mediaType = request.headers["content-type"]?.split(";")[0]?.trim().toLowerCase();
+      if (mediaType !== "application/json") { reply(415, "Use application/json."); return; }
       if (Number(request.headers["content-length"]) > MAX_IMPORT_BYTES) { reply(413, `Request exceeds ${MAX_IMPORT_MIB} MiB.`); return; }
       let body: unknown;
       try { body = await readBody(request); }

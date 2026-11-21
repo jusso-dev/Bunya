@@ -31,6 +31,9 @@ describe("untrusted generator inputs", () => {
         expect(generate(doc).ok).toBe(false);
         const tagged = graph("resourceGroup", { tags: { owner: value } });
         expect(generate(tagged).ok).toBe(false);
+        // Nested email / publisherEmail tag keys must never bypass literal checks.
+        expect(generate(graph("resourceGroup", { tags: { email: value } })).ok).toBe(false);
+        expect(generate(graph("resourceGroup", { tags: { publisherEmail: value } })).ok).toBe(false);
       }
     });
   }

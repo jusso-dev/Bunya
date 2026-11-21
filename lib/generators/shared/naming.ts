@@ -26,6 +26,12 @@ export function azureResourceName(type: ServiceType, baseName: string, documentS
     const base = baseName.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, max - hash.length);
     return (base || "stg") + hash;
   }
-  const base = baseName.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-+|-+$/g, "").slice(0, max - hash.length - 1);
+  let base = baseName
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  if (type === "keyVault" && !/^[a-z]/.test(base)) base = `kv-${base}`.replace(/-+$/, "");
+  base = base.slice(0, max - hash.length - 1).replace(/-+$/g, "");
   return `${base || "kv"}-${hash}`;
 }

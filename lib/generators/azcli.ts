@@ -66,20 +66,22 @@ function emit(node: GraphNode, ctx: GeneratorContext): string[] {
     case "appService": {
       const planName = ctx.name(sitePlan(ctx.document, node)!.id);
       const runtime = String(node.properties.runtime);
+      const stack = runtime === "dotnet" ? "DOTNETCORE" : runtime.toUpperCase();
       const version = String(node.properties.runtimeVersion);
       return [
         `# App Service ${name}`,
-        `az webapp create ${COMMON} --name "${name}" --plan "${planName}" --runtime "${runtime.toUpperCase()}|${version}" --https-only ${(node.properties.httpsOnly !== false).toString()} --public-network-access ${node.properties.publicNetworkAccess === false ? "Disabled" : "Enabled"} --assign-identity '[system]' >/dev/null`,
+        `az webapp create ${COMMON} --name "${name}" --plan "${planName}" --runtime "${stack}:${version}" --https-only ${(node.properties.httpsOnly !== false).toString()} --public-network-access ${node.properties.publicNetworkAccess === false ? "Disabled" : "Enabled"} --assign-identity '[system]' >/dev/null`,
       ];
     }
     case "functionApp": {
       const planName = ctx.name(sitePlan(ctx.document, node)!.id);
       const stName = ctx.name(targetOfType(ctx, node.id, "data", "storageAccount")!.id);
       const runtime = String(node.properties.runtime);
+      const worker = runtime === "dotnet" ? "dotnet-isolated" : runtime;
       const version = String(node.properties.runtimeVersion);
       return [
         `# Function App ${name}`,
-        `az functionapp create ${COMMON} --name "${name}" --plan "${planName}" --storage-account "${stName}" --runtime "${runtime}" --runtime-version "${version}" --functions-version 4 --assign-identity '[system]' >/dev/null`,
+        `az functionapp create ${COMMON} --name "${name}" --plan "${planName}" --storage-account "${stName}" --os-type Linux --runtime "${worker}" --runtime-version "${version}" --functions-version 4 --assign-identity '[system]' >/dev/null`,
       ];
     }
     case "staticWebApp":
@@ -92,20 +94,26 @@ function emit(node: GraphNode, ctx: GeneratorContext): string[] {
       const subnetArg = subnet
         ? ` --vnet-subnet-id "$(az network vnet subnet show ${COMMON} --name "${ctx.name(subnet.id)}" --vnet-name "${ctx.name(subnetVnet(ctx, subnet).id)}" --query id -o tsv)"`
         : "";
-      const privateArg = node.properties.privateCluster === true ? " --enable-private-cluster" : "";
+      const privateCluster = node.properties.privateCluster === true;
+      const privateArg = privateCluster ? " --enable-private-cluster" : "";
       const policy = String(node.properties.networkPolicy);
       const policyArg = policy === "none" ? "" : ` --network-policy "${policy}"`;
+      const rangesArg = !privateCluster && (node.properties.authorizedIpRanges as string[]).length
+        ? ` --api-server-authorized-ip-ranges "${(node.properties.authorizedIpRanges as string[]).join(",")}"`
+        : "";
       return [
         `# AKS ${name}`,
-        `az aks create ${COMMON} --name "${name}" --location "${region}" --node-count ${Number(node.properties.nodeCount)} --node-vm-size "${String(node.properties.nodeVmSize)}" --network-plugin "${String(node.properties.networkPlugin)}"${policyArg} --enable-managed-identity${(node.properties.authorizedIpRanges as string[]).length ? ` --api-server-authorized-ip-ranges "${(node.properties.authorizedIpRanges as string[]).join(",")}"` : ""}${privateArg}${subnetArg} >/dev/null`,
+        `az aks create ${COMMON} --name "${name}" --location "${region}" --node-count ${Number(node.properties.nodeCount)} --node-vm-size "${String(node.properties.nodeVmSize)}" --network-plugin "${String(node.properties.networkPlugin)}"${policyArg} --enable-managed-identity${rangesArg}${privateArg}${subnetArg} >/dev/null`,
       ];
     }
     case "virtualMachineScaleSet": {
-      const subnetName = ctx.name(subnetOf(ctx, node)!.id);
+      const subnet = subnetOf(ctx, node)!;
+      const subnetName = ctx.name(subnet.id);
+      const vnetName = ctx.name(subnetVnet(ctx, subnet).id);
       return [
         `# Virtual Machine Scale Set ${name}`,
-        `: "\${VMSS_SSH_PUBLIC_KEY:?Set VMSS_SSH_PUBLIC_KEY before creating VM scale sets}"`,
-        `az vmss create ${COMMON} --name "${name}" --location "${region}" --image "${String(node.properties.imagePublisher)}:${String(node.properties.imageOffer)}:${String(node.properties.imageSku)}:latest" --vm-sku "${String(node.properties.sku)}" --instance-count ${Number(node.properties.capacity)} --admin-username "${String(node.properties.adminUsername)}" --ssh-key-value "$VMSS_SSH_PUBLIC_KEY" --upgrade-policy-mode "${String(node.properties.upgradeMode)}" --subnet "${subnetName}" >/dev/null`,
+        `: "\${VM_SSH_PUBLIC_KEY:?Set VM_SSH_PUBLIC_KEY before creating VM scale sets}"`,
+        `az vmss create ${COMMON} --name "${name}" --location "${region}" --image "${String(node.properties.imagePublisher)}:${String(node.properties.imageOffer)}:${String(node.properties.imageSku)}:latest" --vm-sku "${String(node.properties.sku)}" --instance-count ${Number(node.properties.capacity)} --admin-username "${String(node.properties.adminUsername)}" --ssh-key-value "$VM_SSH_PUBLIC_KEY" --upgrade-policy-mode "${String(node.properties.upgradeMode)}" --vnet-name "${vnetName}" --subnet "${subnetName}" >/dev/null`,
       ];
     }
     case "storageAccount":
@@ -124,11 +132,13 @@ function emit(node: GraphNode, ctx: GeneratorContext): string[] {
         `# Cosmos DB ${name}`,
         `az cosmosdb create ${COMMON} --name "${name}" --locations regionName="${region}" failoverPriority=0 isZoneRedundant=false --default-consistency-level "${String(node.properties.consistency)}" --enable-free-tier ${(node.properties.freeTier === true).toString()} >/dev/null`,
       ];
-    case "keyVault":
+    case "keyVault": {
+      const purgeArg = node.properties.purgeProtection !== false ? " --enable-purge-protection true" : "";
       return [
         `# Key Vault ${name}`,
-        `az keyvault create ${COMMON} --name "${name}" --location "${region}" --sku "${String(node.properties.sku)}" --enable-rbac-authorization ${(node.properties.rbacAuthorization !== false).toString()} --enable-purge-protection ${(node.properties.purgeProtection !== false).toString()} --retention-days ${Number(node.properties.softDeleteRetentionDays)} --public-network-access ${node.properties.publicNetworkAccess === true ? "Enabled" : "Disabled"} >/dev/null`,
+        `az keyvault create ${COMMON} --name "${name}" --location "${region}" --sku "${String(node.properties.sku)}" --enable-rbac-authorization ${(node.properties.rbacAuthorization !== false).toString()}${purgeArg} --retention-days ${Number(node.properties.softDeleteRetentionDays)} --public-network-access ${node.properties.publicNetworkAccess === true ? "Enabled" : "Disabled"} >/dev/null`,
       ];
+    }
     case "applicationInsights": {
       const wsName = ctx.name(targetOfType(ctx, node.id, "depends_on", "logAnalytics")!.id);
       return [

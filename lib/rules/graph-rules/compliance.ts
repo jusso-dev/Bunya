@@ -96,6 +96,7 @@ export const complianceRules: RuleEntry[] = [
       "ISM-1233 requires event logs to be centrally stored and protected against unauthorised modification. Essential Eight Maturity Level 2 expands this to include security-relevant events from cloud workloads. Without a Log Analytics workspace there is no sink for diagnostic settings, Sentinel, or longer-term retention, which leaves the deployment unable to demonstrate the control.",
     tags: ["bunya", "compliance", "ism-1233", "essential-eight", "logging"],
     predicate: (graph) => {
+      if (graph.nodes.length === 0) return [];
       const workspaces = nodesOfType(graph, "logAnalytics");
       if (workspaces.length > 0) return [];
       return [

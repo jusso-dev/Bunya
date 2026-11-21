@@ -9,6 +9,7 @@ import {
   PRICE_BOOK,
   PRICE_SNAPSHOT_DATE,
   PRICE_SOURCE_URL,
+  clampFxRate,
   fxFor,
   symbol,
 } from "./data";
@@ -85,9 +86,11 @@ function priceKeyFor(node: GraphNode, props: Record<string, unknown>, document: 
       return { key: "functionApp.premium", sku: "(plan)" };
     }
     case "cosmosDb":
-      return props.freeTier === true
-        ? { key: "cosmosDb.Free", sku: "Free tier" }
-        : { key: "cosmosDb.Provisioned400", sku: "Provisioned 400 RU/s" };
+      if (props.freeTier === true) return { key: "cosmosDb.Free", sku: "Free tier" };
+      if (Array.isArray(props.capabilities) && props.capabilities.includes("EnableServerless")) {
+        return { key: "cosmosDb.Serverless", sku: "Serverless" };
+      }
+      return { key: "cosmosDb.Provisioned400", sku: "Provisioned 400 RU/s" };
     case "applicationInsights":
       return { key: "applicationInsights.workspace", sku: "workspace-based" };
     case "privateEndpoint":
@@ -120,7 +123,7 @@ export function estimateCost(
   const opts: EstimateOptions =
     typeof options === "string" ? { currency: options } : options;
   const currency: Currency = opts.currency ?? "AUD";
-  const audPerUsd = opts.audPerUsd ?? DEFAULT_FX_AUD_PER_USD;
+  const audPerUsd = clampFxRate(opts.audPerUsd ?? DEFAULT_FX_AUD_PER_USD);
   const fx = fxFor(currency, audPerUsd);
   const lineItems: CostLineItem[] = [];
   let total = 0;
@@ -130,9 +133,11 @@ export function estimateCost(
     const props = { ...definition.defaultProperties, ...node.properties };
     const { key, sku } = priceKeyFor(node, props, document);
     const entry = PRICE_BOOK[key];
-    const quantityProperty = QUANTITY_PROPERTY[node.type];
-    const quantity = quantityProperty ? Number(props[quantityProperty]) : undefined;
-    const monthly = (entry?.monthlyUsd ?? 0) * fx * Math.max(1, quantity ?? 1);
+    const isServerless = node.type === "appServicePlan" && isServerlessPlan(props.sku);
+    const quantityProperty = isServerless ? undefined : QUANTITY_PROPERTY[node.type];
+    const rawQuantity = quantityProperty ? Number(props[quantityProperty]) : undefined;
+    const quantity = rawQuantity !== undefined && Number.isFinite(rawQuantity) ? Math.max(1, rawQuantity) : undefined;
+    const monthly = (entry?.monthlyUsd ?? 0) * fx * (quantity ?? 1);
     total += monthly;
     lineItems.push({
       nodeId: node.id,

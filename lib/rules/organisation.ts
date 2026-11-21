@@ -223,7 +223,7 @@ export function translateAzurePolicy(policy: unknown): OrganisationRule[] {
   if (Object.keys(condition).some((key) => ["anyOf", "not"].includes(key))) return [];
   if (leaves.some((leaf) => !leaf || typeof leaf !== "object" || Array.isArray(leaf) || Object.keys(leaf).some((key) => ["allOf", "anyOf", "not", "in", "notIn"].includes(key)))) return [];
   const effect = (policyRule as { then?: { effect?: unknown } }).then?.effect;
-  if (effect !== undefined && effect !== "audit" && effect !== "deny") return [];
+  if (effect !== undefined && (typeof effect !== "string" || !["audit", "deny"].includes(effect.toLowerCase()))) return [];
   const atoms = flattenPolicyConditions(ifBlock);
   if (atoms.length !== leaves.length || atoms.filter((atom) => atom.field !== "type").length !== 1) return [];
   const typeAtoms = atoms.filter((atom) => atom.field === "type" && atom.operator === "equals");
@@ -376,10 +376,18 @@ function normaliseComparable(value: unknown, peer: unknown): string {
 
 function extractJson(text: string): string {
   const trimmed = text.trim();
-  const fence = trimmed.match(/^```(?:json|policy)?\s*([\s\S]*?)\s*```$/i);
-  if (fence?.[1]) return fence[1].trim();
+  if (trimmed.startsWith("```") && trimmed.endsWith("```") && trimmed.length >= 6) {
+    const inner = trimmed.slice(3, -3).replace(/^(?:json|policy)(?=\s|$)/i, "").trim();
+    if (inner) return inner;
+  }
+  if (trimmed.startsWith("[") || trimmed.startsWith("{")) return trimmed;
+  const firstBracket = trimmed.indexOf("[");
+  const lastBracket = trimmed.lastIndexOf("]");
   const firstBrace = trimmed.indexOf("{");
   const lastBrace = trimmed.lastIndexOf("}");
+  if (firstBracket >= 0 && lastBracket > firstBracket && (firstBrace < 0 || firstBracket < firstBrace)) {
+    return trimmed.slice(firstBracket, lastBracket + 1).trim();
+  }
   if (firstBrace >= 0 && lastBrace > firstBrace) return trimmed.slice(firstBrace, lastBrace + 1).trim();
   return trimmed;
 }

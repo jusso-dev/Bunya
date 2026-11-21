@@ -23,7 +23,7 @@ import { RULE_BUNDLES } from "@/lib/rules/registry";
 import { arg, run } from "./lib";
 
 const AZURE_UPDATES_RSS = "https://www.microsoft.com/releasecommunications/api/v2/azure/rss";
-const TERRAFORM_AZURERM_MAJOR = 4;
+const TERRAFORM_AZURERM_MAJOR = 5;
 const MANUAL_REVIEW_DAYS = 180;
 
 // Azure Updates product categories and title keywords for each modelled service.
@@ -70,14 +70,20 @@ async function github(pathname: string): Promise<unknown> {
 const normalise = (tag: string) => tag.replace(/^v/i, "").trim();
 
 function newer(latest: string, pinned: string): boolean {
-  const a = normalise(latest).split(/[.-]/).map((p) => Number.parseInt(p, 10));
-  const b = normalise(pinned).split(/[.-]/).map((p) => Number.parseInt(p, 10));
-  for (let i = 0; i < Math.max(a.length, b.length); i++) {
-    const x = Number.isNaN(a[i]) ? 0 : (a[i] ?? 0);
-    const y = Number.isNaN(b[i]) ? 0 : (b[i] ?? 0);
+  const split = (tag: string) => {
+    const clean = normalise(tag);
+    const [core, pre] = clean.split("-", 2);
+    return { parts: core.split(".").map((p) => Number.parseInt(p, 10)), prerelease: Boolean(pre) };
+  };
+  const a = split(latest);
+  const b = split(pinned);
+  for (let i = 0; i < Math.max(a.parts.length, b.parts.length); i++) {
+    const x = Number.isNaN(a.parts[i]) ? 0 : (a.parts[i] ?? 0);
+    const y = Number.isNaN(b.parts[i]) ? 0 : (b.parts[i] ?? 0);
     if (x !== y) return x > y;
   }
-  return false;
+  // A prerelease (e.g. 1.42.0-beta.1) is older than the matching stable release.
+  return !a.prerelease && b.prerelease;
 }
 
 async function checkReleases(lines: string[], errors: string[]): Promise<void> {
@@ -118,10 +124,20 @@ function decode(text: string): string {
     .trim();
 }
 
-// Feed titles go into a GitHub issue; keep them from mentioning users or
-// linking issues.
+// Feed titles go into a GitHub issue; keep them single-line and from
+// mentioning users or linking issues.
 function inert(text: string): string {
-  return text.replace(/[[\]`]/g, "").replace(/([@#])/g, "$1\u200b");
+  return text.replace(/[\r\n]+/g, " ").replace(/[[\]`]/g, "").replace(/([@#])/g, "$1\u200b").trim();
+}
+
+function safeUpdateUrl(raw: string): string | null {
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "https:" || url.hostname !== "azure.microsoft.com") return null;
+    return url.toString().replace(/[)\s]/g, "");
+  } catch {
+    return null;
+  }
 }
 
 async function checkRetirements(lines: string[], errors: string[], days: number): Promise<void> {
@@ -140,7 +156,9 @@ async function checkRetirements(lines: string[], errors: string[], days: number)
       const haystack = [title, ...categories].join(" | ").toLowerCase();
       const matched = SERVICE_KEYWORDS.filter((k) => haystack.includes(k.toLowerCase()));
       if (matched.length === 0) continue;
-      lines.push(`- [${inert(title)}](${link}) (${matched.join(", ")})`);
+      const safeLink = safeUpdateUrl(link);
+      if (!safeLink) continue;
+      lines.push(`- [${inert(title)}](${safeLink}) (${matched.join(", ")})`);
     }
   } catch (error) {
     errors.push(`Azure Updates feed: ${(error as Error).message}`);
@@ -173,7 +191,9 @@ function checkManual(lines: string[]): void {
 
 async function main(): Promise<void> {
   const reportPath = arg("report");
-  const days = Number(arg("days") ?? 14);
+  const daysArg = arg("days");
+  const days = daysArg === undefined ? 14 : Number(daysArg);
+  if (!Number.isFinite(days) || days <= 0) throw new Error(`Invalid --days value: ${String(daysArg)}`);
   const releases: string[] = [];
   const retirements: string[] = [];
   const manual: string[] = [];

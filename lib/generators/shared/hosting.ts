@@ -98,10 +98,27 @@ export function needsContentShare(family: PlanFamily): boolean {
   return family === "consumption" || family === "elastic";
 }
 
+function storageSlug(raw: string, max: number, fallback: string): string {
+  const cleaned = raw
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, max)
+    .replace(/-+$/g, "");
+  if (cleaned.length >= 3) return cleaned;
+  return `${cleaned || fallback}${"0".repeat(Math.max(0, 3 - (cleaned || fallback).length))}`;
+}
+
 export function contentShareName(ctx: GeneratorContext, node: GraphNode): string {
-  return ctx.name(node.id).toLowerCase().replace(/[^a-z0-9-]/g, "-").slice(0, 63).replace(/-+$/, "");
+  return storageSlug(ctx.name(node.id), 63, "content");
 }
 
 export function deploymentContainerName(ctx: GeneratorContext, node: GraphNode): string {
-  return `app-package-${ctx.name(node.id).toLowerCase().replace(/[^a-z0-9-]/g, "-").slice(0, 40)}`.replace(/-+$/, "");
+  const slug = ctx.name(node.id)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40)
+    .replace(/-+$/g, "");
+  return `app-package-${slug || "fn"}`;
 }

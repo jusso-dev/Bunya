@@ -49,6 +49,8 @@ export const observabilityRules: RuleEntry[] = [
       }
       for (const edge of graph.edges) {
         if (edge.kind !== "diagnostic") continue;
+        const st = targetType(graph, edge.source);
+        if (st === "monitorAlert") continue;
         const tt = targetType(graph, edge.target);
         if (tt && tt !== "logAnalytics" && tt !== "applicationInsights") {
           partials.push({ edgeIds: [edge.id] });

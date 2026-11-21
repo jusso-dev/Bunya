@@ -11,7 +11,7 @@ export function CostPanel({ document }: { document: GraphDocument }) {
   const [sortBy, setSortBy] = useState<"monthly" | "service">("monthly");
   const fxAudPerUsd = useGraphStore((s) => s.fxAudPerUsd);
   const setFxAudPerUsd = useGraphStore((s) => s.setFxAudPerUsd);
-  const [fxDraft, setFxDraft] = useState<string>(String(fxAudPerUsd));
+  const [fxDraft, setFxDraft] = useState<string | null>(null);
 
   const estimate = useMemo(
     () => estimateCost(document, { currency, audPerUsd: fxAudPerUsd }),
@@ -25,19 +25,17 @@ export function CostPanel({ document }: { document: GraphDocument }) {
   }, [estimate.lineItems, sortBy]);
 
   const onFxCommit = () => {
+    if (fxDraft === null) return;
     const next = Number(fxDraft);
-    if (!Number.isFinite(next) || next <= 0) {
-      setFxDraft(String(fxAudPerUsd));
-      return;
-    }
+    setFxDraft(null);
+    if (!Number.isFinite(next) || next <= 0) return;
     // The store clamps the rate; show the value actually used.
-    setFxAudPerUsd(next);
-    setFxDraft(String(clampFxRate(next)));
+    setFxAudPerUsd(clampFxRate(next));
   };
 
   const onFxReset = () => {
     setFxAudPerUsd(DEFAULT_FX_AUD_PER_USD);
-    setFxDraft(String(DEFAULT_FX_AUD_PER_USD));
+    setFxDraft(null);
   };
 
   return (
@@ -50,8 +48,9 @@ export function CostPanel({ document }: { document: GraphDocument }) {
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <label className="text-[11px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Currency</label>
+          <label htmlFor="cost-currency" className="text-[11px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Currency</label>
           <select
+            id="cost-currency"
             value={currency}
             onChange={(e) => setCurrency(e.target.value as Currency)}
             className="rounded border border-zinc-200 bg-white px-2 py-0.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
@@ -59,8 +58,9 @@ export function CostPanel({ document }: { document: GraphDocument }) {
             <option value="AUD">AUD</option>
             <option value="USD">USD</option>
           </select>
-          <label className="text-[11px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Sort</label>
+          <label htmlFor="cost-sort" className="text-[11px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Sort</label>
           <select
+            id="cost-sort"
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as "monthly" | "service")}
             className="rounded border border-zinc-200 bg-white px-2 py-0.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
@@ -82,7 +82,7 @@ export function CostPanel({ document }: { document: GraphDocument }) {
           step="0.01"
           min="0.5"
           max="10"
-          value={fxDraft}
+          value={fxDraft ?? String(fxAudPerUsd)}
           onChange={(e) => setFxDraft(e.target.value)}
           onBlur={onFxCommit}
           onKeyDown={(e) => {

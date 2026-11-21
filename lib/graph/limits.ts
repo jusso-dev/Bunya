@@ -28,30 +28,49 @@ export function parseJsonInput(text: string, maxDepth?: number): unknown {
 // Azure Resource Manager accepts // and /* */ comments and trailing commas in
 // templates (Microsoft Learn, "Template syntax: comments"); JSON.parse does not.
 export function stripJsonComments(text: string): string {
-  let out = "";
+  // Pass 1: strip // and /* */ comments outside string literals.
+  let noComments = "";
   let inString = false;
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
     if (inString) {
+      noComments += ch;
+      if (ch === "\\") noComments += text[++i] ?? "";
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      noComments += ch;
+    } else if (ch === "/" && text[i + 1] === "/") {
+      while (i < text.length && text[i] !== "\n") i++;
+      noComments += "\n";
+    } else if (ch === "/" && text[i + 1] === "*") {
+      const end = text.indexOf("*/", i + 2);
+      i = end === -1 ? text.length : end + 1;
+      noComments += " ";
+    } else {
+      noComments += ch;
+    }
+  }
+  // Pass 2: strip trailing commas before } or ] outside string literals.
+  let out = "";
+  inString = false;
+  for (let i = 0; i < noComments.length; i++) {
+    const ch = noComments[i];
+    if (inString) {
       out += ch;
-      if (ch === "\\") out += text[++i] ?? "";
+      if (ch === "\\") out += noComments[++i] ?? "";
       else if (ch === '"') inString = false;
       continue;
     }
     if (ch === '"') {
       inString = true;
       out += ch;
-    } else if (ch === "/" && text[i + 1] === "/") {
-      while (i < text.length && text[i] !== "\n") i++;
-      out += "\n";
-    } else if (ch === "/" && text[i + 1] === "*") {
-      const end = text.indexOf("*/", i + 2);
-      i = end === -1 ? text.length : end + 1;
-      out += " ";
     } else if (ch === ",") {
       let j = i + 1;
-      while (j < text.length && /\s/.test(text[j])) j++;
-      if (text[j] !== "}" && text[j] !== "]") out += ch;
+      while (j < noComments.length && /\s/.test(noComments[j])) j++;
+      if (noComments[j] !== "}" && noComments[j] !== "]") out += ch;
     } else {
       out += ch;
     }

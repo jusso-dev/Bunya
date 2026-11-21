@@ -103,4 +103,29 @@ describe("estimateCost", () => {
     const estimate = estimateCost(firstCutGraph, { currency: "AUD", audPerUsd: 1.65 });
     expect(estimate.caveats.join(" ")).toContain("1.6500 AUD/USD");
   });
+
+  it("clamps invalid FX rates, guards NaN quantities, and prices Cosmos serverless", () => {
+    const clamped = estimateCost(firstCutGraph, { currency: "AUD", audPerUsd: 0 });
+    expect(clamped.fxAudPerUsd).toBe(DEFAULT_FX_AUD_PER_USD);
+    expect(Number.isFinite(clamped.total)).toBe(true);
+
+    const nanCap = estimateCost(withProperties(firstCutGraph, "plan", { capacity: Number.NaN }), "USD");
+    expect(Number.isFinite(nanCap.total)).toBe(true);
+
+    const serverlessPlan = estimateCost(hostingGraph).lineItems.find((l) => l.nodeId === "plan-flex");
+    expect(serverlessPlan?.sku).toBe("FC1");
+
+    const cosmosServerless = {
+      id: "cos-s",
+      type: "cosmosDb" as const,
+      name: "Cosmos",
+      resourceName: "cos-serverless",
+      position: { x: 0, y: 0 },
+      parentId: null,
+      properties: { consistency: "Session", freeTier: false, multiRegionWrites: false, capabilities: ["EnableServerless"] },
+    };
+    const est = estimateCost({ ...firstCutGraph, nodes: [cosmosServerless], edges: [] }, "USD");
+    expect(est.lineItems[0].sku).toBe("Serverless");
+    expect(est.lineItems[0].monthly).toBe(7);
+  });
 });

@@ -130,6 +130,8 @@ function emitNode(node: GraphNode, ctx: GeneratorContext): string[] {
     case "functionApp": {
       const planName = ctx.name(sitePlan(ctx.document, node)!.id);
       const stName = ctx.name(targetOfType(ctx, node.id, "data", "storageAccount")!.id);
+      const runtime = String(node.properties.runtime);
+      const worker = runtime === "dotnet" ? "dotnet-isolated" : runtime;
       return [
         `# Function App ${name}`,
         `$fnParams = @{`,
@@ -138,7 +140,8 @@ function emitNode(node: GraphNode, ctx: GeneratorContext): string[] {
         `    Location              = $Location`,
         `    PlanName              = '${planName}'`,
         `    StorageAccountName    = '${stName}'`,
-        `    Runtime               = '${String(node.properties.runtime)}'`,
+        `    OSType                = 'Linux'`,
+        `    Runtime               = '${worker}'`,
         `    RuntimeVersion        = '${String(node.properties.runtimeVersion)}'`,
         `    FunctionsVersion      = '4'`,
         `    IdentityType          = 'SystemAssigned'`,
@@ -224,9 +227,9 @@ function emitNode(node: GraphNode, ctx: GeneratorContext): string[] {
         `    VaultName                    = '${name}'`,
         `    Location                     = $Location`,
         `    Sku                          = '${String(node.properties.sku)}'`,
-        `    EnablePurgeProtection        = $${node.properties.purgeProtection !== false}`,
+        ...(node.properties.purgeProtection !== false ? [`    EnablePurgeProtection        = $true`] : []),
         `    SoftDeleteRetentionInDays    = ${Number(node.properties.softDeleteRetentionDays)}`,
-        `    EnableRbacAuthorization      = $${node.properties.rbacAuthorization !== false}`,
+        ...(node.properties.rbacAuthorization === false ? [`    DisableRbacAuthorization     = $true`] : []),
         `    PublicNetworkAccess          = '${node.properties.publicNetworkAccess === true ? "Enabled" : "Disabled"}'`,
         `}`,
         `New-AzKeyVault @kvParams | Out-Null`,

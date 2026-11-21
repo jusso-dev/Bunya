@@ -45,6 +45,15 @@ export function runRules(
   return findings;
 }
 
+export function hasAutofix(
+  finding: Finding,
+  entries: RuleEntry[] = REGISTRY,
+): boolean {
+  if (!finding.autofixId) return false;
+  const entry = entries.find((e) => e.rule.id === finding.ruleId);
+  return Boolean(entry?.autofixes?.[finding.autofixId]);
+}
+
 export function applyAutofix(
   graph: GraphDocument,
   finding: Finding,

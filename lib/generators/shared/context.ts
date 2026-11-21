@@ -129,9 +129,23 @@ export function dnsLinkName(ctx: GeneratorContext, vnet: GraphNode): string {
 }
 
 export function endpointZones(ctx: GeneratorContext, pe: GraphNode): GraphNode[] {
-  return targets(ctx, pe.id, "network").filter((target) => target.type === "privateDnsZone");
+  const seen = new Set<string>();
+  const zones: GraphNode[] = [];
+  for (const candidate of [...targets(ctx, pe.id, "network"), ...sources(ctx, pe.id, "network")]) {
+    if (candidate.type !== "privateDnsZone" || seen.has(candidate.id)) continue;
+    seen.add(candidate.id);
+    zones.push(candidate);
+  }
+  return zones;
 }
 
 export function zoneVnets(ctx: GeneratorContext, zone: GraphNode): GraphNode[] {
-  return targets(ctx, zone.id, "network").filter((target) => target.type === "virtualNetwork");
+  const seen = new Set<string>();
+  const vnets: GraphNode[] = [];
+  for (const candidate of targets(ctx, zone.id, "network")) {
+    if (candidate.type !== "virtualNetwork" || seen.has(candidate.id)) continue;
+    seen.add(candidate.id);
+    vnets.push(candidate);
+  }
+  return vnets;
 }

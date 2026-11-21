@@ -17,9 +17,9 @@ param location string = 'australiaeast'
 ])
 param environmentTag string = 'dev'
 
-// Resource Group must be created at the subscription scope.
+// Resource Group must exist before deploying this resource-group-scoped template.
 // Bunya emits per-resource-group templates; deploy with:
-//   az deployment sub create --location <region> --template-file main.bicep
+//   az deployment group create --resource-group <rg> --template-file main.bicep
 
 resource node_1_plan_first_cut_resource 'Microsoft.Web/serverfarms@2024-04-01' = {
   name: 'plan-first-cut'

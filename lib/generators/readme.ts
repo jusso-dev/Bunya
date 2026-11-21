@@ -94,14 +94,18 @@ export function generateReadme(document: GraphDocument): GeneratorResult {
     ``,
     `### az CLI`,
     "```bash",
-    `chmod +x deploy.sh && SQL_ADMIN_PASSWORD=... ./deploy.sh`,
+    ctx.hasSql
+      ? `chmod +x deploy.sh && SQL_ADMIN_PASSWORD=... ./deploy.sh`
+      : `chmod +x deploy.sh && ./deploy.sh`,
     "```",
     ``,
     `### PowerShell`,
     "```powershell",
-    `$pwd = Read-Host -AsSecureString 'SQL admin password'`,
+    ...(ctx.hasSql ? [`$pwd = Read-Host -AsSecureString 'SQL admin password'`] : []),
     `Connect-AzAccount`,
-    `./Deploy-Infrastructure.ps1 -SqlAdminPassword $pwd -WhatIf`,
+    ctx.hasSql
+      ? `./Deploy-Infrastructure.ps1 -SqlAdminPassword $pwd -WhatIf`
+      : `./Deploy-Infrastructure.ps1 -WhatIf`,
     "```",
     ``,
     `### Azure Policy guardrails`,

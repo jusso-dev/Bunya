@@ -42,8 +42,10 @@ export type ImportResult =
 
 function normaliseImportText(text: string): string {
   const trimmed = text.trim();
-  const fence = trimmed.match(/^```(?:json|arm|bunya)?\s*([\s\S]*?)\s*```$/i);
-  if (fence?.[1]) return fence[1].trim();
+  if (trimmed.startsWith("```") && trimmed.endsWith("```") && trimmed.length >= 6) {
+    const inner = trimmed.slice(3, -3).replace(/^(?:json|arm|bunya)(?=\s|$)/i, "").trim();
+    if (inner) return inner;
+  }
   const firstBrace = trimmed.indexOf("{");
   const lastBrace = trimmed.lastIndexOf("}");
   if (firstBrace >= 0 && lastBrace > firstBrace) {

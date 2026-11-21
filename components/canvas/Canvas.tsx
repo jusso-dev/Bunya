@@ -20,6 +20,7 @@ import ReactFlow, {
 import "reactflow/dist/style.css";
 import { useGraphStore } from "@/lib/session/store";
 import { canConnect } from "@/lib/catalogue/connections";
+import { isEdgeKindAllowed } from "@/lib/catalogue/services";
 import {
   EDGE_KINDS,
   EdgeKind,
@@ -120,9 +121,26 @@ function CanvasInner() {
     return () => window.cancelAnimationFrame(frame);
   }, [fitRequest, fitView, getNodes]);
 
-  // Containers render first so their children draw on top of them.
+  // Containers render before their children (ordered by ancestor depth) so
+  // nested containers and leaf nodes always mount after their parentNode.
   const nodes = useMemo<Node<CanvasNodeData>[]>(() => {
-    const sorted = [...document.nodes].sort((a, b) => Number(isContainerType(b.type)) - Number(isContainerType(a.type)));
+    const byId = new Map(document.nodes.map((n) => [n.id, n]));
+    const depthOf = (id: string): number => {
+      let depth = 0;
+      let cursor = byId.get(id);
+      const seen = new Set<string>();
+      while (cursor?.parentId && !seen.has(cursor.id)) {
+        seen.add(cursor.id);
+        depth++;
+        cursor = byId.get(cursor.parentId);
+      }
+      return depth;
+    };
+    const sorted = [...document.nodes].sort((a, b) => {
+      const depthDiff = depthOf(a.id) - depthOf(b.id);
+      if (depthDiff !== 0) return depthDiff;
+      return Number(isContainerType(b.type)) - Number(isContainerType(a.type));
+    });
     return sorted.map((n) => {
       const container = isContainerType(n.type);
       const size = nodeSize(n);
@@ -265,10 +283,18 @@ function CanvasInner() {
   );
 
   const selectedEdge = document.edges.find((e) => e.id === selectedEdgeId) ?? null;
+  const selectedEdgeKinds = useMemo(() => {
+    if (!selectedEdge) return EDGE_KINDS;
+    const source = document.nodes.find((n) => n.id === selectedEdge.source);
+    const target = document.nodes.find((n) => n.id === selectedEdge.target);
+    if (!source || !target) return EDGE_KINDS;
+    return EDGE_KINDS.filter((k) => k === selectedEdge.kind || isEdgeKindAllowed(source.type, target.type, k));
+  }, [document.nodes, selectedEdge]);
 
   return (
     <div
       ref={reactFlowWrapper}
+      role="region"
       className="relative h-full w-full bg-zinc-50"
       data-testid="bunya-canvas"
       onDragOver={onDragOver}
@@ -329,15 +355,16 @@ function CanvasInner() {
       </div>}
       {selectedEdge ? (
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs shadow-md dark:border-zinc-700 dark:bg-zinc-900">
-          <span className="mr-2 font-semibold text-zinc-700 dark:text-zinc-200">
+          <label htmlFor="edge-kind-select" className="mr-2 font-semibold text-zinc-700 dark:text-zinc-200">
             Edge kind:
-          </span>
+          </label>
           <select
+            id="edge-kind-select"
             className="rounded border border-zinc-200 bg-white px-2 py-0.5 text-xs text-zinc-800 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
             value={selectedEdge.kind}
             onChange={(e) => setEdgeKind(selectedEdge.id, e.target.value as EdgeKind)}
           >
-            {EDGE_KINDS.map((k) => (
+            {selectedEdgeKinds.map((k) => (
               <option key={k} value={k}>
                 {k}
               </option>

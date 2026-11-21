@@ -6,7 +6,7 @@ import { graphRule, nodeRule, nodesOfType } from "@/lib/rules/builders";
 import type { RuleEntry } from "@/lib/rules/schema";
 import type { GraphDocument, GraphNode } from "@/lib/graph/schema";
 import { siteRegistry, sitePlan } from "@/lib/graph/topology";
-import { planFamily, planSkuTier } from "@/lib/catalogue/app-service-plans";
+import { isServerlessPlan, planFamily, planSkuTier } from "@/lib/catalogue/app-service-plans";
 
 const FUNCTIONS_SCALE_SOURCE = {
   name: "Microsoft Learn — Azure Functions hosting options and scale",
@@ -70,8 +70,9 @@ export const EXPANSION_APP_SERVICE_PLAN_RULES: RuleEntry[] = [
     tags: ["bunya", "psrule", "app-service-plan", "reliability", "expansion"],
     predicate: (n, graph) => {
       if (graph.metadata.environment !== "prod") return false;
-      const capacity = (n.properties as { capacity?: number }).capacity;
-      return typeof capacity === "number" && capacity < 2;
+      const props = n.properties as { sku?: string; capacity?: number };
+      if (isServerlessPlan(props.sku)) return false;
+      return typeof props.capacity === "number" && props.capacity < 2;
     },
   }),
 

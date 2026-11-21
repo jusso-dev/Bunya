@@ -75,6 +75,12 @@ function parse(source: string): Node {
     if (!token) throw new Error("unexpected end");
     if (token.kind === "string" || token.kind === "number") return { kind: "literal", value: token.value };
     if (token.kind !== "ident") throw new Error("unexpected token");
+    const lower = token.value.toLowerCase();
+    if (!(peek()?.kind === "punct" && peek()!.value === "(")) {
+      if (lower === "true") return { kind: "literal", value: true };
+      if (lower === "false") return { kind: "literal", value: false };
+      if (lower === "null") return { kind: "literal", value: null };
+    }
     expect("(");
     const args: Node[] = [];
     if (!(peek()?.kind === "punct" && peek()!.value === ")")) {
@@ -87,7 +93,7 @@ function parse(source: string): Node {
     } else {
       pos++;
     }
-    return { kind: "call", name: token.value.toLowerCase(), args };
+    return { kind: "call", name: lower, args };
   };
   const expression = (): Node => {
     let node = primary();
@@ -126,15 +132,40 @@ const asRecord = (value: unknown): Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 
 function findKey(record: Record<string, unknown>, key: string): string | undefined {
-  if (key in record) return key;
+  if (Object.hasOwn(record, key)) return key;
   const lower = key.toLowerCase();
   return Object.keys(record).find((candidate) => candidate.toLowerCase() === lower);
+}
+
+const MAX_EVAL_LENGTH = 65_536;
+const MAX_EVAL_STEPS = 10_000;
+
+function withinSizeLimit(value: Value): Value {
+  if (typeof value === "string" && value.length > MAX_EVAL_LENGTH) return UNRESOLVED;
+  if (Array.isArray(value) && value.length > MAX_EVAL_LENGTH) return UNRESOLVED;
+  return value;
+}
+
+function stableEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== typeof b || a === null || b === null) return false;
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return a.length === b.length && a.every((item, i) => stableEqual(item, b[i]));
+  }
+  if (typeof a === "object" && typeof b === "object" && !Array.isArray(a) && !Array.isArray(b)) {
+    const ka = Object.keys(a as Record<string, unknown>).sort();
+    const kb = Object.keys(b as Record<string, unknown>).sort();
+    if (ka.length !== kb.length) return false;
+    return ka.every((k, i) => k === kb[i] && stableEqual((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]));
+  }
+  return false;
 }
 
 export function createEvaluator(scope: TemplateScope) {
   const variableCache = new Map<string, Value>();
   const resolving = new Set<string>();
   let lenient = false;
+  let steps = 0;
   const STRING_FUNCTIONS = new Set(["concat", "format", "tolower", "toupper", "trim", "replace", "substring", "take"]);
 
   const variable = (name: string): Value => {
@@ -144,7 +175,7 @@ export function createEvaluator(scope: TemplateScope) {
     if (variableCache.has(cacheKey)) return variableCache.get(cacheKey);
     if (resolving.has(`v:${key}`)) return UNRESOLVED;
     resolving.add(`v:${key}`);
-    const value = deep(scope.variables[key], true);
+    const value = withinSizeLimit(deep(scope.variables[key], true));
     resolving.delete(`v:${key}`);
     variableCache.set(cacheKey, value);
     return value;
@@ -154,9 +185,9 @@ export function createEvaluator(scope: TemplateScope) {
     const key = findKey(scope.parameters, name);
     if (key === undefined || resolving.has(`p:${key}`)) return UNRESOLVED;
     const definition = asRecord(scope.parameters[key]);
-    if (!("defaultValue" in definition)) return UNRESOLVED;
+    if (!Object.hasOwn(definition, "defaultValue")) return UNRESOLVED;
     resolving.add(`p:${key}`);
-    const value = deep(definition.defaultValue, true);
+    const value = withinSizeLimit(deep(definition.defaultValue, true));
     resolving.delete(`p:${key}`);
     return value;
   };
@@ -172,42 +203,82 @@ export function createEvaluator(scope: TemplateScope) {
     switch (name) {
       case "parameters":
       case "variables": {
-        if (typeof args[0] !== "string") return UNRESOLVED;
+        if (args.length !== 1 || typeof args[0] !== "string") return UNRESOLVED;
         const value = name === "parameters" ? parameter(args[0]) : variable(args[0]);
         // In a name, a reference with no default stands for itself.
         return value === UNRESOLVED && lenient ? args[0] : value;
       }
       case "concat": {
-        if (args.every(Array.isArray)) return (args as unknown[][]).flat();
-        return strings(args)?.join("") ?? UNRESOLVED;
+        if (args.length === 0) return UNRESOLVED;
+        if (args.every(Array.isArray)) {
+          let total = 0;
+          for (const arr of args as unknown[][]) {
+            total += arr.length;
+            if (total > MAX_EVAL_LENGTH) return UNRESOLVED;
+          }
+          return (args as unknown[][]).flat();
+        }
+        const parts = strings(args);
+        if (!parts) return UNRESOLVED;
+        let total = 0;
+        for (const part of parts) {
+          total += part.length;
+          if (total > MAX_EVAL_LENGTH) return UNRESOLVED;
+        }
+        return parts.join("");
       }
       case "format": {
         const [template, ...rest] = args;
         const values = strings(rest);
         if (typeof template !== "string" || !values) return UNRESOLVED;
-        return template.replace(/\{(\d+)(?::[^}]*)?\}/g, (match, index: string) => values[Number(index)] ?? match);
+        return withinSizeLimit(template.replace(/\{(\d+)(?::[^}]*)?\}/g, (match, index: string) => values[Number(index)] ?? match));
       }
       case "tolower":
-        return typeof args[0] === "string" ? args[0].toLowerCase() : UNRESOLVED;
+        return args.length === 1 && typeof args[0] === "string" ? args[0].toLowerCase() : UNRESOLVED;
       case "toupper":
-        return typeof args[0] === "string" ? args[0].toUpperCase() : UNRESOLVED;
+        return args.length === 1 && typeof args[0] === "string" ? args[0].toUpperCase() : UNRESOLVED;
       case "trim":
-        return typeof args[0] === "string" ? args[0].trim() : UNRESOLVED;
-      case "replace":
-        return args.every((arg) => typeof arg === "string") ? (args[0] as string).split(args[1] as string).join(args[2] as string) : UNRESOLVED;
+        return args.length === 1 && typeof args[0] === "string" ? args[0].trim() : UNRESOLVED;
+      case "replace": {
+        if (args.length !== 3 || !args.every((arg) => typeof arg === "string")) return UNRESOLVED;
+        const [source, oldStr, newStr] = args as [string, string, string];
+        if (oldStr === "") return source;
+        const parts = source.split(oldStr);
+        if (source.length + (parts.length - 1) * Math.max(0, newStr.length - oldStr.length) > MAX_EVAL_LENGTH) {
+          return UNRESOLVED;
+        }
+        return parts.join(newStr);
+      }
       case "substring": {
         const [text, start, length] = args;
-        if (typeof text !== "string" || typeof start !== "number") return UNRESOLVED;
+        if (typeof text !== "string" || typeof start !== "number" || !Number.isInteger(start) || start < 0) return UNRESOLVED;
+        if (length !== undefined && (typeof length !== "number" || !Number.isInteger(length) || length < 0)) return UNRESOLVED;
         return text.substring(start, typeof length === "number" ? start + length : undefined);
       }
       case "take":
-        return typeof args[0] === "string" && typeof args[1] === "number" ? args[0].slice(0, args[1]) : UNRESOLVED;
+        if (args.length !== 2 || typeof args[1] !== "number" || !Number.isInteger(args[1])) return UNRESOLVED;
+        if (typeof args[0] === "string") return args[1] <= 0 ? "" : args[0].slice(0, args[1]);
+        if (Array.isArray(args[0])) return args[1] <= 0 ? [] : args[0].slice(0, args[1]);
+        return UNRESOLVED;
       case "string":
-        return typeof args[0] === "object" ? JSON.stringify(args[0]) : String(args[0]);
-      case "int":
-        return Number.isFinite(Number(args[0])) ? Math.trunc(Number(args[0])) : UNRESOLVED;
-      case "bool":
-        return typeof args[0] === "boolean" ? args[0] : typeof args[0] === "string" ? args[0].toLowerCase() === "true" : UNRESOLVED;
+        if (args.length !== 1) return UNRESOLVED;
+        return withinSizeLimit(typeof args[0] === "object" ? JSON.stringify(args[0]) : String(args[0]));
+      case "int": {
+        if (args.length !== 1) return UNRESOLVED;
+        if (typeof args[0] === "number" && Number.isFinite(args[0])) return Math.trunc(args[0]);
+        if (typeof args[0] === "string" && /^-?\d+$/.test(args[0].trim())) return Number.parseInt(args[0].trim(), 10);
+        return UNRESOLVED;
+      }
+      case "bool": {
+        if (args.length !== 1) return UNRESOLVED;
+        if (typeof args[0] === "boolean") return args[0];
+        if (typeof args[0] === "string") {
+          const lower = args[0].trim().toLowerCase();
+          if (lower === "true") return true;
+          if (lower === "false") return false;
+        }
+        return UNRESOLVED;
+      }
       case "true":
         return true;
       case "false":
@@ -215,19 +286,20 @@ export function createEvaluator(scope: TemplateScope) {
       case "null":
         return null;
       case "equals":
-        return JSON.stringify(args[0]) === JSON.stringify(args[1]);
+        return args.length === 2 ? stableEqual(args[0], args[1]) : UNRESOLVED;
       case "not":
-        return typeof args[0] === "boolean" ? !args[0] : UNRESOLVED;
+        return args.length === 1 && typeof args[0] === "boolean" ? !args[0] : UNRESOLVED;
       case "and":
-        return args.every((arg) => typeof arg === "boolean") ? args.every(Boolean) : UNRESOLVED;
+        return args.length >= 2 && args.every((arg) => typeof arg === "boolean") ? args.every(Boolean) : UNRESOLVED;
       case "or":
-        return args.every((arg) => typeof arg === "boolean") ? args.some(Boolean) : UNRESOLVED;
+        return args.length >= 2 && args.every((arg) => typeof arg === "boolean") ? args.some(Boolean) : UNRESOLVED;
       case "if":
-        return typeof args[0] === "boolean" ? (args[0] ? args[1] : args[2]) : UNRESOLVED;
+        return args.length === 3 && typeof args[0] === "boolean" ? (args[0] ? args[1] : args[2]) : UNRESOLVED;
       case "empty":
+        if (args.length !== 1) return UNRESOLVED;
         return args[0] === null || args[0] === "" || (Array.isArray(args[0]) && args[0].length === 0) || (typeof args[0] === "object" && args[0] !== null && Object.keys(args[0]).length === 0);
       case "coalesce":
-        return args.find((arg) => arg !== null) ?? null;
+        return args.length >= 1 ? (args.find((arg) => arg !== null) ?? null) : UNRESOLVED;
       case "resourceid":
       case "subscriptionresourceid":
       case "tenantresourceid":
@@ -253,13 +325,14 @@ export function createEvaluator(scope: TemplateScope) {
           },
         };
       case "length":
-        return typeof args[0] === "string" || Array.isArray(args[0]) ? args[0].length : UNRESOLVED;
+        return args.length === 1 && (typeof args[0] === "string" || Array.isArray(args[0])) ? args[0].length : UNRESOLVED;
       default:
         return UNRESOLVED;
     }
   };
 
   const evaluateNode = (node: Node): Value => {
+    if (++steps > MAX_EVAL_STEPS) return UNRESOLVED;
     if (node.kind === "literal") return node.value;
     if (node.kind === "call") {
       // if() evaluates only the branch it takes, so an unresolvable branch it
@@ -273,7 +346,7 @@ export function createEvaluator(scope: TemplateScope) {
     const target = evaluateNode(node.target);
     const property = evaluateNode(node.property);
     if (target === UNRESOLVED || property === UNRESOLVED) return UNRESOLVED;
-    if (Array.isArray(target) && typeof property === "number") return property in target ? target[property] : UNRESOLVED;
+    if (Array.isArray(target) && typeof property === "number") return property >= 0 && property < target.length ? target[property] : UNRESOLVED;
     if (typeof property !== "string") return UNRESOLVED;
     const record = asRecord(target);
     const key = findKey(record, property);
@@ -286,7 +359,7 @@ export function createEvaluator(scope: TemplateScope) {
     if (/^\s*\[\[/.test(value)) return value.replace(/^(\s*)\[\[/, "$1[");
     if (!isExpression(value)) return value;
     try {
-      return evaluateNode(parse(value.trim().slice(1, -1)));
+      return withinSizeLimit(evaluateNode(parse(value.trim().slice(1, -1))));
     } catch {
       return UNRESOLVED;
     }
@@ -304,8 +377,16 @@ export function createEvaluator(scope: TemplateScope) {
       return strict && items.includes(UNRESOLVED) ? UNRESOLVED : items;
     }
     if (value && typeof value === "object") {
-      const entries = Object.entries(value).map(([key, item]) => [key, deep(item, strict)] as const);
-      return strict && entries.some(([, item]) => item === UNRESOLVED) ? UNRESOLVED : Object.fromEntries(entries);
+      const entries: [string, unknown][] = [];
+      for (const [key, item] of Object.entries(value)) {
+        const evaluatedKey = evaluate(key);
+        if (strict && (evaluatedKey === UNRESOLVED || typeof evaluatedKey !== "string")) return UNRESOLVED;
+        const resolvedKey = typeof evaluatedKey === "string" ? evaluatedKey : key;
+        const resolvedItem = deep(item, strict);
+        if (strict && resolvedItem === UNRESOLVED) return UNRESOLVED;
+        entries.push([resolvedKey, resolvedItem]);
+      }
+      return Object.fromEntries(entries);
     }
     return value;
   }

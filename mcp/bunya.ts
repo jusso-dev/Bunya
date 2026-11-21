@@ -88,7 +88,13 @@ export function createDiagram(input: CreateDiagramInput): GraphDocument {
     edges: [],
   };
 
-  for (const [index, { id, ...plan }] of input.nodes.entries()) {
+  // Add container nodes first so child nodes (e.g. subnets inside a VNet)
+  // can see their parent's address space and defaults during creation.
+  const orderedInputs = [
+    ...input.nodes.map((node, index) => ({ node, index })).filter(({ node }) => isContainerType(node.type)),
+    ...input.nodes.map((node, index) => ({ node, index })).filter(({ node }) => !isContainerType(node.type)),
+  ];
+  for (const { node: { id, ...plan }, index } of orderedInputs) {
     try {
       document.nodes.push({ id, ...newNode(document, { ...plan, position: gridPosition(index) }) });
     } catch (error) {
@@ -97,8 +103,11 @@ export function createDiagram(input: CreateDiagramInput): GraphDocument {
   }
   const hasResourceGroup = input.nodes.some((node) => node.type === "resourceGroup");
   if ((input.includeResourceGroup ?? true) && !hasResourceGroup) {
+    let rgId = "resource-group";
+    for (let suffix = 2; nodeIds.has(rgId); suffix++) rgId = `resource-group-${suffix}`;
+    nodeIds.add(rgId);
     document.nodes.unshift({
-      id: "resource-group",
+      id: rgId,
       ...newNode(document, { type: "resourceGroup", name: "Resource Group", resourceName: resourceGroupName, position: { x: 0, y: 0 } }),
     });
   }

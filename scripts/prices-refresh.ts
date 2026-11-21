@@ -40,7 +40,12 @@ async function fetchAll(filter: string): Promise<RetailItem[]> {
     if (!response.ok) throw new Error(`GET ${API} returned ${response.status}`);
     const body = (await response.json()) as { Items?: RetailItem[]; NextPageLink?: string | null };
     items.push(...(body.Items ?? []));
-    url = body.NextPageLink ?? null;
+    const next = body.NextPageLink ?? null;
+    if (next) {
+      const parsed = new URL(next);
+      if (parsed.origin !== new URL(API).origin) throw new Error(`Unexpected NextPageLink origin: ${parsed.origin}`);
+    }
+    url = next;
   }
   return items;
 }
@@ -64,7 +69,9 @@ type Row = { key: string; current: number; live: number | null; detail: string }
 
 async function main() {
   const reportPath = arg("report");
-  const tolerance = Number(arg("tolerance") ?? 0.02);
+  const toleranceArg = arg("tolerance");
+  const tolerance = toleranceArg === undefined ? 0.02 : Number(toleranceArg);
+  if (!Number.isFinite(tolerance) || tolerance < 0) throw new Error(`Invalid --tolerance value: ${String(toleranceArg)}`);
   const rows: Row[] = [];
   let failed = false;
   try {

@@ -3,7 +3,7 @@ import { graphRule, nodeRule, getProp, nodesOfType } from "@/lib/rules/builders"
 import type { RuleEntry } from "@/lib/rules/schema";
 import type { GraphNode } from "@/lib/graph/schema";
 
-export const PRIVATE_LINK_FAQ_REVISION = "2026-04-01";
+export const PRIVATE_LINK_FAQ_REVISION = "2026-11-22";
 const FAQ_BASE = {
   name: "Azure Private Link FAQ",
   license: "CC-BY-4.0",

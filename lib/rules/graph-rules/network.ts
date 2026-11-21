@@ -2,7 +2,7 @@ import { graphRule, nodeRule, getProp } from "@/lib/rules/builders";
 import { storagePublicNetwork } from "@/lib/catalogue/services";
 import type { RuleEntry } from "@/lib/rules/schema";
 import type { GraphDocument, GraphNode } from "@/lib/graph/schema";
-import { topologyProblems } from "@/lib/graph/topology";
+import { subnetVirtualNetwork, topologyProblems } from "@/lib/graph/topology";
 import { PRIVATE_LINK_TARGETS, privateDnsZoneFor } from "@/lib/catalogue/azure";
 
 const MS_LEARN = "Microsoft Learn";
@@ -248,11 +248,9 @@ export const networkRules: RuleEntry[] = [
       "A Virtual Network is just an address space until subnets are carved out of it; resources can only be attached to subnets, never to the VNet itself. A VNet with no subnet is unusable and almost always indicates an incomplete design. Add at least one subnet (for example a default workload subnet and a PrivateEndpoint subnet) before deploying.",
     tags: ["bunya", "virtual-network", "subnet"],
     predicate: (node, graph) => {
-      const hasSubnet = graph.edges.some((e) => {
-        if (e.target !== node.id) return false;
-        const src = graph.nodes.find((n) => n.id === e.source);
-        return src?.type === "subnet";
-      });
+      const hasSubnet = graph.nodes.some(
+        (candidate) => candidate.type === "subnet" && subnetVirtualNetwork(graph, candidate)?.id === node.id,
+      );
       return !hasSubnet;
     },
   }),
@@ -331,10 +329,8 @@ export const networkRules: RuleEntry[] = [
           if (e.source !== pe.id || e.kind !== "network") return false;
           return graph.nodes.find((n) => n.id === e.target)?.type === "subnet";
         })?.target;
-        const vnetId = subnetId
-          ? graph.nodes.find((n) => n.id === subnetId)?.parentId ??
-            graph.edges.find((e) => e.source === subnetId && graph.nodes.find((n) => n.id === e.target)?.type === "virtualNetwork")?.target
-          : undefined;
+        const subnetNode = subnetId ? graph.nodes.find((n) => n.id === subnetId) : undefined;
+        const vnetId = subnetNode ? subnetVirtualNetwork(graph, subnetNode)?.id : undefined;
         const zone = graph.nodes.find((candidate) => {
           if (candidate.type !== "privateDnsZone") return false;
           const zoneName = getProp<string>(candidate, "zoneName") ?? candidate.resourceName;

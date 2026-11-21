@@ -32,16 +32,30 @@ function nodeRef(ctx: GeneratorContext, id: string): string {
 
 function tagsLiteral(ctx: GeneratorContext, node: GraphNode): string {
   const entries = Object.entries(ctx.tags(node))
-    .map(([k, v]) => `    '${k}': '${v}'`)
+    .map(([k, v]) => `    ${quote.bicep(k)}: ${quote.bicep(v)}`)
     .join("\n");
   return `  tags: {\n${entries}\n  }`;
 }
 
+function vmssComputerNamePrefix(name: string): string {
+  const cleaned = name
+    .replace(/[^A-Za-z0-9-]+/g, "-")
+    .replace(/^-+/, "")
+    .slice(0, 9)
+    .replace(/-+$/, "");
+  return cleaned || "vmss";
+}
+
+function alertSeverityNumber(severity: unknown): number {
+  const parsed = Number.parseInt(String(severity ?? "Sev2").replace(/^Sev/i, ""), 10);
+  return Number.isInteger(parsed) && parsed >= 0 && parsed <= 4 ? parsed : 2;
+}
+
 function emitResourceGroup(): string {
   return [
-    `// Resource Group must be created at the subscription scope.`,
+    `// Resource Group must exist before deploying this resource-group-scoped template.`,
     `// Bunya emits per-resource-group templates; deploy with:`,
-    `//   az deployment sub create --location <region> --template-file main.bicep`,
+    `//   az deployment group create --resource-group <rg> --template-file main.bicep`,
   ].join("\n");
 }
 
@@ -93,7 +107,7 @@ function delegationLines(ctx: GeneratorContext, node: GraphNode): string[] {
     `    delegations: [`,
     ...services.flatMap((service) => [
       `      {`,
-      `        name: '${service.split("/")[1]}'`,
+      `        name: '${service.split("/")[1] ?? service}'`,
       `        properties: {`,
       `          serviceName: '${service}'`,
       `        }`,
@@ -389,7 +403,7 @@ function emitVmss(node: GraphNode, ctx: GeneratorContext): string {
     `        }`,
     `      }`,
     `      osProfile: {`,
-    `        computerNamePrefix: '${ctx.name(node.id).slice(0, 9)}'`,
+    `        computerNamePrefix: '${vmssComputerNamePrefix(ctx.name(node.id))}'`,
     `        adminUsername: vmAdminUsername`,
     `        linuxConfiguration: {`,
     `          disablePasswordAuthentication: true`,
@@ -530,7 +544,7 @@ function emitKeyVault(node: GraphNode, ctx: GeneratorContext): string {
     `      name: '${sku}'`,
     `    }`,
     `    tenantId: tenant().tenantId`,
-    `    enablePurgeProtection: ${purge}`,
+    ...(purge ? [`    enablePurgeProtection: true`] : []),
     `    softDeleteRetentionInDays: ${retention}`,
     `    enableRbacAuthorization: ${node.properties.rbacAuthorization !== false}`,
     `    publicNetworkAccess: '${node.properties.publicNetworkAccess === true ? "Enabled" : "Disabled"}'`,
@@ -632,7 +646,7 @@ function emitApim(node: GraphNode, ctx: GeneratorContext): string {
     `  location: location`,
     `  sku: {`,
     `    name: '${sku}'`,
-    `    capacity: 0`,
+    `    capacity: ${sku === "Consumption" ? 0 : 1}`,
     `  }`,
     `  properties: {`,
     `    publisherName: '${String(node.properties.publisherName)}'`,
@@ -737,7 +751,7 @@ function emitMonitorAlert(node: GraphNode, ctx: GeneratorContext): string {
     `  location: 'global'`,
     `  properties: {`,
     `    description: '${String(node.properties.condition)}'`,
-    `    severity: 2`,
+    `    severity: ${alertSeverityNumber(node.properties.severity)}`,
     `    enabled: ${node.properties.enabled !== false}`,
     `    scopes: [resourceGroup().id]`,
     `    evaluationFrequency: 'PT5M'`,
@@ -792,9 +806,13 @@ const EMITTERS: Record<ServiceType, (node: GraphNode, ctx: GeneratorContext) => 
 
 function emitDiagnostics(ctx: GeneratorContext): string {
   const blocks: string[] = [];
+  const seen = new Set<string>();
   for (const edge of ctx.edges) {
     const target = ctx.nodesById.get(edge.target)!;
     if (edge.kind !== "diagnostic" || target.type !== "logAnalytics" || !DIAGNOSTIC_SOURCES.has(ctx.nodesById.get(edge.source)!.type)) continue;
+    const key = `${edge.source}->${edge.target}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
     const sIdent = nodeRef(ctx, edge.source);
     const tIdent = nodeRef(ctx, target.id);
     blocks.push(
