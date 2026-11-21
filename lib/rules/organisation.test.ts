@@ -188,6 +188,10 @@ describe("organisation rule engine", () => {
       },
     };
     expect(translateAzurePolicy(policy)).toHaveLength(1);
+    const trailingProse = parseOrganisationRulesText(`${JSON.stringify(policy)}\nThis policy checks public access.`);
+    expect(trailingProse.ok).toBe(true);
+    const proseBrackets = parseOrganisationRulesText(`See [policy documentation]:\n${JSON.stringify(policy)}`);
+    expect(proseBrackets.ok).toBe(true);
   });
 });
 

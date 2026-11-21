@@ -374,22 +374,43 @@ function normaliseComparable(value: unknown, peer: unknown): string {
   return normaliseScalar(value);
 }
 
+function tryParseJson(candidate: string): { ok: true; value: unknown } | { ok: false } {
+  try {
+    return { ok: true, value: JSON.parse(candidate) };
+  } catch {
+    return { ok: false };
+  }
+}
+
 function extractJson(text: string): string {
   const trimmed = text.trim();
+  const candidates: string[] = [];
   if (trimmed.startsWith("```") && trimmed.endsWith("```") && trimmed.length >= 6) {
     const inner = trimmed.slice(3, -3).replace(/^(?:json|policy)(?=\s|$)/i, "").trim();
-    if (inner) return inner;
+    if (inner) candidates.push(inner);
   }
-  if (trimmed.startsWith("[") || trimmed.startsWith("{")) return trimmed;
+  candidates.push(trimmed);
+
   const firstBracket = trimmed.indexOf("[");
   const lastBracket = trimmed.lastIndexOf("]");
   const firstBrace = trimmed.indexOf("{");
   const lastBrace = trimmed.lastIndexOf("}");
-  if (firstBracket >= 0 && lastBracket > firstBracket && (firstBrace < 0 || firstBracket < firstBrace)) {
-    return trimmed.slice(firstBracket, lastBracket + 1).trim();
+  const bracketSlice = firstBracket >= 0 && lastBracket > firstBracket ? trimmed.slice(firstBracket, lastBracket + 1).trim() : null;
+  const braceSlice = firstBrace >= 0 && lastBrace > firstBrace ? trimmed.slice(firstBrace, lastBrace + 1).trim() : null;
+
+  if (bracketSlice && braceSlice) {
+    if (firstBracket < firstBrace) candidates.push(bracketSlice, braceSlice);
+    else candidates.push(braceSlice, bracketSlice);
+  } else if (bracketSlice) {
+    candidates.push(bracketSlice);
+  } else if (braceSlice) {
+    candidates.push(braceSlice);
   }
-  if (firstBrace >= 0 && lastBrace > firstBrace) return trimmed.slice(firstBrace, lastBrace + 1).trim();
-  return trimmed;
+
+  for (const candidate of candidates) {
+    if (tryParseJson(candidate).ok) return candidate;
+  }
+  return candidates[0] ?? trimmed;
 }
 
 function categoryForRule(rule: OrganisationRule): Finding["rule"]["category"] {

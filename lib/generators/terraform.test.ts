@@ -93,4 +93,36 @@ describe("generateTerraform", () => {
     if (result.ok) return;
     expect(result.cycle?.length ?? 0).toBeGreaterThan(0);
   });
+
+  it("allocates unique storage container labels across storage accounts", () => {
+    const result = generateTerraform({
+      ...firstCutGraph,
+      nodes: [
+        firstCutGraph.nodes.find((n) => n.type === "resourceGroup")!,
+        {
+          id: "st1",
+          type: "storageAccount",
+          name: "Stg",
+          resourceName: "stg",
+          position: { x: 0, y: 0 },
+          properties: { containers: ["data-logs"] },
+        },
+        {
+          id: "st2",
+          type: "storageAccount",
+          name: "Stg Data",
+          resourceName: "stg-data",
+          position: { x: 200, y: 0 },
+          properties: { containers: ["logs"] },
+        },
+      ],
+      edges: [],
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const main = result.files.find((f) => f.path === "main.tf")?.content ?? "";
+    const labels = [...main.matchAll(/resource "azurerm_storage_container" "([^"]+)"/g)].map((m) => m[1]);
+    expect(labels).toHaveLength(2);
+    expect(new Set(labels).size).toBe(2);
+  });
 });

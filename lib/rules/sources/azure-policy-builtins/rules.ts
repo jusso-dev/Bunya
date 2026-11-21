@@ -262,11 +262,11 @@ export const AZURE_POLICY_RULES: RuleEntry[] = [
     tags: ["azure-policy", "subnet", "nsg"],
     predicate: (n, graph) => {
       const hasNsg = graph.edges.some((e) => {
-        if (e.target === n.id) {
+        if (e.kind === "network" && e.target === n.id) {
           const src = graph.nodes.find((sn) => sn.id === e.source);
           if (src?.type === "networkSecurityGroup") return true;
         }
-        if (e.source === n.id) {
+        if (e.kind === "network" && e.source === n.id) {
           const tgt = graph.nodes.find((sn) => sn.id === e.target);
           if (tgt?.type === "networkSecurityGroup") return true;
         }

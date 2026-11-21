@@ -146,17 +146,53 @@ function withinSizeLimit(value: Value): Value {
   return value;
 }
 
-function stableEqual(a: unknown, b: unknown): boolean {
+function stableEqual(
+  a: unknown,
+  b: unknown,
+  charge: () => boolean,
+  memo = new Map<object, Map<object, boolean>>(),
+): boolean | typeof UNRESOLVED {
+  if (!charge()) return UNRESOLVED;
   if (a === b) return true;
   if (typeof a !== typeof b || a === null || b === null) return false;
-  if (Array.isArray(a) && Array.isArray(b)) {
-    return a.length === b.length && a.every((item, i) => stableEqual(item, b[i]));
-  }
-  if (typeof a === "object" && typeof b === "object" && !Array.isArray(a) && !Array.isArray(b)) {
-    const ka = Object.keys(a as Record<string, unknown>).sort();
-    const kb = Object.keys(b as Record<string, unknown>).sort();
-    if (ka.length !== kb.length) return false;
-    return ka.every((k, i) => k === kb[i] && stableEqual((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]));
+  if (typeof a === "object" && typeof b === "object") {
+    const cached = memo.get(a)?.get(b);
+    if (cached !== undefined) return cached;
+    if (Array.isArray(a) !== Array.isArray(b)) return false;
+    let equal = true;
+    if (Array.isArray(a) && Array.isArray(b)) {
+      if (a.length !== b.length) {
+        equal = false;
+      } else {
+        for (let i = 0; i < a.length; i++) {
+          const res = stableEqual(a[i], b[i], charge, memo);
+          if (res === UNRESOLVED) return UNRESOLVED;
+          if (!res) { equal = false; break; }
+        }
+      }
+    } else {
+      const ra = a as Record<string, unknown>;
+      const rb = b as Record<string, unknown>;
+      const ka = Object.keys(ra).sort();
+      const kb = Object.keys(rb).sort();
+      if (ka.length !== kb.length) {
+        equal = false;
+      } else {
+        for (let i = 0; i < ka.length; i++) {
+          if (ka[i] !== kb[i]) { equal = false; break; }
+          const res = stableEqual(ra[ka[i]], rb[kb[i]], charge, memo);
+          if (res === UNRESOLVED) return UNRESOLVED;
+          if (!res) { equal = false; break; }
+        }
+      }
+    }
+    let inner = memo.get(a);
+    if (!inner) {
+      inner = new Map();
+      memo.set(a, inner);
+    }
+    inner.set(b, equal);
+    return equal;
   }
   return false;
 }
@@ -166,9 +202,22 @@ export function createEvaluator(scope: TemplateScope) {
   const resolving = new Set<string>();
   let lenient = false;
   let steps = 0;
+  let evalDepth = 0;
   const STRING_FUNCTIONS = new Set(["concat", "format", "tolower", "toupper", "trim", "replace", "substring", "take"]);
 
-  const variable = (name: string): Value => {
+  const chargeStep = (): boolean => ++steps <= MAX_EVAL_STEPS;
+
+  const withBudget = <T,>(fn: () => T): T => {
+    if (evalDepth === 0) steps = 0;
+    evalDepth++;
+    try {
+      return fn();
+    } finally {
+      evalDepth--;
+    }
+  };
+
+  const variable = (name: string): Value => withBudget(() => {
     const key = findKey(scope.variables, name);
     if (key === undefined) return UNRESOLVED;
     const cacheKey = `${lenient}:${key}`;
@@ -177,11 +226,11 @@ export function createEvaluator(scope: TemplateScope) {
     resolving.add(`v:${key}`);
     const value = withinSizeLimit(deep(scope.variables[key], true));
     resolving.delete(`v:${key}`);
-    variableCache.set(cacheKey, value);
+    if (steps <= MAX_EVAL_STEPS) variableCache.set(cacheKey, value);
     return value;
-  };
+  });
 
-  const parameter = (name: string): Value => {
+  const parameter = (name: string): Value => withBudget(() => {
     const key = findKey(scope.parameters, name);
     if (key === undefined || resolving.has(`p:${key}`)) return UNRESOLVED;
     const definition = asRecord(scope.parameters[key]);
@@ -190,7 +239,7 @@ export function createEvaluator(scope: TemplateScope) {
     const value = withinSizeLimit(deep(definition.defaultValue, true));
     resolving.delete(`p:${key}`);
     return value;
-  };
+  });
 
   const strings = (values: Value[]): string[] | undefined =>
     values.every((value) => typeof value === "string" || typeof value === "number" || typeof value === "boolean")
@@ -272,6 +321,8 @@ export function createEvaluator(scope: TemplateScope) {
       case "bool": {
         if (args.length !== 1) return UNRESOLVED;
         if (typeof args[0] === "boolean") return args[0];
+        if (args[0] === 1) return true;
+        if (args[0] === 0) return false;
         if (typeof args[0] === "string") {
           const lower = args[0].trim().toLowerCase();
           if (lower === "true") return true;
@@ -286,7 +337,7 @@ export function createEvaluator(scope: TemplateScope) {
       case "null":
         return null;
       case "equals":
-        return args.length === 2 ? stableEqual(args[0], args[1]) : UNRESOLVED;
+        return args.length === 2 ? stableEqual(args[0], args[1], chargeStep) : UNRESOLVED;
       case "not":
         return args.length === 1 && typeof args[0] === "boolean" ? !args[0] : UNRESOLVED;
       case "and":
@@ -332,7 +383,7 @@ export function createEvaluator(scope: TemplateScope) {
   };
 
   const evaluateNode = (node: Node): Value => {
-    if (++steps > MAX_EVAL_STEPS) return UNRESOLVED;
+    if (!chargeStep()) return UNRESOLVED;
     if (node.kind === "literal") return node.value;
     if (node.kind === "call") {
       // if() evaluates only the branch it takes, so an unresolvable branch it
@@ -354,7 +405,7 @@ export function createEvaluator(scope: TemplateScope) {
   };
 
   // One template string: an expression is evaluated, "[[" escapes a literal "[".
-  const evaluate = (value: unknown): Value => {
+  const evaluate = (value: unknown): Value => withBudget(() => {
     if (typeof value !== "string") return value;
     if (/^\s*\[\[/.test(value)) return value.replace(/^(\s*)\[\[/, "$1[");
     if (!isExpression(value)) return value;
@@ -363,32 +414,34 @@ export function createEvaluator(scope: TemplateScope) {
     } catch {
       return UNRESOLVED;
     }
-  };
+  });
 
   // Every string in `value` evaluated. With `strict`, any unresolvable part
   // makes the result UNRESOLVED; otherwise the original expression is kept.
   function deep(value: unknown, strict = false): Value {
-    if (typeof value === "string") {
-      const result = evaluate(value);
-      return result === UNRESOLVED && !strict ? value : result;
-    }
-    if (Array.isArray(value)) {
-      const items = value.map((item) => deep(item, strict));
-      return strict && items.includes(UNRESOLVED) ? UNRESOLVED : items;
-    }
-    if (value && typeof value === "object") {
-      const entries: [string, unknown][] = [];
-      for (const [key, item] of Object.entries(value)) {
-        const evaluatedKey = evaluate(key);
-        if (strict && (evaluatedKey === UNRESOLVED || typeof evaluatedKey !== "string")) return UNRESOLVED;
-        const resolvedKey = typeof evaluatedKey === "string" ? evaluatedKey : key;
-        const resolvedItem = deep(item, strict);
-        if (strict && resolvedItem === UNRESOLVED) return UNRESOLVED;
-        entries.push([resolvedKey, resolvedItem]);
+    return withBudget(() => {
+      if (typeof value === "string") {
+        const result = evaluate(value);
+        return result === UNRESOLVED && !strict ? value : result;
       }
-      return Object.fromEntries(entries);
-    }
-    return value;
+      if (Array.isArray(value)) {
+        const items = value.map((item) => deep(item, strict));
+        return strict && items.includes(UNRESOLVED) ? UNRESOLVED : items;
+      }
+      if (value && typeof value === "object") {
+        const entries: [string, unknown][] = [];
+        for (const [key, item] of Object.entries(value)) {
+          const evaluatedKey = evaluate(key);
+          if (strict && (evaluatedKey === UNRESOLVED || typeof evaluatedKey !== "string")) return UNRESOLVED;
+          const resolvedKey = typeof evaluatedKey === "string" ? evaluatedKey : key;
+          const resolvedItem = deep(item, strict);
+          if (strict && resolvedItem === UNRESOLVED) return UNRESOLVED;
+          entries.push([resolvedKey, resolvedItem]);
+        }
+        return Object.fromEntries(entries);
+      }
+      return value;
+    });
   }
 
   // A name or label: string functions keep the parts that can be evaluated.

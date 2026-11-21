@@ -549,6 +549,17 @@ function emitVmss(node: GraphNode, ctx: GeneratorContext): string {
   ].filter(Boolean).join("\n");
 }
 
+const containerLabelsByCtx = new WeakMap<GeneratorContext, Set<string>>();
+
+function containerLabelsFor(ctx: GeneratorContext): Set<string> {
+  let labels = containerLabelsByCtx.get(ctx);
+  if (!labels) {
+    labels = new Set<string>();
+    containerLabelsByCtx.set(ctx, labels);
+  }
+  return labels;
+}
+
 function emitStorageAccount(node: GraphNode, ctx: GeneratorContext): string {
   const ident = ctx.identifiers.get(node.id);
   const sku = String(node.properties.sku);
@@ -575,7 +586,7 @@ function emitStorageAccount(node: GraphNode, ctx: GeneratorContext): string {
     tagsBlock(ctx, node),
     `}`,
   ];
-  const seenContainerLabels = new Set<string>();
+  const seenContainerLabels = containerLabelsFor(ctx);
   const seenContainerNames = new Set<string>();
   for (const c of containers) {
     if (seenContainerNames.has(c)) continue;
@@ -924,7 +935,7 @@ function emitDiagnostics(ctx: GeneratorContext): string {
     const source = ctx.nodesById.get(edge.source)!;
     const target = ctx.nodesById.get(edge.target)!;
     if (edge.kind !== "diagnostic" || target.type !== "logAnalytics" || !DIAGNOSTIC_SOURCES.has(source.type)) continue;
-    const key = `${edge.source}->${edge.target}`;
+    const key = JSON.stringify([edge.source, edge.target]);
     if (seen.has(key)) continue;
     seen.add(key);
     const sIdent = ctx.identifiers.get(source.id);
@@ -986,6 +997,7 @@ function renderVersionsFile(): GeneratedFile {
       `}`,
       ``,
       `provider "azurerm" {`,
+      `  resource_provider_registrations = "legacy"`,
       `  features {}`,
       `}`,
       ``,

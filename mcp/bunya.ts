@@ -10,6 +10,7 @@ import {
   isContainerType,
   type GraphDocument,
 } from "../lib/graph/schema";
+import { freeSubnetPrefix, subnetVirtualNetwork } from "../lib/graph/topology";
 import { serialiseToFragment, shareUrlFromFragment } from "../lib/graph/serialise";
 import { OUTPUT_IDS, OUTPUTS, type OutputId } from "../lib/generators/registry";
 import type { GeneratedFile } from "../lib/generators/types";
@@ -88,13 +89,18 @@ export function createDiagram(input: CreateDiagramInput): GraphDocument {
     edges: [],
   };
 
-  // Add container nodes first so child nodes (e.g. subnets inside a VNet)
-  // can see their parent's address space and defaults during creation.
+  // Add container nodes first, then non-containers. Defer default addressPrefix
+  // allocation for implicit subnets until all explicit subnets and connections
+  // (including depends_on edges to VNets) are present.
   const orderedInputs = [
     ...input.nodes.map((node, index) => ({ node, index })).filter(({ node }) => isContainerType(node.type)),
     ...input.nodes.map((node, index) => ({ node, index })).filter(({ node }) => !isContainerType(node.type)),
   ];
+  const pendingSubnets = new Set<string>();
   for (const { node: { id, ...plan }, index } of orderedInputs) {
+    if (plan.type === "subnet" && plan.properties?.addressPrefix === undefined) {
+      pendingSubnets.add(id);
+    }
     try {
       document.nodes.push({ id, ...newNode(document, { ...plan, position: gridPosition(index) }) });
     } catch (error) {
@@ -133,6 +139,19 @@ export function createDiagram(input: CreateDiagramInput): GraphDocument {
       target: connection.target,
       kind: result.kind,
     });
+  }
+
+  for (const node of nodes) {
+    if (!pendingSubnets.has(node.id)) continue;
+    const vnet = subnetVirtualNetwork(document, node);
+    if (vnet) {
+      const used = nodes
+        .filter((candidate) => candidate.type === "subnet" && !pendingSubnets.has(candidate.id) && subnetVirtualNetwork(document, candidate)?.id === vnet.id)
+        .map((candidate) => candidate.properties.addressPrefix);
+      const prefix = freeSubnetPrefix(vnet.properties.addressSpace, used);
+      if (prefix) node.properties.addressPrefix = prefix;
+    }
+    pendingSubnets.delete(node.id);
   }
 
   return GraphDocumentSchema.parse(document);

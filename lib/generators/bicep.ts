@@ -810,7 +810,7 @@ function emitDiagnostics(ctx: GeneratorContext): string {
   for (const edge of ctx.edges) {
     const target = ctx.nodesById.get(edge.target)!;
     if (edge.kind !== "diagnostic" || target.type !== "logAnalytics" || !DIAGNOSTIC_SOURCES.has(ctx.nodesById.get(edge.source)!.type)) continue;
-    const key = `${edge.source}->${edge.target}`;
+    const key = JSON.stringify([edge.source, edge.target]);
     if (seen.has(key)) continue;
     seen.add(key);
     const sIdent = nodeRef(ctx, edge.source);

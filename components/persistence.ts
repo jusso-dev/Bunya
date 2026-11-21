@@ -33,21 +33,24 @@ function saveOrganisationRules(rules: OrganisationRule[]): void {
 // user explicitly edits or imports a diagram.
 async function restore(isStopped: () => boolean): Promise<boolean> {
   const graph = useGraphStore.getState();
+  const initialDocument = graph.document;
   const fragment = window.location.hash.slice(1);
   const isShareLink = isShareFragment(fragment);
   const shared = isShareLink ? await deserialiseFromFragment(fragment) : null;
   if (isStopped()) return false;
-  const stored = loadStoredDocument();
   let shouldSaveInitial = true;
-  if (shared) {
-    graph.reset(shared);
-  } else {
-    if (isShareLink) toast.warning("Shared diagram is invalid or too large. Restored your saved diagram.");
-    if (stored.status === "ok" || stored.status === "recovered") graph.reset(stored.document);
-    if (stored.status === "unreadable") shouldSaveInitial = false;
-    STORED_LOAD_NOTICE[stored.status]?.();
+  if (useGraphStore.getState().document === initialDocument) {
+    const stored = loadStoredDocument();
+    if (shared) {
+      graph.reset(shared);
+    } else {
+      if (isShareLink) toast.warning("Shared diagram is invalid or too large. Restored your saved diagram.");
+      if (stored.status === "ok" || stored.status === "recovered") graph.reset(stored.document);
+      if (stored.status === "unreadable") shouldSaveInitial = false;
+      STORED_LOAD_NOTICE[stored.status]?.();
+    }
+    useSessionUi.getState().requestFit();
   }
-  useSessionUi.getState().requestFit();
 
   const fx = Number(readStorage(FX_RATE_STORAGE_KEY));
   if (Number.isFinite(fx) && fx > 0) graph.setFxAudPerUsd(fx);

@@ -81,6 +81,8 @@ async function main(): Promise<void> {
 
   const problems: string[] = [];
   const changes: string[] = [];
+  const stagedWrites: { target: string; data: Uint8Array }[] = [];
+  const nextIcons: Manifest["icons"] = { ...manifest.icons };
   for (const [serviceType, icon] of Object.entries(manifest.icons)) {
     let file = icon.file;
     if (!byPath.has(file)) {
@@ -99,16 +101,20 @@ async function main(): Promise<void> {
     const target = path.join(ICON_DIR, `${serviceType}.svg`);
     const current = await readIfExists(target);
     if (hash !== icon.sha256 || !current || sha256(current) !== hash) {
-      await fs.writeFile(target, data);
+      stagedWrites.push({ target, data });
       if (hash !== icon.sha256) changes.push(`\`${serviceType}\`: artwork updated from \`${file}\`.`);
     }
-    manifest.icons[serviceType] = { file, sha256: hash };
+    nextIcons[serviceType] = { file, sha256: hash };
   }
 
   if (problems.length === 0) {
+    for (const { target, data } of stagedWrites) {
+      await fs.writeFile(target, data);
+    }
     if (pack.version !== manifest.pack.version) {
       changes.unshift(`Icon pack V${manifest.pack.version} → V${pack.version} (${pack.url}).`);
     }
+    manifest.icons = nextIcons;
     manifest.pack = { ...manifest.pack, version: pack.version, url: pack.url };
     await fs.writeFile(MANIFEST_PATH, JSON.stringify(manifest, null, 2) + "\n", "utf8");
   }

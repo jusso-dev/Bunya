@@ -715,7 +715,7 @@ function emitDiagnosticSettings(ctx: GeneratorContext): ArmResource[] {
       if (edge.kind !== "diagnostic" || ctx.nodesById.get(edge.target)!.type !== "logAnalytics" || !DIAGNOSTIC_SOURCES.has(ctx.nodesById.get(edge.source)!.type)) {
         return false;
       }
-      const key = `${edge.source}->${edge.target}`;
+      const key = JSON.stringify([edge.source, edge.target]);
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
